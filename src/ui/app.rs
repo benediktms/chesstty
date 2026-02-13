@@ -52,20 +52,24 @@ pub async fn run_app() -> anyhow::Result<()> {
                     if let Event::Key(key) = event::read()? {
                         match key.code {
                             KeyCode::Char('q') => break Ok(()),
-                            KeyCode::Up => menu_state.move_up(),
-                            KeyCode::Down => menu_state.move_down(menu_state.items().len()),
-                            KeyCode::Left => match menu_state.selected_index {
+                            KeyCode::Up | KeyCode::Char('k') => menu_state.move_up(),
+                            KeyCode::Down | KeyCode::Char('j') => {
+                                menu_state.move_down(menu_state.items().len())
+                            }
+                            KeyCode::Left | KeyCode::Char('h') => match menu_state.selected_index {
                                 0 => menu_state.cycle_game_mode(),
                                 1 => menu_state.cycle_difficulty(),
                                 2 => menu_state.cycle_time_control(),
                                 _ => {}
                             },
-                            KeyCode::Right => match menu_state.selected_index {
-                                0 => menu_state.cycle_game_mode(),
-                                1 => menu_state.cycle_difficulty(),
-                                2 => menu_state.cycle_time_control(),
-                                _ => {}
-                            },
+                            KeyCode::Right | KeyCode::Char('l') => {
+                                match menu_state.selected_index {
+                                    0 => menu_state.cycle_game_mode(),
+                                    1 => menu_state.cycle_difficulty(),
+                                    2 => menu_state.cycle_time_control(),
+                                    _ => {}
+                                }
+                            }
                             KeyCode::Enter => {
                                 match menu_state.selected_index {
                                     3 => {
@@ -295,9 +299,9 @@ async fn run_game_loop(
                 let right_chunks = Layout::default()
                     .direction(Direction::Vertical)
                     .constraints([
-                        Constraint::Length(10),  // Controls
-                        Constraint::Length(12),  // Game Info
-                        Constraint::Min(5),      // Move History
+                        Constraint::Length(10), // Controls
+                        Constraint::Length(12), // Game Info
+                        Constraint::Min(5),     // Move History
                     ])
                     .split(panels_area);
 
