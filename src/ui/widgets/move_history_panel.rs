@@ -1,4 +1,5 @@
 use crate::app::AppState;
+use cozy_chess::{Color as ChessColor, Piece};
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
@@ -44,7 +45,7 @@ impl Widget for MoveHistoryPanel<'_> {
 
             if is_white {
                 // Start a new line for white's move
-                let move_str = format_move(entry.mv);
+                let move_str = format_move_with_piece(entry);
                 lines.push(Line::from(vec![
                     ratatui::text::Span::styled(
                         format!("{}. ", move_number),
@@ -59,7 +60,7 @@ impl Widget for MoveHistoryPanel<'_> {
                 ]));
             } else {
                 // Add black's move to the same line
-                let move_str = format_move(entry.mv);
+                let move_str = format_move_with_piece(entry);
                 if let Some(last_line) = lines.last_mut() {
                     last_line.spans.push(ratatui::text::Span::raw("  "));
                     last_line.spans.push(ratatui::text::Span::styled(
@@ -93,10 +94,34 @@ impl Widget for MoveHistoryPanel<'_> {
     }
 }
 
-fn format_move(mv: cozy_chess::Move) -> String {
-    // Simple UCI format for now (e.g., "e2e4")
-    // TODO: Implement proper SAN notation
-    format!("{}{}", format_square(mv.from), format_square(mv.to))
+fn format_move_with_piece(entry: &crate::chess::HistoryEntry) -> String {
+    let piece_symbol = get_piece_symbol(entry.piece, entry.piece_color);
+    let capture_notation = if entry.captured.is_some() { "x" } else { "" };
+
+    format!(
+        "{} {}{}{}",
+        piece_symbol,
+        format_square(entry.mv.from),
+        capture_notation,
+        format_square(entry.mv.to)
+    )
+}
+
+fn get_piece_symbol(piece: Piece, color: ChessColor) -> &'static str {
+    match (color, piece) {
+        (ChessColor::White, Piece::King) => "♔",
+        (ChessColor::White, Piece::Queen) => "♕",
+        (ChessColor::White, Piece::Rook) => "♖",
+        (ChessColor::White, Piece::Bishop) => "♗",
+        (ChessColor::White, Piece::Knight) => "♘",
+        (ChessColor::White, Piece::Pawn) => "♙",
+        (ChessColor::Black, Piece::King) => "♚",
+        (ChessColor::Black, Piece::Queen) => "♛",
+        (ChessColor::Black, Piece::Rook) => "♜",
+        (ChessColor::Black, Piece::Bishop) => "♝",
+        (ChessColor::Black, Piece::Knight) => "♞",
+        (ChessColor::Black, Piece::Pawn) => "♟",
+    }
 }
 
 fn format_square(sq: cozy_chess::Square) -> String {
