@@ -24,25 +24,121 @@ pub enum GameMode {
 pub struct UiState {
     pub selected_square: Option<Square>,
     pub highlighted_squares: Vec<Square>,
+    pub selectable_squares: Vec<Square>,  // Squares with pieces that can be selected
     pub last_move: Option<(Square, Square)>,
     pub engine_info: Option<EngineInfo>,
     pub status_message: Option<String>,
+    pub input_phase: InputPhase,  // Which input box is active
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum InputPhase {
+    SelectPiece,
+    SelectDestination,
 }
 
 impl AppState {
     pub fn new() -> Self {
-        Self {
+        let mut state = Self {
             game: Game::new(),
             mode: GameMode::HumanVsHuman,
             engine: None,
             ui_state: UiState {
                 selected_square: None,
                 highlighted_squares: Vec::new(),
+                selectable_squares: Vec::new(),
                 last_move: None,
                 engine_info: None,
                 status_message: None,
+                input_phase: InputPhase::SelectPiece,
             },
+        };
+        state.update_selectable_squares();
+        state
+    }
+
+    /// Update the list of squares with pieces that can be selected
+    pub fn update_selectable_squares(&mut self) {
+        let current_color = self.game.side_to_move();
+        self.ui_state.selectable_squares.clear();
+
+        // Find all squares with pieces of the current player's color
+        for rank in 0..8 {
+            for file in 0..8 {
+                let square = Square::new(
+                    cozy_chess::File::index(file),
+                    cozy_chess::Rank::index(rank),
+                );
+                if let Some(piece_color) = self.game.position().color_on(square) {
+                    if piece_color == current_color {
+                        // Check if this piece has any legal moves
+                        let has_moves = self
+                            .game
+                            .legal_moves()
+                            .iter()
+                            .any(|mv| mv.from == square);
+                        if has_moves {
+                            self.ui_state.selectable_squares.push(square);
+                        }
+                    }
+                }
+            }
         }
+    }
+
+    /// Filter selectable squares by partial input (typeahead)
+    pub fn filter_selectable_by_input(&self, input: &str) -> Vec<Square> {
+        if input.is_empty() {
+            return self.ui_state.selectable_squares.clone();
+        }
+
+        let chars: Vec<char> = input.chars().collect();
+
+        // Filter by file (first character)
+        let file_filter = match chars.get(0) {
+            Some(&'a') => Some(cozy_chess::File::A),
+            Some(&'b') => Some(cozy_chess::File::B),
+            Some(&'c') => Some(cozy_chess::File::C),
+            Some(&'d') => Some(cozy_chess::File::D),
+            Some(&'e') => Some(cozy_chess::File::E),
+            Some(&'f') => Some(cozy_chess::File::F),
+            Some(&'g') => Some(cozy_chess::File::G),
+            Some(&'h') => Some(cozy_chess::File::H),
+            _ => None,
+        };
+
+        let mut filtered: Vec<Square> = self.ui_state.selectable_squares
+            .iter()
+            .filter(|sq| {
+                if let Some(file) = file_filter {
+                    sq.file() == file
+                } else {
+                    false
+                }
+            })
+            .copied()
+            .collect();
+
+        // If we have a rank too (second character), filter further
+        if let Some(&rank_char) = chars.get(1) {
+            let rank_filter = match rank_char {
+                '1' => Some(cozy_chess::Rank::First),
+                '2' => Some(cozy_chess::Rank::Second),
+                '3' => Some(cozy_chess::Rank::Third),
+                '4' => Some(cozy_chess::Rank::Fourth),
+                '5' => Some(cozy_chess::Rank::Fifth),
+                '6' => Some(cozy_chess::Rank::Sixth),
+                '7' => Some(cozy_chess::Rank::Seventh),
+                '8' => Some(cozy_chess::Rank::Eighth),
+                _ => None,
+            };
+
+            if let Some(rank) = rank_filter {
+                filtered.retain(|sq| sq.rank() == rank);
+            }
+        }
+
+        filtered
     }
 
     /// Select a square and highlight legal moves for the piece on it
@@ -56,6 +152,7 @@ impl AppState {
                 // Select this square and show legal moves
                 self.ui_state.selected_square = Some(square);
                 self.ui_state.highlighted_squares = self.get_legal_moves_for_square(square);
+                self.ui_state.input_phase = InputPhase::SelectDestination;
                 self.ui_state.status_message = Some(format!("Selected {}", format_square(square)));
             } else {
                 self.ui_state.status_message = Some("That's not your piece!".to_string());
@@ -100,11 +197,13 @@ impl AppState {
                 self.ui_state.last_move = Some((from_square, to_square));
                 self.ui_state.selected_square = None;
                 self.ui_state.highlighted_squares.clear();
+                self.ui_state.input_phase = InputPhase::SelectPiece;
                 self.ui_state.status_message = Some(format!(
                     "Moved {} to {}",
                     format_square(from_square),
                     format_square(to_square)
                 ));
+                self.update_selectable_squares();
 
                 Ok(())
             } else {
@@ -119,14 +218,18 @@ impl AppState {
     pub fn clear_selection(&mut self) {
         self.ui_state.selected_square = None;
         self.ui_state.highlighted_squares.clear();
+        self.ui_state.input_phase = InputPhase::SelectPiece;
         self.ui_state.status_message = None;
+        self.update_selectable_squares();
     }
 
     /// Clear all UI highlights and state
     pub fn clear_all_highlights(&mut self) {
         self.ui_state.selected_square = None;
         self.ui_state.highlighted_squares.clear();
+        self.ui_state.input_phase = InputPhase::SelectPiece;
         self.ui_state.status_message = None;
+        self.update_selectable_squares();
     }
 
     /// Get all legal destination squares for a piece on the given square

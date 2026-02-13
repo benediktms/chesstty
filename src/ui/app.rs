@@ -1,5 +1,6 @@
-use crate::app::{AppState, GameMode, InputBuffer};
-use crate::ui::widgets::{BoardWidget, ControlsPanel, MenuWidget, MenuState};
+use crate::app::{AppState, GameMode, InputBuffer, InputPhase};
+use crate::ui::format::format_square_display;
+use crate::ui::widgets::{BoardWidget, ControlsPanel, GameInfoPanel, MenuWidget, MenuState, MoveHistoryPanel};
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
     execute,
@@ -7,9 +8,9 @@ use crossterm::{
 };
 use ratatui::{
     backend::CrosstermBackend,
-    layout::{Constraint, Direction, Layout},
-    style::{Color, Style},
-    text::Span,
+    layout::{Alignment, Constraint, Direction, Layout},
+    style::{Color, Modifier, Style},
+    text::{Line, Span},
     widgets::{Block, Borders, Paragraph},
     Terminal,
 };
@@ -133,8 +134,16 @@ async fn run_game_loop(
     app_state: &mut AppState,
 ) -> anyhow::Result<bool> {
     let mut input_buffer = InputBuffer::new();
+    let mut typeahead_squares: Vec<cozy_chess::Square> = Vec::new();
 
     loop {
+        // Update typeahead highlighting based on current input
+        if app_state.ui_state.input_phase == InputPhase::SelectPiece {
+            typeahead_squares = app_state.filter_selectable_by_input(input_buffer.as_str());
+        } else {
+            typeahead_squares.clear();
+        }
+
         // Draw UI
         terminal.draw(|f| {
             let main_chunks = Layout::default()
@@ -147,32 +156,108 @@ async fn run_game_loop(
                 .constraints([Constraint::Min(50), Constraint::Length(35)])
                 .split(main_chunks[0]);
 
-            // Draw board
-            let board_widget = BoardWidget::new(app_state);
+            // Draw board with typeahead squares
+            let board_widget = BoardWidget::new(app_state, &typeahead_squares);
             f.render_widget(board_widget, chunks[0]);
 
-            // Draw controls panel
-            let controls_panel = ControlsPanel::new(app_state);
-            f.render_widget(controls_panel, chunks[1]);
+            // Split right side into three panels
+            let right_chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Length(10),  // Controls
+                    Constraint::Length(12),  // Game Info
+                    Constraint::Min(5),      // Move History
+                ])
+                .split(chunks[1]);
 
-            // Draw input buffer at the bottom
-            let input_text = if input_buffer.is_empty() {
-                "Type a square (e.g., e2): ".to_string()
+            // Draw controls panel
+            let controls_panel = ControlsPanel::new();
+            f.render_widget(controls_panel, right_chunks[0]);
+
+            // Draw game info panel
+            let game_info_panel = GameInfoPanel::new(app_state);
+            f.render_widget(game_info_panel, right_chunks[1]);
+
+            // Draw move history panel
+            let move_history_panel = MoveHistoryPanel::new(app_state);
+            f.render_widget(move_history_panel, right_chunks[2]);
+
+            // Draw split input boxes at the bottom
+            let input_chunks = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+                .split(main_chunks[1]);
+
+            // Source square input box
+            let source_active = app_state.ui_state.input_phase == InputPhase::SelectPiece;
+            let source_text = if let Some(sq) = app_state.ui_state.selected_square {
+                format!("Selected: {}", format_square_display(sq))
+            } else if !input_buffer.is_empty() && source_active {
+                format!("Typing: {}", input_buffer.as_str())
             } else {
-                format!("Input: {} ", input_buffer.as_str())
+                "Type square (e.g., e2)".to_string()
             };
 
-            let input_widget = Paragraph::new(Span::styled(
-                input_text,
-                Style::default().fg(Color::Yellow),
-            ))
+            let source_style = if source_active {
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::Gray)
+            };
+
+            let source_border_style = if source_active {
+                Style::default().fg(Color::Green)
+            } else {
+                Style::default().fg(Color::DarkGray)
+            };
+
+            let source_widget = Paragraph::new(Line::from(vec![Span::styled(
+                source_text,
+                source_style,
+            )]))
+            .alignment(Alignment::Center)
             .block(
                 Block::default()
                     .borders(Borders::ALL)
-                    .title("Move Input")
-                    .border_style(Style::default().fg(Color::Cyan)),
+                    .title("1. Select Piece")
+                    .border_style(source_border_style),
             );
-            f.render_widget(input_widget, main_chunks[1]);
+            f.render_widget(source_widget, input_chunks[0]);
+
+            // Destination square input box
+            let dest_active = app_state.ui_state.input_phase == InputPhase::SelectDestination;
+            let dest_text = if !input_buffer.is_empty() && dest_active {
+                format!("Typing: {}", input_buffer.as_str())
+            } else if dest_active {
+                "Type destination".to_string()
+            } else {
+                "Waiting...".to_string()
+            };
+
+            let dest_style = if dest_active {
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::Gray)
+            };
+
+            let dest_border_style = if dest_active {
+                Style::default().fg(Color::Green)
+            } else {
+                Style::default().fg(Color::DarkGray)
+            };
+
+            let dest_widget = Paragraph::new(Line::from(vec![Span::styled(dest_text, dest_style)]))
+                .alignment(Alignment::Center)
+                .block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .title("2. Move To")
+                        .border_style(dest_border_style),
+                );
+            f.render_widget(dest_widget, input_chunks[1]);
         })?;
 
         // Handle input
