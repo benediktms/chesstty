@@ -1,3 +1,5 @@
+use crate::app::{FenHistory, FenHistoryEntry};
+use crate::ui::widgets::fen_dialog::FenDialogState;
 use ratatui::{
     buffer::Buffer,
     layout::{Alignment, Rect},
@@ -11,6 +13,7 @@ pub enum MenuItem {
     GameMode(GameModeOption),
     Difficulty(DifficultyOption),
     TimeControl(TimeControlOption),
+    StartPosition(StartPositionOption),
     StartGame,
     Quit,
 }
@@ -38,11 +41,21 @@ pub enum TimeControlOption {
     Classical, // 30 minutes
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum StartPositionOption {
+    Standard,
+    CustomFen,
+}
+
 pub struct MenuState {
     pub selected_index: usize,
     pub game_mode: GameModeOption,
     pub difficulty: DifficultyOption,
     pub time_control: TimeControlOption,
+    pub start_position: StartPositionOption,
+    pub fen_dialog_state: Option<FenDialogState>,
+    pub fen_history: FenHistory,
+    pub selected_fen: Option<String>,
 }
 
 impl Default for MenuState {
@@ -52,6 +65,10 @@ impl Default for MenuState {
             game_mode: GameModeOption::HumanVsEngine,
             difficulty: DifficultyOption::Intermediate,
             time_control: TimeControlOption::None,
+            start_position: StartPositionOption::Standard,
+            fen_dialog_state: None,
+            fen_history: FenHistory::new(),
+            selected_fen: None,
         }
     }
 }
@@ -74,9 +91,17 @@ impl MenuState {
             MenuItem::GameMode(self.game_mode.clone()),
             MenuItem::Difficulty(self.difficulty),
             MenuItem::TimeControl(self.time_control),
+            MenuItem::StartPosition(self.start_position),
             MenuItem::StartGame,
             MenuItem::Quit,
         ]
+    }
+
+    pub fn cycle_start_position(&mut self) {
+        self.start_position = match self.start_position {
+            StartPositionOption::Standard => StartPositionOption::CustomFen,
+            StartPositionOption::CustomFen => StartPositionOption::Standard,
+        };
     }
 
     pub fn cycle_game_mode(&mut self) {
@@ -206,6 +231,18 @@ impl Widget for MenuWidget<'_> {
                         Span::styled(prefix, style),
                         Span::styled("Time Control: ", style),
                         Span::styled(time_str, style.fg(Color::Magenta)),
+                        Span::styled(" [←/→]", Style::default().fg(Color::DarkGray)),
+                    ])
+                }
+                MenuItem::StartPosition(pos) => {
+                    let pos_str = match pos {
+                        StartPositionOption::Standard => "Standard",
+                        StartPositionOption::CustomFen => "Custom FEN",
+                    };
+                    Line::from(vec![
+                        Span::styled(prefix, style),
+                        Span::styled("Start Position: ", style),
+                        Span::styled(pos_str, style.fg(Color::Yellow)),
                         Span::styled(" [←/→]", Style::default().fg(Color::DarkGray)),
                     ])
                 }

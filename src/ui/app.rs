@@ -1,9 +1,11 @@
-use crate::app::{AppState, GameMode, InputBuffer, InputPhase};
+use crate::app::{AppState, FenHistory, GameMode, InputBuffer, InputPhase};
+use crate::chess::Game;
 use crate::ui::format::format_square_display;
 use crate::ui::widgets::{
-    BoardWidget, ControlsPanel, GameInfoPanel, MenuState, MenuWidget, MoveHistoryPanel,
-    PromotionWidget, UciDebugPanel,
+    BoardWidget, ControlsPanel, FenDialogFocus, FenDialogState, FenDialogWidget, GameInfoPanel,
+    MenuState, MenuWidget, MoveHistoryPanel, PromotionWidget, UciDebugPanel,
 };
+use crate::ui::widgets::menu::StartPositionOption;
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
     execute,
@@ -33,8 +35,22 @@ pub async fn run_app() -> anyhow::Result<()> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    // Create menu state
-    let mut menu_state = MenuState::default();
+    // Create menu state with loaded FEN history
+    let fen_history = FenHistory::load_from_file().unwrap_or_else(|e| {
+        eprintln!("Could not load FEN history: {}, using defaults", e);
+        FenHistory::new()
+    });
+
+    let mut menu_state = MenuState {
+        selected_index: 0,
+        game_mode: crate::ui::widgets::menu::GameModeOption::HumanVsEngine,
+        difficulty: crate::ui::widgets::menu::DifficultyOption::Intermediate,
+        time_control: crate::ui::widgets::menu::TimeControlOption::None,
+        start_position: StartPositionOption::Standard,
+        fen_dialog_state: None,
+        fen_history,
+        selected_fen: None,
+    };
     let mut app_mode = AppMode::Menu;
     let mut app_state = AppState::new();
 
@@ -45,11 +61,29 @@ pub async fn run_app() -> anyhow::Result<()> {
                 terminal.draw(|f| {
                     let menu_widget = MenuWidget::new(&menu_state);
                     f.render_widget(menu_widget, f.area());
+
+                    // Draw FEN dialog on top if open
+                    if let Some(dialog_state) = &menu_state.fen_dialog_state {
+                        let fen_dialog = FenDialogWidget::new(dialog_state, &menu_state.fen_history);
+                        f.render_widget(fen_dialog, f.area());
+                    }
                 })?;
 
                 // Handle menu input
                 if event::poll(std::time::Duration::from_millis(100))? {
                     if let Event::Key(key) = event::read()? {
+                        // Handle FEN dialog input first if open
+                        if menu_state.fen_dialog_state.is_some() {
+                            let was_open = true;
+                            handle_fen_dialog_input(key.code, &mut menu_state)?;
+                            // If dialog was closed and FEN was selected, start the game
+                            if was_open && menu_state.fen_dialog_state.is_none() && menu_state.selected_fen.is_some() {
+                                app_state = create_game_from_menu(&menu_state);
+                                app_mode = AppMode::Game;
+                            }
+                            continue;
+                        }
+
                         match key.code {
                             KeyCode::Char('q') => break Ok(()),
                             KeyCode::Up | KeyCode::Char('k') => menu_state.move_up(),
@@ -60,6 +94,7 @@ pub async fn run_app() -> anyhow::Result<()> {
                                 0 => menu_state.cycle_game_mode(),
                                 1 => menu_state.cycle_difficulty(),
                                 2 => menu_state.cycle_time_control(),
+                                3 => menu_state.cycle_start_position(),
                                 _ => {}
                             },
                             KeyCode::Right | KeyCode::Char('l') => {
@@ -67,17 +102,29 @@ pub async fn run_app() -> anyhow::Result<()> {
                                     0 => menu_state.cycle_game_mode(),
                                     1 => menu_state.cycle_difficulty(),
                                     2 => menu_state.cycle_time_control(),
+                                    3 => menu_state.cycle_start_position(),
                                     _ => {}
                                 }
                             }
                             KeyCode::Enter => {
                                 match menu_state.selected_index {
                                     3 => {
-                                        // Start Game
-                                        app_state = create_game_from_menu(&menu_state);
-                                        app_mode = AppMode::Game;
+                                        // StartPosition - toggle
+                                        menu_state.cycle_start_position();
                                     }
                                     4 => {
+                                        // Start Game
+                                        if menu_state.start_position == StartPositionOption::CustomFen {
+                                            // Open FEN dialog
+                                            menu_state.fen_dialog_state = Some(FenDialogState::new());
+                                        } else {
+                                            // Start game with standard position
+                                            menu_state.selected_fen = None;
+                                            app_state = create_game_from_menu(&menu_state);
+                                            app_mode = AppMode::Game;
+                                        }
+                                    }
+                                    5 => {
                                         // Quit
                                         break Ok(());
                                     }
@@ -125,12 +172,120 @@ fn create_game_from_menu(menu_state: &MenuState) -> AppState {
         crate::ui::widgets::menu::GameModeOption::EngineVsEngine => GameMode::EngineVsEngine,
     };
 
-    let mut app_state = AppState::new();
-    app_state.mode = mode;
-    app_state.skill_level = menu_state.difficulty.skill_level();
+    // Create game from FEN if selected, otherwise use standard position
+    let game = if let Some(fen) = &menu_state.selected_fen {
+        match Game::from_fen(fen) {
+            Ok(g) => g,
+            Err(e) => {
+                eprintln!("FEN validation error: {}, using standard position", e);
+                Game::new()
+            }
+        }
+    } else {
+        Game::new()
+    };
 
-    // TODO: Store time control in app state
+    let mut app_state = AppState {
+        game,
+        mode,
+        engine: None,
+        skill_level: menu_state.difficulty.skill_level(),
+        ui_state: crate::app::state::UiState {
+            selected_square: None,
+            highlighted_squares: Vec::new(),
+            selectable_squares: Vec::new(),
+            last_move: None,
+            engine_info: None,
+            status_message: None,
+            input_phase: InputPhase::SelectPiece,
+            show_debug_panel: false,
+            uci_log: Vec::new(),
+            selected_promotion_piece: cozy_chess::Piece::Queen,
+        },
+    };
+
+    app_state.update_selectable_squares();
     app_state
+}
+
+fn handle_fen_dialog_input(
+    key: KeyCode,
+    menu_state: &mut MenuState,
+) -> anyhow::Result<()> {
+    if let Some(dialog_state) = &mut menu_state.fen_dialog_state {
+        match dialog_state.focus {
+            FenDialogFocus::Input => {
+                match key {
+                    KeyCode::Char(c) => {
+                        dialog_state.input_buffer.push(c);
+                        dialog_state.validation_error = None;
+                    }
+                    KeyCode::Backspace => {
+                        dialog_state.input_buffer.pop();
+                        dialog_state.validation_error = None;
+                    }
+                    KeyCode::Tab | KeyCode::Char('l') => {
+                        dialog_state.focus = FenDialogFocus::HistoryList;
+                    }
+                    KeyCode::Enter => {
+                        // Validate FEN
+                        if dialog_state.input_buffer.is_empty() {
+                            dialog_state.validation_error = Some("FEN string is empty".to_string());
+                        } else {
+                            match Game::from_fen(&dialog_state.input_buffer) {
+                                Ok(_) => {
+                                    // Valid FEN - add to history, save, set selected_fen, close dialog
+                                    menu_state.fen_history.add_fen(dialog_state.input_buffer.clone());
+                                    if let Err(e) = menu_state.fen_history.save_to_file() {
+                                        eprintln!("Failed to save FEN history: {}", e);
+                                    }
+                                    menu_state.selected_fen = Some(dialog_state.input_buffer.clone());
+                                    menu_state.fen_dialog_state = None;
+                                }
+                                Err(e) => {
+                                    dialog_state.validation_error = Some(format!("Invalid FEN: {}", e));
+                                }
+                            }
+                        }
+                    }
+                    KeyCode::Esc => {
+                        menu_state.fen_dialog_state = None;
+                    }
+                    _ => {}
+                }
+            }
+            FenDialogFocus::HistoryList => {
+                match key {
+                    KeyCode::Up | KeyCode::Char('k') => {
+                        if dialog_state.selected_history_index > 0 {
+                            dialog_state.selected_history_index -= 1;
+                        }
+                    }
+                    KeyCode::Down | KeyCode::Char('j') => {
+                        let max_index = menu_state.fen_history.entries().len().saturating_sub(1);
+                        if dialog_state.selected_history_index < max_index {
+                            dialog_state.selected_history_index += 1;
+                        }
+                    }
+                    KeyCode::Tab | KeyCode::Char('h') => {
+                        dialog_state.focus = FenDialogFocus::Input;
+                    }
+                    KeyCode::Enter => {
+                        // Use selected FEN from history
+                        if let Some(entry) = menu_state.fen_history.entries().get(dialog_state.selected_history_index) {
+                            menu_state.selected_fen = Some(entry.fen.clone());
+                            menu_state.fen_dialog_state = None;
+                        }
+                    }
+                    KeyCode::Esc => {
+                        menu_state.fen_dialog_state = None;
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 async fn run_game_loop(
