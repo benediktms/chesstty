@@ -24,18 +24,18 @@ pub enum GameModeOption {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum DifficultyOption {
-    Beginner,      // Skill 1-3
-    Intermediate,  // Skill 8-12
-    Advanced,      // Skill 15-18
-    Master,        // Skill 20
+    Beginner,     // Skill 1-3
+    Intermediate, // Skill 8-12
+    Advanced,     // Skill 15-18
+    Master,       // Skill 20
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum TimeControlOption {
     None,
-    Blitz,      // 3 minutes
-    Rapid,      // 10 minutes
-    Classical,  // 30 minutes
+    Blitz,     // 3 minutes
+    Rapid,     // 10 minutes
+    Classical, // 30 minutes
 }
 
 pub struct MenuState {
@@ -146,14 +146,12 @@ impl Widget for MenuWidget<'_> {
         let items = self.menu_state.items();
         let mut lines = vec![
             Line::raw(""),
-            Line::from(vec![
-                Span::styled(
-                    "Welcome to ChessTTY!",
-                    Style::default()
-                        .fg(Color::Yellow)
-                        .add_modifier(Modifier::BOLD),
-                ),
-            ]),
+            Line::from(vec![Span::styled(
+                "Welcome to ChessTTY!",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            )]),
             Line::raw(""),
         ];
 
@@ -225,12 +223,10 @@ impl Widget for MenuWidget<'_> {
         }
 
         lines.push(Line::raw(""));
-        lines.push(Line::from(vec![
-            Span::styled(
-                "↑/↓: Navigate  ←/→: Change  Enter: Select",
-                Style::default().fg(Color::DarkGray),
-            ),
-        ]));
+        lines.push(Line::from(vec![Span::styled(
+            "↑/↓: Navigate  ←/→: Change  Enter: Select",
+            Style::default().fg(Color::DarkGray),
+        )]));
 
         let paragraph = Paragraph::new(lines).alignment(Alignment::Left);
         paragraph.render(inner, buf);

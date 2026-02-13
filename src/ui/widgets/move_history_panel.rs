@@ -52,7 +52,9 @@ impl Widget for MoveHistoryPanel<'_> {
                     ),
                     ratatui::text::Span::styled(
                         move_str,
-                        Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+                        Style::default()
+                            .fg(Color::White)
+                            .add_modifier(Modifier::BOLD),
                     ),
                 ]));
             } else {
@@ -62,14 +64,21 @@ impl Widget for MoveHistoryPanel<'_> {
                     last_line.spans.push(ratatui::text::Span::raw("  "));
                     last_line.spans.push(ratatui::text::Span::styled(
                         move_str,
-                        Style::default().fg(Color::Gray).add_modifier(Modifier::BOLD),
+                        Style::default()
+                            .fg(Color::Gray)
+                            .add_modifier(Modifier::BOLD),
                     ));
                 }
             }
         }
 
         // If the last move was white's and game is ongoing, show "...."
-        if history.len() % 2 == 1 && matches!(self.app_state.game.status(), cozy_chess::GameStatus::Ongoing) {
+        if history.len() % 2 == 1
+            && matches!(
+                self.app_state.game.status(),
+                cozy_chess::GameStatus::Ongoing
+            )
+        {
             if let Some(last_line) = lines.last_mut() {
                 last_line.spans.push(ratatui::text::Span::raw("  "));
                 last_line.spans.push(ratatui::text::Span::styled(

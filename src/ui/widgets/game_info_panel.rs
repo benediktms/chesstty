@@ -84,11 +84,31 @@ impl Widget for GameInfoPanel<'_> {
                         .add_modifier(Modifier::BOLD),
                 ),
             ]));
-            let num_legal_moves = self.app_state.ui_state.highlighted_squares.len();
-            lines.push(Line::from(vec![ratatui::text::Span::styled(
-                format!("({} legal moves)", num_legal_moves),
-                Style::default().fg(Color::Green),
-            )]));
+
+            // List legal move destinations
+            if !self.app_state.ui_state.highlighted_squares.is_empty() {
+                lines.push(Line::from(vec![ratatui::text::Span::styled(
+                    "Legal: ",
+                    Style::default()
+                        .fg(Color::Green)
+                        .add_modifier(Modifier::BOLD),
+                )]));
+
+                // Format squares as comma-separated list
+                let moves_str: String = self
+                    .app_state
+                    .ui_state
+                    .highlighted_squares
+                    .iter()
+                    .map(|&sq| format_square(sq))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+
+                lines.push(Line::from(vec![ratatui::text::Span::styled(
+                    moves_str,
+                    Style::default().fg(Color::Green),
+                )]));
+            }
         }
 
         // Add status message
@@ -112,15 +132,11 @@ impl Widget for GameInfoPanel<'_> {
             lines.push(Line::from(vec![
                 ratatui::text::Span::styled(
                     "Game: ",
-                    Style::default()
-                        .fg(Color::Red)
-                        .add_modifier(Modifier::BOLD),
+                    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
                 ),
                 ratatui::text::Span::styled(
                     format_game_status(status),
-                    Style::default()
-                        .fg(Color::Red)
-                        .add_modifier(Modifier::BOLD),
+                    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
                 ),
             ]));
         }

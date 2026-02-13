@@ -26,7 +26,12 @@ impl Widget for ControlsPanel {
 
         let lines = vec![
             Line::from(vec![
-                Span::styled("Move: ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    "Move: ",
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                ),
                 Span::raw("Type squares"),
             ]),
             Line::from(vec![
@@ -35,19 +40,46 @@ impl Widget for ControlsPanel {
             ]),
             Line::raw(""),
             Line::from(vec![
-                Span::styled("Esc ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    "@ ",
+                    Style::default()
+                        .fg(Color::Magenta)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::raw("- Toggle UCI debug"),
+            ]),
+            Line::from(vec![
+                Span::styled(
+                    "Esc ",
+                    Style::default()
+                        .fg(Color::Green)
+                        .add_modifier(Modifier::BOLD),
+                ),
                 Span::raw("- Clear selection"),
             ]),
             Line::from(vec![
-                Span::styled("u ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    "u ",
+                    Style::default()
+                        .fg(Color::Green)
+                        .add_modifier(Modifier::BOLD),
+                ),
                 Span::raw("- Undo last move"),
             ]),
             Line::from(vec![
-                Span::styled("n ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    "n ",
+                    Style::default()
+                        .fg(Color::Green)
+                        .add_modifier(Modifier::BOLD),
+                ),
                 Span::raw("- New game"),
             ]),
             Line::from(vec![
-                Span::styled("q ", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    "q ",
+                    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                ),
                 Span::raw("- Quit"),
             ]),
         ];

@@ -1,6 +1,9 @@
 use crate::app::{AppState, GameMode, InputBuffer, InputPhase};
 use crate::ui::format::format_square_display;
-use crate::ui::widgets::{BoardWidget, ControlsPanel, GameInfoPanel, MenuWidget, MenuState, MoveHistoryPanel};
+use crate::ui::widgets::{
+    BoardWidget, ControlsPanel, GameInfoPanel, MenuState, MenuWidget, MoveHistoryPanel,
+    UciDebugPanel,
+};
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
     execute,
@@ -51,22 +54,18 @@ pub async fn run_app() -> anyhow::Result<()> {
                             KeyCode::Char('q') => break Ok(()),
                             KeyCode::Up => menu_state.move_up(),
                             KeyCode::Down => menu_state.move_down(menu_state.items().len()),
-                            KeyCode::Left => {
-                                match menu_state.selected_index {
-                                    0 => menu_state.cycle_game_mode(),
-                                    1 => menu_state.cycle_difficulty(),
-                                    2 => menu_state.cycle_time_control(),
-                                    _ => {}
-                                }
-                            }
-                            KeyCode::Right => {
-                                match menu_state.selected_index {
-                                    0 => menu_state.cycle_game_mode(),
-                                    1 => menu_state.cycle_difficulty(),
-                                    2 => menu_state.cycle_time_control(),
-                                    _ => {}
-                                }
-                            }
+                            KeyCode::Left => match menu_state.selected_index {
+                                0 => menu_state.cycle_game_mode(),
+                                1 => menu_state.cycle_difficulty(),
+                                2 => menu_state.cycle_time_control(),
+                                _ => {}
+                            },
+                            KeyCode::Right => match menu_state.selected_index {
+                                0 => menu_state.cycle_game_mode(),
+                                1 => menu_state.cycle_difficulty(),
+                                2 => menu_state.cycle_time_control(),
+                                _ => {}
+                            },
                             KeyCode::Enter => {
                                 match menu_state.selected_index {
                                     3 => {
@@ -138,11 +137,31 @@ async fn run_game_loop(
     let mut typeahead_squares: Vec<cozy_chess::Square> = Vec::new();
 
     // Initialize engine if needed
-    if matches!(app_state.mode, GameMode::HumanVsEngine { .. } | GameMode::EngineVsEngine) {
+    if matches!(
+        app_state.mode,
+        GameMode::HumanVsEngine { .. } | GameMode::EngineVsEngine
+    ) {
         match crate::engine::StockfishEngine::spawn(Some(app_state.skill_level)).await {
             Ok(engine) => {
                 app_state.engine = Some(engine);
                 app_state.ui_state.status_message = Some("Engine ready!".to_string());
+
+                // Log UCI initialization sequence
+                app_state.log_uci_message(
+                    crate::app::UciDirection::ToEngine,
+                    "uci".to_string(),
+                    None,
+                );
+                app_state.log_uci_message(
+                    crate::app::UciDirection::FromEngine,
+                    "uciok".to_string(),
+                    None,
+                );
+                app_state.log_uci_message(
+                    crate::app::UciDirection::ToEngine,
+                    format!("setoption name Skill Level value {}", app_state.skill_level),
+                    None,
+                );
             }
             Err(e) => {
                 app_state.ui_state.status_message = Some(format!("Engine error: {}", e));
@@ -182,41 +201,118 @@ async fn run_game_loop(
 
         // Draw UI
         terminal.draw(|f| {
+            let area = f.area();
+
+            // Check if terminal is too small
+            let min_dimensions = BoardWidget::min_dimensions();
+            let min_width = min_dimensions.0; // Just the board width
+            let min_height = min_dimensions.1 + 3; // Board + input boxes
+
+            if area.width < min_width || area.height < min_height {
+                // Terminal too small - show error message
+                use ratatui::widgets::Paragraph;
+                let msg = Paragraph::new(vec![
+                    Line::from(""),
+                    Line::from(Span::styled(
+                        "Terminal too small!",
+                        Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                    )),
+                    Line::from(""),
+                    Line::from(format!("Current: {}x{}", area.width, area.height)),
+                    Line::from(format!("Minimum: {}x{}", min_width, min_height)),
+                    Line::from(""),
+                    Line::from("Please resize your terminal."),
+                ])
+                .alignment(Alignment::Center)
+                .block(Block::default().borders(Borders::ALL));
+                f.render_widget(msg, area);
+                return;
+            }
+
             let main_chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([Constraint::Min(10), Constraint::Length(3)])
-                .split(f.area());
+                .split(area);
 
-            let chunks = Layout::default()
-                .direction(Direction::Horizontal)
-                .constraints([Constraint::Min(50), Constraint::Length(35)])
-                .split(main_chunks[0]);
+            // Decide layout direction based on available width
+            // Calculate minimum for horizontal: small board (76) + panels (35) + margin (5)
+            let min_horizontal_width = 116;
+            let use_vertical_layout = area.width < min_horizontal_width;
 
-            // Draw board with typeahead squares
-            let board_widget = BoardWidget::new(app_state, &typeahead_squares);
-            f.render_widget(board_widget, chunks[0]);
+            let (board_area, panels_area) = if use_vertical_layout {
+                // Vertical layout: board on top (larger), panels below (smaller)
+                let chunks = Layout::default()
+                    .direction(Direction::Vertical)
+                    .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
+                    .split(main_chunks[0]);
+                (chunks[0], chunks[1])
+            } else {
+                // Horizontal layout: board on left, panels on right
+                let chunks = Layout::default()
+                    .direction(Direction::Horizontal)
+                    .constraints([Constraint::Percentage(65), Constraint::Percentage(35)])
+                    .split(main_chunks[0]);
+                (chunks[0], chunks[1])
+            };
 
-            // Split right side into three panels
-            let right_chunks = Layout::default()
-                .direction(Direction::Vertical)
-                .constraints([
-                    Constraint::Length(10),  // Controls
-                    Constraint::Length(12),  // Game Info
-                    Constraint::Min(5),      // Move History
-                ])
-                .split(chunks[1]);
+            // Draw either board or UCI debug panel based on toggle
+            if app_state.ui_state.show_debug_panel {
+                let uci_debug_panel = UciDebugPanel::new(app_state);
+                f.render_widget(uci_debug_panel, board_area);
+            } else {
+                // Draw board with typeahead squares (board will scale to fill area)
+                let board_widget = BoardWidget::new(app_state, &typeahead_squares);
+                f.render_widget(board_widget, board_area);
+            }
 
-            // Draw controls panel
-            let controls_panel = ControlsPanel::new();
-            f.render_widget(controls_panel, right_chunks[0]);
+            // Split panels area based on layout mode
+            if use_vertical_layout {
+                // Vertical layout: split horizontally - left 1/3 for controls+info, right 2/3 for history
+                let horizontal_split = Layout::default()
+                    .direction(Direction::Horizontal)
+                    .constraints([Constraint::Percentage(33), Constraint::Percentage(67)])
+                    .split(panels_area);
 
-            // Draw game info panel
-            let game_info_panel = GameInfoPanel::new(app_state);
-            f.render_widget(game_info_panel, right_chunks[1]);
+                // Left side: stack controls and game info vertically
+                let left_panels = Layout::default()
+                    .direction(Direction::Vertical)
+                    .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+                    .split(horizontal_split[0]);
 
-            // Draw move history panel
-            let move_history_panel = MoveHistoryPanel::new(app_state);
-            f.render_widget(move_history_panel, right_chunks[2]);
+                // Draw controls panel (top left)
+                let controls_panel = ControlsPanel::new();
+                f.render_widget(controls_panel, left_panels[0]);
+
+                // Draw game info panel (bottom left)
+                let game_info_panel = GameInfoPanel::new(app_state);
+                f.render_widget(game_info_panel, left_panels[1]);
+
+                // Draw move history panel (right side, takes 2/3)
+                let move_history_panel = MoveHistoryPanel::new(app_state);
+                f.render_widget(move_history_panel, horizontal_split[1]);
+            } else {
+                // Horizontal layout: stack all three panels vertically on right side
+                let right_chunks = Layout::default()
+                    .direction(Direction::Vertical)
+                    .constraints([
+                        Constraint::Length(10),  // Controls
+                        Constraint::Length(12),  // Game Info
+                        Constraint::Min(5),      // Move History
+                    ])
+                    .split(panels_area);
+
+                // Draw controls panel
+                let controls_panel = ControlsPanel::new();
+                f.render_widget(controls_panel, right_chunks[0]);
+
+                // Draw game info panel
+                let game_info_panel = GameInfoPanel::new(app_state);
+                f.render_widget(game_info_panel, right_chunks[1]);
+
+                // Draw move history panel
+                let move_history_panel = MoveHistoryPanel::new(app_state);
+                f.render_widget(move_history_panel, right_chunks[2]);
+            }
 
             // Draw split input boxes at the bottom
             let input_chunks = Layout::default()
@@ -248,17 +344,15 @@ async fn run_game_loop(
                 Style::default().fg(Color::DarkGray)
             };
 
-            let source_widget = Paragraph::new(Line::from(vec![Span::styled(
-                source_text,
-                source_style,
-            )]))
-            .alignment(Alignment::Center)
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .title("1. Select Piece")
-                    .border_style(source_border_style),
-            );
+            let source_widget =
+                Paragraph::new(Line::from(vec![Span::styled(source_text, source_style)]))
+                    .alignment(Alignment::Center)
+                    .block(
+                        Block::default()
+                            .borders(Borders::ALL)
+                            .title("1. Select Piece")
+                            .border_style(source_border_style),
+                    );
             f.render_widget(source_widget, input_chunks[0]);
 
             // Destination square input box
@@ -302,6 +396,10 @@ async fn run_game_loop(
                 match key.code {
                     KeyCode::Char('q') => return Ok(false), // Quit
                     KeyCode::Char('n') => return Ok(true),  // New game (return to menu)
+                    KeyCode::Char('@') => {
+                        // Toggle UCI debug panel
+                        app_state.toggle_debug_panel();
+                    }
                     KeyCode::Char('u') => {
                         // Undo move
                         if app_state.game.undo().is_ok() {

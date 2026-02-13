@@ -21,9 +21,7 @@ pub fn parse_uci_message(line: &str) -> Result<UciMessage, crate::engine::UciErr
 
         Some(&"id") => {
             if tokens.len() < 3 {
-                return Err(crate::engine::UciError::MalformedMessage(
-                    line.to_string(),
-                ));
+                return Err(crate::engine::UciError::MalformedMessage(line.to_string()));
             }
             let name = tokens[1].to_string();
             let value = tokens[2..].join(" ");
@@ -32,9 +30,7 @@ pub fn parse_uci_message(line: &str) -> Result<UciMessage, crate::engine::UciErr
 
         Some(&"bestmove") => {
             if tokens.len() < 2 {
-                return Err(crate::engine::UciError::MalformedMessage(
-                    line.to_string(),
-                ));
+                return Err(crate::engine::UciError::MalformedMessage(line.to_string()));
             }
             let mv = parse_uci_move(tokens[1])?;
             let ponder = if tokens.len() >= 4 && tokens[2] == "ponder" {
@@ -127,8 +123,19 @@ fn parse_info_line(tokens: &[&str]) -> Result<EngineInfo, crate::engine::UciErro
 fn is_keyword(token: &str) -> bool {
     matches!(
         token,
-        "depth" | "seldepth" | "time" | "nodes" | "score" | "pv" | "multipv"
-            | "currmove" | "hashfull" | "nps" | "tbhits" | "cpuload" | "string"
+        "depth"
+            | "seldepth"
+            | "time"
+            | "nodes"
+            | "score"
+            | "pv"
+            | "multipv"
+            | "currmove"
+            | "hashfull"
+            | "nps"
+            | "tbhits"
+            | "cpuload"
+            | "string"
     )
 }
 
@@ -147,15 +154,17 @@ pub fn parse_uci_move(s: &str) -> Result<Move, crate::engine::UciError> {
             "r" => Piece::Rook,
             "b" => Piece::Bishop,
             "n" => Piece::Knight,
-            _ => {
-                return Err(crate::engine::UciError::InvalidPromotion(s.to_string()))
-            }
+            _ => return Err(crate::engine::UciError::InvalidPromotion(s.to_string())),
         })
     } else {
         None
     };
 
-    Ok(Move { from, to, promotion })
+    Ok(Move {
+        from,
+        to,
+        promotion,
+    })
 }
 
 fn parse_square(s: &str) -> Result<Square, crate::engine::UciError> {
@@ -247,9 +256,7 @@ mod tests {
 
     #[test]
     fn test_parse_info() {
-        let msg =
-            parse_uci_message("info depth 12 score cp 35 nodes 15234 pv e2e4 e7e5")
-                .unwrap();
+        let msg = parse_uci_message("info depth 12 score cp 35 nodes 15234 pv e2e4 e7e5").unwrap();
         match msg {
             UciMessage::Info(info) => {
                 assert_eq!(info.depth, Some(12));

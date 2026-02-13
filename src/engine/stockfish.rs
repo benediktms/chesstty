@@ -1,4 +1,4 @@
-use crate::engine::uci::{parse_uci_message, format_uci_move, UciMessage};
+use crate::engine::uci::{format_uci_move, parse_uci_message, UciMessage};
 use crate::engine::{EngineCommand, EngineEvent, GoParams, Score};
 use cozy_chess::Move;
 use std::path::{Path, PathBuf};
@@ -34,7 +34,10 @@ impl StockfishEngine {
             .write_all(b"uci\n")
             .await
             .map_err(|e| format!("Failed to write to stdin: {}", e))?;
-        stdin.flush().await.map_err(|e| format!("Failed to flush: {}", e))?;
+        stdin
+            .flush()
+            .await
+            .map_err(|e| format!("Failed to flush: {}", e))?;
 
         // Create channels for communication
         let (command_tx, mut command_rx) = mpsc::channel::<EngineCommand>(32);
@@ -82,7 +85,10 @@ impl StockfishEngine {
                 .write_all(format!("setoption name Skill Level value {}\n", level).as_bytes())
                 .await
                 .map_err(|e| format!("Failed to set skill level: {}", e))?;
-            stdin.flush().await.map_err(|e| format!("Failed to flush: {}", e))?;
+            stdin
+                .flush()
+                .await
+                .map_err(|e| format!("Failed to flush: {}", e))?;
         }
 
         // Clone stdin for the command processor task
@@ -169,10 +175,7 @@ impl StockfishEngine {
     /// Shutdown the engine
     pub async fn shutdown(mut self) {
         let _ = self.send_command(EngineCommand::Quit).await;
-        let _ = tokio::time::timeout(
-            std::time::Duration::from_secs(1),
-            self.process.wait()
-        ).await;
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(1), self.process.wait()).await;
         let _ = self.process.kill().await;
     }
 }
@@ -218,10 +221,10 @@ pub async fn make_engine_move(
 
     // Start thinking - adjust time based on skill level
     let movetime = match skill_level {
-        0..=5 => 100,   // Beginner: 100ms
-        6..=10 => 500,  // Intermediate: 500ms
+        0..=5 => 100,    // Beginner: 100ms
+        6..=10 => 500,   // Intermediate: 500ms
         11..=15 => 1000, // Advanced: 1s
-        _ => 2000,      // Master: 2s
+        _ => 2000,       // Master: 2s
     };
 
     engine

@@ -25,11 +25,27 @@ pub enum GameMode {
 pub struct UiState {
     pub selected_square: Option<Square>,
     pub highlighted_squares: Vec<Square>,
-    pub selectable_squares: Vec<Square>,  // Squares with pieces that can be selected
+    pub selectable_squares: Vec<Square>, // Squares with pieces that can be selected
     pub last_move: Option<(Square, Square)>,
     pub engine_info: Option<EngineInfo>,
     pub status_message: Option<String>,
-    pub input_phase: InputPhase,  // Which input box is active
+    pub input_phase: InputPhase,   // Which input box is active
+    pub show_debug_panel: bool,    // Toggle UCI debug panel
+    pub uci_log: Vec<UciLogEntry>, // UCI message log
+}
+
+#[derive(Debug, Clone)]
+pub struct UciLogEntry {
+    pub direction: UciDirection,
+    pub message: String,
+    pub timestamp: std::time::Instant,
+    pub move_context: Option<String>, // Associated move if relevant
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum UciDirection {
+    ToEngine,
+    FromEngine,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -53,6 +69,8 @@ impl AppState {
                 engine_info: None,
                 status_message: None,
                 input_phase: InputPhase::SelectPiece,
+                show_debug_panel: false,
+                uci_log: Vec::new(),
             },
         };
         state.update_selectable_squares();
@@ -62,9 +80,7 @@ impl AppState {
     /// Check if it's the engine's turn to move
     pub fn is_engine_turn(&self) -> bool {
         match self.mode {
-            GameMode::HumanVsEngine { human_side } => {
-                self.game.side_to_move() != human_side
-            }
+            GameMode::HumanVsEngine { human_side } => self.game.side_to_move() != human_side,
             GameMode::EngineVsEngine => true,
             _ => false,
         }
@@ -85,43 +101,83 @@ impl AppState {
 
         // Get current position as FEN
         let fen = self.game.to_fen();
-        let moves: Vec<Move> = self.game.history().iter().map(|e| e.mv).collect();
 
         // Make sure we have an engine
         if self.engine.is_none() {
             return Err("Engine not initialized".to_string());
         }
 
-        let engine = self.engine.as_ref().unwrap();
-
-        // Send position to engine
-        engine
-            .send_command(crate::engine::EngineCommand::SetPosition {
-                fen,
-                moves: vec![], // Already included in FEN
-            })
-            .await?;
-
         // Calculate move time based on skill level
         let movetime = match self.skill_level {
-            0..=5 => 200,     // Beginner: 200ms
-            6..=10 => 500,    // Intermediate: 500ms
-            11..=15 => 1000,  // Advanced: 1s
-            _ => 2000,        // Master: 2s
+            0..=5 => 200,    // Beginner: 200ms
+            6..=10 => 500,   // Intermediate: 500ms
+            11..=15 => 1000, // Advanced: 1s
+            _ => 2000,       // Master: 2s
         };
 
+        // Log position command
+        self.log_uci_message(
+            UciDirection::ToEngine,
+            format!("position fen {}", fen),
+            None,
+        );
+
+        // Send position to engine
+        {
+            let engine = self.engine.as_ref().unwrap();
+            engine
+                .send_command(crate::engine::EngineCommand::SetPosition {
+                    fen,
+                    moves: vec![], // Already included in FEN
+                })
+                .await?;
+        }
+
+        // Log go command
+        self.log_uci_message(
+            UciDirection::ToEngine,
+            format!("go movetime {}", movetime),
+            Some(format!("Move #{}", self.game.history().len() + 1)),
+        );
+
         // Start calculation
-        engine
-            .send_command(crate::engine::EngineCommand::Go(
-                crate::engine::GoParams {
+        {
+            let engine = self.engine.as_ref().unwrap();
+            engine
+                .send_command(crate::engine::EngineCommand::Go(crate::engine::GoParams {
                     movetime: Some(movetime),
                     depth: None,
                     infinite: false,
-                },
-            ))
-            .await?;
+                }))
+                .await?;
+        }
 
         Ok(())
+    }
+
+    /// Log a UCI message
+    pub fn log_uci_message(
+        &mut self,
+        direction: UciDirection,
+        message: String,
+        move_context: Option<String>,
+    ) {
+        self.ui_state.uci_log.push(UciLogEntry {
+            direction,
+            message,
+            timestamp: std::time::Instant::now(),
+            move_context,
+        });
+
+        // Keep only last 100 messages to avoid memory issues
+        if self.ui_state.uci_log.len() > 100 {
+            self.ui_state.uci_log.remove(0);
+        }
+    }
+
+    /// Toggle debug panel visibility
+    pub fn toggle_debug_panel(&mut self) {
+        self.ui_state.show_debug_panel = !self.ui_state.show_debug_panel;
     }
 
     /// Process engine events (call this in the main loop)
@@ -150,18 +206,12 @@ impl AppState {
         // Find all squares with pieces of the current player's color
         for rank in 0..8 {
             for file in 0..8 {
-                let square = Square::new(
-                    cozy_chess::File::index(file),
-                    cozy_chess::Rank::index(rank),
-                );
+                let square =
+                    Square::new(cozy_chess::File::index(file), cozy_chess::Rank::index(rank));
                 if let Some(piece_color) = self.game.position().color_on(square) {
                     if piece_color == current_color {
                         // Check if this piece has any legal moves
-                        let has_moves = self
-                            .game
-                            .legal_moves()
-                            .iter()
-                            .any(|mv| mv.from == square);
+                        let has_moves = self.game.legal_moves().iter().any(|mv| mv.from == square);
                         if has_moves {
                             self.ui_state.selectable_squares.push(square);
                         }
@@ -174,7 +224,7 @@ impl AppState {
     /// Filter selectable squares by partial input (typeahead)
     pub fn filter_selectable_by_input(&self, input: &str) -> Vec<Square> {
         if input.is_empty() {
-            return self.ui_state.selectable_squares.clone();
+            return vec![];
         }
 
         let chars: Vec<char> = input.chars().collect();
@@ -192,7 +242,9 @@ impl AppState {
             _ => None,
         };
 
-        let mut filtered: Vec<Square> = self.ui_state.selectable_squares
+        let mut filtered: Vec<Square> = self
+            .ui_state
+            .selectable_squares
             .iter()
             .filter(|sq| {
                 if let Some(file) = file_filter {
