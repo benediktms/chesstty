@@ -1,12 +1,13 @@
 use crate::chess::Game;
-use crate::engine::{EngineHandle, EngineInfo};
+use crate::engine::{EngineEvent, EngineHandle, EngineInfo, StockfishEngine};
 use cozy_chess::{Color, Move, Square};
 
 /// Main application state
 pub struct AppState {
     pub game: Game,
     pub mode: GameMode,
-    pub engine: Option<EngineHandle>,
+    pub engine: Option<StockfishEngine>,
+    pub skill_level: u8,
     pub ui_state: UiState,
 }
 
@@ -43,6 +44,7 @@ impl AppState {
             game: Game::new(),
             mode: GameMode::HumanVsHuman,
             engine: None,
+            skill_level: 10, // Default intermediate
             ui_state: UiState {
                 selected_square: None,
                 highlighted_squares: Vec::new(),
@@ -55,6 +57,89 @@ impl AppState {
         };
         state.update_selectable_squares();
         state
+    }
+
+    /// Check if it's the engine's turn to move
+    pub fn is_engine_turn(&self) -> bool {
+        match self.mode {
+            GameMode::HumanVsEngine { human_side } => {
+                self.game.side_to_move() != human_side
+            }
+            GameMode::EngineVsEngine => true,
+            _ => false,
+        }
+    }
+
+    /// Make a move with the engine
+    pub async fn make_engine_move(&mut self) -> Result<(), String> {
+        if !self.is_engine_turn() {
+            return Ok(());
+        }
+
+        // Check if game is over
+        if !matches!(self.game.status(), cozy_chess::GameStatus::Ongoing) {
+            return Ok(());
+        }
+
+        self.ui_state.status_message = Some("Engine thinking...".to_string());
+
+        // Get current position as FEN
+        let fen = self.game.to_fen();
+        let moves: Vec<Move> = self.game.history().iter().map(|e| e.mv).collect();
+
+        // Make sure we have an engine
+        if self.engine.is_none() {
+            return Err("Engine not initialized".to_string());
+        }
+
+        let engine = self.engine.as_ref().unwrap();
+
+        // Send position to engine
+        engine
+            .send_command(crate::engine::EngineCommand::SetPosition {
+                fen,
+                moves: vec![], // Already included in FEN
+            })
+            .await?;
+
+        // Calculate move time based on skill level
+        let movetime = match self.skill_level {
+            0..=5 => 200,     // Beginner: 200ms
+            6..=10 => 500,    // Intermediate: 500ms
+            11..=15 => 1000,  // Advanced: 1s
+            _ => 2000,        // Master: 2s
+        };
+
+        // Start calculation
+        engine
+            .send_command(crate::engine::EngineCommand::Go(
+                crate::engine::GoParams {
+                    movetime: Some(movetime),
+                    depth: None,
+                    infinite: false,
+                },
+            ))
+            .await?;
+
+        Ok(())
+    }
+
+    /// Process engine events (call this in the main loop)
+    pub fn process_engine_events(&mut self) -> Option<Move> {
+        if let Some(engine) = &mut self.engine {
+            while let Some(event) = engine.try_recv_event() {
+                match event {
+                    EngineEvent::BestMove(mv) => {
+                        return Some(mv);
+                    }
+                    EngineEvent::Info(info) => {
+                        self.ui_state.engine_info = Some(info);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        None
     }
 
     /// Update the list of squares with pieces that can be selected

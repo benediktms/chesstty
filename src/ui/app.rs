@@ -124,8 +124,9 @@ fn create_game_from_menu(menu_state: &MenuState) -> AppState {
 
     let mut app_state = AppState::new();
     app_state.mode = mode;
+    app_state.skill_level = menu_state.difficulty.skill_level();
 
-    // TODO: Store difficulty and time control in app state
+    // TODO: Store time control in app state
     app_state
 }
 
@@ -136,7 +137,42 @@ async fn run_game_loop(
     let mut input_buffer = InputBuffer::new();
     let mut typeahead_squares: Vec<cozy_chess::Square> = Vec::new();
 
+    // Initialize engine if needed
+    if matches!(app_state.mode, GameMode::HumanVsEngine { .. } | GameMode::EngineVsEngine) {
+        match crate::engine::StockfishEngine::spawn(Some(app_state.skill_level)).await {
+            Ok(engine) => {
+                app_state.engine = Some(engine);
+                app_state.ui_state.status_message = Some("Engine ready!".to_string());
+            }
+            Err(e) => {
+                app_state.ui_state.status_message = Some(format!("Engine error: {}", e));
+            }
+        }
+
+        // If engine plays first (black vs engine as white), trigger engine move
+        if app_state.is_engine_turn() {
+            let _ = app_state.make_engine_move().await;
+        }
+    }
+
     loop {
+        // Check for engine events and apply moves
+        if let Some(engine_move) = app_state.process_engine_events() {
+            if let Ok(()) = app_state.game.make_move(engine_move) {
+                app_state.ui_state.last_move = Some((engine_move.from, engine_move.to));
+                app_state.ui_state.status_message = Some(format!(
+                    "Engine played: {} to {}",
+                    crate::ui::format::format_square_display(engine_move.from),
+                    crate::ui::format::format_square_display(engine_move.to)
+                ));
+                app_state.update_selectable_squares();
+
+                // Check if engine should move again (engine vs engine)
+                if app_state.is_engine_turn() {
+                    let _ = app_state.make_engine_move().await;
+                }
+            }
+        }
         // Update typeahead highlighting based on current input
         if app_state.ui_state.input_phase == InputPhase::SelectPiece {
             typeahead_squares = app_state.filter_selectable_by_input(input_buffer.as_str());
@@ -303,6 +339,11 @@ async fn run_game_loop(
                                         Ok(_) => {
                                             // Move successful - highlights already cleared by try_move_to
                                             input_buffer.clear();
+
+                                            // Trigger engine move if it's engine's turn
+                                            if app_state.is_engine_turn() {
+                                                let _ = app_state.make_engine_move().await;
+                                            }
                                         }
                                         Err(_e) => {
                                             // Move failed, clear old selection and try selecting this square instead
