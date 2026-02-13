@@ -14,8 +14,8 @@ pub struct Game {
 #[derive(Debug, Clone)]
 pub struct HistoryEntry {
     pub mv: Move,
-    pub piece: Piece,                      // Piece that made the move
-    pub piece_color: Color,                // Color of the piece that moved
+    pub piece: Piece,                     // Piece that made the move
+    pub piece_color: Color,               // Color of the piece that moved
     pub captured: Option<(Piece, Color)>, // Piece and its color
     pub castling_rights: u8,
     pub en_passant: Option<Square>,
@@ -75,9 +75,13 @@ impl Game {
             .and_then(|piece| self.position.color_on(mv.to).map(|color| (piece, color)));
 
         // Get the piece and color that's making the move
-        let piece = self.position.piece_on(mv.from)
+        let piece = self
+            .position
+            .piece_on(mv.from)
             .ok_or(GameError::IllegalMove)?;
-        let piece_color = self.position.color_on(mv.from)
+        let piece_color = self
+            .position
+            .color_on(mv.from)
             .ok_or(GameError::IllegalMove)?;
 
         let entry = HistoryEntry {

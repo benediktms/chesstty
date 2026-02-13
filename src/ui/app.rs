@@ -2,7 +2,7 @@ use crate::app::{AppState, GameMode, InputBuffer, InputPhase};
 use crate::ui::format::format_square_display;
 use crate::ui::widgets::{
     BoardWidget, ControlsPanel, GameInfoPanel, MenuState, MenuWidget, MoveHistoryPanel,
-    UciDebugPanel,
+    PromotionWidget, UciDebugPanel,
 };
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
@@ -392,11 +392,60 @@ async fn run_game_loop(
                         .border_style(dest_border_style),
                 );
             f.render_widget(dest_widget, input_chunks[1]);
+
+            // Draw promotion dialog if in SelectPromotion phase
+            if let InputPhase::SelectPromotion { from, to } = app_state.ui_state.input_phase {
+                let promotion_widget = PromotionWidget::new(app_state, from, to);
+                f.render_widget(promotion_widget, area);
+            }
         })?;
 
         // Handle input
         if event::poll(std::time::Duration::from_millis(100))? {
             if let Event::Key(key) = event::read()? {
+                // Handle promotion input first if in SelectPromotion phase
+                if let InputPhase::SelectPromotion { from, to } = app_state.ui_state.input_phase {
+                    match key.code {
+                        KeyCode::Up | KeyCode::Char('k') => {
+                            app_state.cycle_promotion_piece(-1);
+                        }
+                        KeyCode::Down | KeyCode::Char('j') => {
+                            app_state.cycle_promotion_piece(1);
+                        }
+                        KeyCode::Char('q') | KeyCode::Char('Q') => {
+                            app_state.set_promotion_piece(cozy_chess::Piece::Queen);
+                        }
+                        KeyCode::Char('r') | KeyCode::Char('R') => {
+                            app_state.set_promotion_piece(cozy_chess::Piece::Rook);
+                        }
+                        KeyCode::Char('b') | KeyCode::Char('B') => {
+                            app_state.set_promotion_piece(cozy_chess::Piece::Bishop);
+                        }
+                        KeyCode::Char('n') | KeyCode::Char('N') => {
+                            app_state.set_promotion_piece(cozy_chess::Piece::Knight);
+                        }
+                        KeyCode::Enter => {
+                            let piece = app_state.ui_state.selected_promotion_piece;
+                            match app_state.execute_promotion(from, to, piece) {
+                                Ok(_) => {
+                                    // Trigger engine move if it's engine's turn
+                                    if app_state.is_engine_turn() {
+                                        let _ = app_state.make_engine_move().await;
+                                    }
+                                }
+                                Err(e) => {
+                                    app_state.ui_state.status_message = Some(format!("Error: {}", e));
+                                }
+                            }
+                        }
+                        KeyCode::Esc => {
+                            app_state.cancel_promotion();
+                        }
+                        _ => {}
+                    }
+                    continue; // Skip other input handling when in promotion mode
+                }
+
                 match key.code {
                     KeyCode::Char('q') => return Ok(false), // Quit
                     KeyCode::Char('n') => return Ok(true),  // New game (return to menu)

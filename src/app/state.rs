@@ -1,6 +1,6 @@
 use crate::chess::Game;
 use crate::engine::{EngineEvent, EngineHandle, EngineInfo, StockfishEngine};
-use cozy_chess::{Color, Move, Square};
+use cozy_chess::{Color, Move, Piece, Square};
 
 /// Main application state
 pub struct AppState {
@@ -29,9 +29,10 @@ pub struct UiState {
     pub last_move: Option<(Square, Square)>,
     pub engine_info: Option<EngineInfo>,
     pub status_message: Option<String>,
-    pub input_phase: InputPhase,   // Which input box is active
-    pub show_debug_panel: bool,    // Toggle UCI debug panel
-    pub uci_log: Vec<UciLogEntry>, // UCI message log
+    pub input_phase: InputPhase,           // Which input box is active
+    pub show_debug_panel: bool,            // Toggle UCI debug panel
+    pub uci_log: Vec<UciLogEntry>,         // UCI message log
+    pub selected_promotion_piece: Piece,   // Currently selected piece for promotion (default: Queen)
 }
 
 #[derive(Debug, Clone)]
@@ -52,6 +53,7 @@ pub enum UciDirection {
 pub enum InputPhase {
     SelectPiece,
     SelectDestination,
+    SelectPromotion { from: Square, to: Square },
 }
 
 impl AppState {
@@ -71,6 +73,7 @@ impl AppState {
                 input_phase: InputPhase::SelectPiece,
                 show_debug_panel: false,
                 uci_log: Vec::new(),
+                selected_promotion_piece: Piece::Queen,
             },
         };
         state.update_selectable_squares();
@@ -315,19 +318,18 @@ impl AppState {
 
             if let Some(&mv) = matching_move {
                 // Check if this is a pawn promotion
-                let mv = if needs_promotion(&self.game, mv) {
-                    // For now, always promote to queen
-                    // TODO: Add promotion selection UI
-                    Move {
-                        from: mv.from,
-                        to: mv.to,
-                        promotion: Some(cozy_chess::Piece::Queen),
-                    }
-                } else {
-                    mv
-                };
+                if needs_promotion(&self.game, mv) {
+                    // Transition to promotion selection phase
+                    self.ui_state.input_phase = InputPhase::SelectPromotion {
+                        from: from_square,
+                        to: to_square,
+                    };
+                    self.ui_state.selected_promotion_piece = Piece::Queen;
+                    self.ui_state.status_message = Some("Select promotion piece".to_string());
+                    return Ok(());
+                }
 
-                // Make the move
+                // Non-promotion move - execute immediately
                 self.game.make_move(mv).map_err(|e| e.to_string())?;
 
                 // Update UI state
@@ -367,6 +369,68 @@ impl AppState {
         self.ui_state.input_phase = InputPhase::SelectPiece;
         self.ui_state.status_message = None;
         self.update_selectable_squares();
+    }
+
+    /// Execute a promotion move after piece selection
+    pub fn execute_promotion(&mut self, from: Square, to: Square, piece: Piece) -> Result<(), String> {
+        let mv = Move {
+            from,
+            to,
+            promotion: Some(piece),
+        };
+
+        // Validate this specific promotion move is legal
+        if !self.game.legal_moves().contains(&mv) {
+            return Err("Invalid promotion move".to_string());
+        }
+
+        self.game.make_move(mv).map_err(|e| e.to_string())?;
+
+        // Update UI state
+        self.ui_state.last_move = Some((from, to));
+        self.ui_state.selected_square = None;
+        self.ui_state.highlighted_squares.clear();
+        self.ui_state.input_phase = InputPhase::SelectPiece;
+        self.ui_state.status_message = Some(format!(
+            "Promoted to {}",
+            format_piece_name(piece)
+        ));
+        self.update_selectable_squares();
+
+        Ok(())
+    }
+
+    /// Cancel promotion selection and return to piece selection
+    pub fn cancel_promotion(&mut self) {
+        self.ui_state.selected_square = None;
+        self.ui_state.highlighted_squares.clear();
+        self.ui_state.input_phase = InputPhase::SelectPiece;
+        self.ui_state.status_message = Some("Promotion cancelled".to_string());
+    }
+
+    /// Cycle promotion piece selection
+    pub fn cycle_promotion_piece(&mut self, direction: i8) {
+        let pieces = [Piece::Queen, Piece::Rook, Piece::Bishop, Piece::Knight];
+
+        let current_idx = pieces
+            .iter()
+            .position(|&p| p == self.ui_state.selected_promotion_piece)
+            .unwrap_or(0);
+
+        let new_idx = if direction > 0 {
+            (current_idx + 1) % pieces.len()
+        } else if direction < 0 {
+            (current_idx + pieces.len() - 1) % pieces.len()
+        } else {
+            current_idx
+        };
+
+        self.ui_state.selected_promotion_piece = pieces[new_idx];
+    }
+
+    /// Set promotion piece directly
+    pub fn set_promotion_piece(&mut self, piece: Piece) {
+        self.ui_state.selected_promotion_piece = piece;
     }
 
     /// Get all legal destination squares for a piece on the given square
@@ -419,4 +483,195 @@ fn needs_promotion(game: &Game, mv: Move) -> bool {
         }
     }
     false
+}
+
+fn format_piece_name(piece: Piece) -> &'static str {
+    match piece {
+        Piece::Queen => "Queen",
+        Piece::Rook => "Rook",
+        Piece::Bishop => "Bishop",
+        Piece::Knight => "Knight",
+        Piece::King => "King",
+        Piece::Pawn => "Pawn",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_needs_promotion_white_eighth_rank() {
+        // White pawn on e7 moving to e8 should need promotion
+        let fen = "4k3/4P3/8/8/8/8/8/4K3 w - - 0 1";
+        let game = Game::from_fen(fen).unwrap();
+
+        let from = Square::new(cozy_chess::File::E, cozy_chess::Rank::Seventh);
+        let to = Square::new(cozy_chess::File::E, cozy_chess::Rank::Eighth);
+        let mv = Move {
+            from,
+            to,
+            promotion: None,
+        };
+
+        assert!(needs_promotion(&game, mv));
+    }
+
+    #[test]
+    fn test_needs_promotion_black_first_rank() {
+        // Black pawn on e2 moving to e1 should need promotion
+        let fen = "4k3/8/8/8/8/8/4p3/4K3 b - - 0 1";
+        let game = Game::from_fen(fen).unwrap();
+
+        let from = Square::new(cozy_chess::File::E, cozy_chess::Rank::Second);
+        let to = Square::new(cozy_chess::File::E, cozy_chess::Rank::First);
+        let mv = Move {
+            from,
+            to,
+            promotion: None,
+        };
+
+        assert!(needs_promotion(&game, mv));
+    }
+
+    #[test]
+    fn test_needs_promotion_not_last_rank() {
+        // White pawn on e2 moving to e3 should not need promotion
+        let fen = "4k3/8/8/8/8/8/4P3/4K3 w - - 0 1";
+        let game = Game::from_fen(fen).unwrap();
+
+        let from = Square::new(cozy_chess::File::E, cozy_chess::Rank::Second);
+        let to = Square::new(cozy_chess::File::E, cozy_chess::Rank::Third);
+        let mv = Move {
+            from,
+            to,
+            promotion: None,
+        };
+
+        assert!(!needs_promotion(&game, mv));
+    }
+
+    #[test]
+    fn test_needs_promotion_not_pawn() {
+        // Knight moving to 8th rank should not need promotion
+        let fen = "4k3/4N3/8/8/8/8/8/4K3 w - - 0 1";
+        let game = Game::from_fen(fen).unwrap();
+
+        let from = Square::new(cozy_chess::File::E, cozy_chess::Rank::Seventh);
+        let to = Square::new(cozy_chess::File::E, cozy_chess::Rank::Eighth);
+        let mv = Move {
+            from,
+            to,
+            promotion: None,
+        };
+
+        assert!(!needs_promotion(&game, mv));
+    }
+
+    #[test]
+    fn test_cycle_promotion_piece_forward() {
+        let mut state = AppState::new();
+        assert_eq!(state.ui_state.selected_promotion_piece, Piece::Queen);
+
+        state.cycle_promotion_piece(1);
+        assert_eq!(state.ui_state.selected_promotion_piece, Piece::Rook);
+
+        state.cycle_promotion_piece(1);
+        assert_eq!(state.ui_state.selected_promotion_piece, Piece::Bishop);
+
+        state.cycle_promotion_piece(1);
+        assert_eq!(state.ui_state.selected_promotion_piece, Piece::Knight);
+
+        state.cycle_promotion_piece(1); // Wrap around
+        assert_eq!(state.ui_state.selected_promotion_piece, Piece::Queen);
+    }
+
+    #[test]
+    fn test_cycle_promotion_piece_backward() {
+        let mut state = AppState::new();
+        state.ui_state.selected_promotion_piece = Piece::Queen;
+
+        state.cycle_promotion_piece(-1); // Should wrap to Knight
+        assert_eq!(state.ui_state.selected_promotion_piece, Piece::Knight);
+
+        state.cycle_promotion_piece(-1);
+        assert_eq!(state.ui_state.selected_promotion_piece, Piece::Bishop);
+
+        state.cycle_promotion_piece(-1);
+        assert_eq!(state.ui_state.selected_promotion_piece, Piece::Rook);
+
+        state.cycle_promotion_piece(-1);
+        assert_eq!(state.ui_state.selected_promotion_piece, Piece::Queen);
+    }
+
+    #[test]
+    fn test_set_promotion_piece() {
+        let mut state = AppState::new();
+
+        state.set_promotion_piece(Piece::Knight);
+        assert_eq!(state.ui_state.selected_promotion_piece, Piece::Knight);
+
+        state.set_promotion_piece(Piece::Rook);
+        assert_eq!(state.ui_state.selected_promotion_piece, Piece::Rook);
+
+        state.set_promotion_piece(Piece::Bishop);
+        assert_eq!(state.ui_state.selected_promotion_piece, Piece::Bishop);
+    }
+
+    #[test]
+    fn test_cancel_promotion() {
+        let mut state = AppState::new();
+        state.ui_state.input_phase = InputPhase::SelectPromotion {
+            from: Square::new(cozy_chess::File::E, cozy_chess::Rank::Seventh),
+            to: Square::new(cozy_chess::File::E, cozy_chess::Rank::Eighth),
+        };
+        state.ui_state.selected_square = Some(Square::new(cozy_chess::File::E, cozy_chess::Rank::Seventh));
+
+        state.cancel_promotion();
+
+        assert_eq!(state.ui_state.input_phase, InputPhase::SelectPiece);
+        assert_eq!(state.ui_state.selected_square, None);
+    }
+
+    #[test]
+    fn test_execute_promotion_queen() {
+        // Set up position with white pawn on e7, can promote to e8
+        let fen = "8/4P2k/8/8/8/8/8/4K3 w - - 0 1";
+        let mut state = AppState::new();
+        state.game = Game::from_fen(fen).unwrap();
+
+        let from = Square::new(cozy_chess::File::E, cozy_chess::Rank::Seventh);
+        let to = Square::new(cozy_chess::File::E, cozy_chess::Rank::Eighth);
+
+        // Execute promotion to Queen
+        let result = state.execute_promotion(from, to, Piece::Queen);
+        assert!(result.is_ok(), "Failed to execute promotion: {:?}", result);
+
+        // Verify the piece is now a Queen on e8
+        assert_eq!(
+            state.game.position().piece_on(to),
+            Some(Piece::Queen)
+        );
+    }
+
+    #[test]
+    fn test_execute_promotion_knight() {
+        // Set up position with white pawn on e7, can promote to e8
+        let fen = "8/4P2k/8/8/8/8/8/4K3 w - - 0 1";
+        let mut state = AppState::new();
+        state.game = Game::from_fen(fen).unwrap();
+
+        let from = Square::new(cozy_chess::File::E, cozy_chess::Rank::Seventh);
+        let to = Square::new(cozy_chess::File::E, cozy_chess::Rank::Eighth);
+
+        // Execute promotion to Knight (underpromotion)
+        let result = state.execute_promotion(from, to, Piece::Knight);
+        assert!(result.is_ok(), "Failed to execute promotion: {:?}", result);
+
+        // Verify the piece is now a Knight on e8
+        assert_eq!(
+            state.game.position().piece_on(to),
+            Some(Piece::Knight)
+        );
+    }
 }

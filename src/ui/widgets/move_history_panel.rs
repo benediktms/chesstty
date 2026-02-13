@@ -21,7 +21,7 @@ impl<'a> MoveHistoryPanel<'a> {
 impl Widget for MoveHistoryPanel<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let block = Block::default()
-            .title("📜 Move History 📜")
+            .title("♔ Move History ♕")
             .borders(Borders::ALL)
             .border_style(Style::default().fg(Color::Cyan));
 
@@ -109,18 +109,18 @@ fn format_move_with_piece(entry: &crate::chess::HistoryEntry) -> String {
 
 fn get_piece_symbol(piece: Piece, color: ChessColor) -> &'static str {
     match (color, piece) {
-        (ChessColor::White, Piece::King) => "♔",
-        (ChessColor::White, Piece::Queen) => "♕",
-        (ChessColor::White, Piece::Rook) => "♖",
-        (ChessColor::White, Piece::Bishop) => "♗",
-        (ChessColor::White, Piece::Knight) => "♘",
-        (ChessColor::White, Piece::Pawn) => "♙",
-        (ChessColor::Black, Piece::King) => "♚",
-        (ChessColor::Black, Piece::Queen) => "♛",
-        (ChessColor::Black, Piece::Rook) => "♜",
-        (ChessColor::Black, Piece::Bishop) => "♝",
-        (ChessColor::Black, Piece::Knight) => "♞",
-        (ChessColor::Black, Piece::Pawn) => "♟",
+        (ChessColor::White, Piece::King) => "♚",
+        (ChessColor::White, Piece::Queen) => "♛",
+        (ChessColor::White, Piece::Rook) => "♜",
+        (ChessColor::White, Piece::Bishop) => "♝",
+        (ChessColor::White, Piece::Knight) => "♞",
+        (ChessColor::White, Piece::Pawn) => "♟",
+        (ChessColor::Black, Piece::King) => "♔",
+        (ChessColor::Black, Piece::Queen) => "♕",
+        (ChessColor::Black, Piece::Rook) => "♖",
+        (ChessColor::Black, Piece::Bishop) => "♗",
+        (ChessColor::Black, Piece::Knight) => "♘",
+        (ChessColor::Black, Piece::Pawn) => "♙",
     }
 }
 
