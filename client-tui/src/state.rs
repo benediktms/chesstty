@@ -52,8 +52,8 @@ pub struct UiState {
     pub last_move: Option<(Square, Square)>,
     pub engine_info: Option<EngineInfo>,
     pub is_engine_thinking: bool,
-    pub engine_move_triggered: bool,  // Track if we've triggered engine for current turn
-    pub needs_refresh: bool,  // Track if we need to refresh state from server
+    pub engine_move_triggered: bool, // Track if we've triggered engine for current turn
+    pub needs_refresh: bool,         // Track if we need to refresh state from server
     pub status_message: Option<String>,
     pub input_phase: InputPhase,
     pub uci_log: Vec<UciLogEntry>,
@@ -61,6 +61,8 @@ pub struct UiState {
     pub pane_manager: PaneManager,
     pub focus_stack: FocusStack,
     pub popup_menu: Option<PopupMenuState>,
+    pub paused: bool,
+    pub paused_before_menu: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -93,7 +95,9 @@ impl ClientState {
         let session_info = client.create_session(None).await?;
 
         // Parse the FEN to get the board
-        let board = session_info.fen.parse::<Board>()
+        let board = session_info
+            .fen
+            .parse::<Board>()
             .map_err(|e| format!("Failed to parse FEN: {}", e))?;
 
         let mut state = Self {
@@ -116,6 +120,8 @@ impl ClientState {
                 pane_manager: PaneManager::new(),
                 focus_stack: FocusStack::new(),
                 popup_menu: None,
+                paused: false,
+                paused_before_menu: false,
             },
             timer: None,
             cached_fen: session_info.fen.clone(),
@@ -158,6 +164,9 @@ impl ClientState {
 
     /// Check if it's the engine's turn to move
     pub fn is_engine_turn(&self) -> bool {
+        if self.ui_state.paused {
+            return false;
+        }
         match self.mode {
             GameMode::HumanVsEngine { human_side } => {
                 let is_white_turn = self.cached_side_to_move == "white";
@@ -189,22 +198,25 @@ impl ClientState {
 
         // Check if game is ongoing
         if self.cached_status != GameStatus::Ongoing as i32 {
-            tracing::warn!("Game is not ongoing (status: {}), not triggering engine", self.cached_status);
+            tracing::warn!(
+                "Game is not ongoing (status: {}), not triggering engine",
+                self.cached_status
+            );
             return Ok(());
         }
 
-        tracing::info!("Triggering engine move (side to move: {})", self.cached_side_to_move);
+        tracing::info!(
+            "Triggering engine move (side to move: {})",
+            self.cached_side_to_move
+        );
         self.ui_state.status_message = Some("Engine thinking...".to_string());
         self.ui_state.engine_move_triggered = true;
 
         // Trigger engine move on server
-        self.client
-            .trigger_engine_move(None)
-            .await
-            .map_err(|e| {
-                tracing::error!("Failed to trigger engine: {}", e);
-                e.to_string()
-            })?;
+        self.client.trigger_engine_move(None).await.map_err(|e| {
+            tracing::error!("Failed to trigger engine: {}", e);
+            e.to_string()
+        })?;
 
         Ok(())
     }
@@ -227,10 +239,8 @@ impl ClientState {
         let moves = self.client.get_legal_moves(None).await?;
 
         // Extract unique "from" squares and convert to Square
-        let mut from_squares: Vec<Square> = moves
-            .iter()
-            .filter_map(|m| parse_square(&m.from))
-            .collect();
+        let mut from_squares: Vec<Square> =
+            moves.iter().filter_map(|m| parse_square(&m.from)).collect();
         from_squares.sort_by_key(|sq| (sq.rank() as u8, sq.file() as u8));
         from_squares.dedup();
 
@@ -279,10 +289,8 @@ impl ClientState {
         let square_str = format_square(square);
         if let Some(moves) = self.legal_moves_cache.get(&square_str) {
             self.ui_state.selected_square = Some(square);
-            self.ui_state.highlighted_squares = moves
-                .iter()
-                .filter_map(|m| parse_square(&m.to))
-                .collect();
+            self.ui_state.highlighted_squares =
+                moves.iter().filter_map(|m| parse_square(&m.to)).collect();
             self.ui_state.input_phase = InputPhase::SelectDestination;
             self.ui_state.status_message = Some(format!("Selected {}", square_str));
         } else {
@@ -294,10 +302,7 @@ impl ClientState {
     pub async fn try_move_to(&mut self, to_square: Square) -> Result<(), String> {
         use chess_common::format_square;
 
-        let from_square = self
-            .ui_state
-            .selected_square
-            .ok_or("No piece selected")?;
+        let from_square = self.ui_state.selected_square.ok_or("No piece selected")?;
 
         // Check if this destination is in the highlighted (legal) moves
         if !self.ui_state.highlighted_squares.contains(&to_square) {
@@ -365,7 +370,7 @@ impl ClientState {
         to: Square,
         piece: Piece,
     ) -> Result<(), String> {
-        use chess_common::{format_square, format_piece};
+        use chess_common::{format_piece, format_square};
 
         let from_str = format_square(from);
         let to_str = format_square(to);
@@ -490,19 +495,17 @@ impl ClientState {
 
         if let Some(stream) = &mut self.event_stream {
             match futures::poll!(stream.next()) {
-                std::task::Poll::Ready(Some(result)) => {
-                    match result {
-                        Ok(event) => {
-                            self.handle_event(event);
-                            Ok(true)
-                        }
-                        Err(e) => {
-                            self.ui_state.status_message = Some(format!("Stream error: {}", e));
-                            self.event_stream = None;
-                            Err(e.into())
-                        }
+                std::task::Poll::Ready(Some(result)) => match result {
+                    Ok(event) => {
+                        self.handle_event(event);
+                        Ok(true)
                     }
-                }
+                    Err(e) => {
+                        self.ui_state.status_message = Some(format!("Stream error: {}", e));
+                        self.event_stream = None;
+                        Err(e.into())
+                    }
+                },
                 std::task::Poll::Ready(None) => {
                     self.event_stream = None;
                     Ok(false)
@@ -537,7 +540,7 @@ impl ClientState {
                         use chess_common::parse_square;
                         if let (Some(from), Some(to)) = (
                             parse_square(&move_record.from),
-                            parse_square(&move_record.to)
+                            parse_square(&move_record.to),
                         ) {
                             self.ui_state.last_move = Some((from, to));
                         }
@@ -573,10 +576,8 @@ impl ClientState {
                     self.ui_state.needs_refresh = true;
                 }
                 game_event::Event::GameEnded(ended) => {
-                    self.ui_state.status_message = Some(format!(
-                        "Game ended: {} - {}",
-                        ended.result, ended.reason
-                    ));
+                    self.ui_state.status_message =
+                        Some(format!("Game ended: {} - {}", ended.result, ended.reason));
                     self.ui_state.is_engine_thinking = false;
                     tracing::info!("Game ended: {} - {}", ended.result, ended.reason);
                 }

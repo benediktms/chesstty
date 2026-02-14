@@ -1,9 +1,9 @@
-use crate::state::{ClientState, GameMode, InputPhase};
+use crate::state::{ClientState, GameMode, InputPhase, PlayerColor};
 use crate::ui::menu_app;
 use crate::ui::pane::PaneId;
 use crate::ui::widgets::{BoardWidget, EngineAnalysisPanel, GameInfoPanel, MiniBoardWidget, MoveHistoryPanel, PopupMenuWidget, PromotionWidget, UciDebugPanel};
 use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event},
+    event::{DisableMouseCapture, EnableMouseCapture, Event},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -16,60 +16,124 @@ use ratatui::{
 use std::io;
 use std::time::Duration;
 
+/// Why the game loop exited.
+enum ExitReason {
+    Quit,
+    ReturnToMenu,
+}
+
 pub async fn run_app() -> anyhow::Result<()> {
-    // Show menu and get game configuration
-    let config = match menu_app::show_menu().await? {
-        Some(cfg) => cfg,
-        None => {
-            // User quit from menu
-            return Ok(());
-        }
-    };
+    // Outer loop: menu → game → menu → game → ...
+    loop {
+        // Show menu and get game configuration
+        let config = match menu_app::show_menu().await? {
+            Some(cfg) => cfg,
+            None => return Ok(()), // User quit from menu
+        };
 
-    // Setup terminal
-    enable_raw_mode()?;
-    let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
-    let backend = CrosstermBackend::new(stdout);
-    let mut terminal = Terminal::new(backend)?;
+        // Setup terminal for game
+        enable_raw_mode()?;
+        let mut stdout = io::stdout();
+        execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+        let backend = CrosstermBackend::new(stdout);
+        let mut terminal = Terminal::new(backend)?;
 
-    // Connect to server and create client state
-    let mut state = match ClientState::new("http://[::1]:50051").await {
-        Ok(state) => state,
-        Err(e) => {
-            disable_raw_mode()?;
-            execute!(
-                terminal.backend_mut(),
-                LeaveAlternateScreen,
-                DisableMouseCapture
-            )?;
-            terminal.show_cursor()?;
-            return Err(anyhow::anyhow!("Failed to connect to server: {}", e));
-        }
-    };
+        let result = run_game(&mut terminal, config).await;
 
-    // Apply menu configuration
-    state.skill_level = config.skill_level;
+        // Restore terminal
+        disable_raw_mode()?;
+        execute!(
+            terminal.backend_mut(),
+            LeaveAlternateScreen,
+            DisableMouseCapture
+        )?;
+        terminal.show_cursor()?;
 
-    // Set starting position if custom FEN provided
-    if let Some(fen) = config.start_fen {
-        if let Err(e) = state.reset(Some(fen)).await {
-            state.ui_state.status_message = Some(format!("Failed to set FEN: {}", e));
+        match result {
+            Ok(ExitReason::Quit) => return Ok(()),
+            Ok(ExitReason::ReturnToMenu) => continue, // Loop back to menu
+            Err(e) => return Err(e),
         }
     }
+}
 
-    // Enable engine if needed based on game mode
-    let needs_engine = matches!(config.mode, GameMode::HumanVsEngine { .. } | GameMode::EngineVsEngine);
+/// Set up a game session from config and run the UI loop.
+async fn run_game<B: ratatui::backend::Backend>(
+    terminal: &mut Terminal<B>,
+    config: menu_app::GameConfig,
+) -> anyhow::Result<ExitReason> {
+    // Connect to server and create client state
+    let mut state = ClientState::new("http://[::1]:50051").await
+        .map_err(|e| anyhow::anyhow!("Failed to connect to server: {}", e))?;
 
-    // Now assign mode to state
-    state.mode = config.mode;
+    // Handle resume vs new game
+    if config.resume {
+        // Load saved session and restore state
+        match crate::session_file::load_session() {
+            Ok(Some(saved)) => {
+                // Reset to the saved FEN
+                if let Err(e) = state.reset(Some(saved.fen)).await {
+                    state.ui_state.status_message = Some(format!("Failed to restore position: {}", e));
+                }
 
-    if needs_engine {
-        if let Err(e) = state
-            .set_engine_full(true, config.skill_level, config.engine_threads, config.engine_hash_mb)
-            .await
-        {
-            state.ui_state.status_message = Some(format!("Failed to enable engine: {}", e));
+                // Restore game mode
+                state.mode = match saved.game_mode.as_str() {
+                    "HumanVsHuman" => GameMode::HumanVsHuman,
+                    "HumanVsEngine" => {
+                        let side = match saved.human_side.as_deref() {
+                            Some("black") => PlayerColor::Black,
+                            _ => PlayerColor::White,
+                        };
+                        GameMode::HumanVsEngine { human_side: side }
+                    }
+                    "EngineVsEngine" => GameMode::EngineVsEngine,
+                    _ => GameMode::HumanVsHuman,
+                };
+
+                state.skill_level = saved.skill_level;
+
+                // Re-enable engine if needed
+                let needs_engine = matches!(state.mode, GameMode::HumanVsEngine { .. } | GameMode::EngineVsEngine);
+                if needs_engine {
+                    if let Err(e) = state.set_engine(true, saved.skill_level).await {
+                        state.ui_state.status_message = Some(format!("Failed to enable engine: {}", e));
+                    }
+                }
+
+                state.ui_state.status_message = Some("Session resumed".to_string());
+
+                // Clear the saved session file now that we've loaded it
+                if let Err(e) = crate::session_file::clear_saved_session() {
+                    tracing::warn!("Failed to clear saved session: {}", e);
+                }
+            }
+            Ok(None) => {
+                state.ui_state.status_message = Some("No saved session found".to_string());
+            }
+            Err(e) => {
+                state.ui_state.status_message = Some(format!("Failed to load session: {}", e));
+            }
+        }
+    } else {
+        // New game setup
+        state.skill_level = config.skill_level;
+
+        if let Some(fen) = config.start_fen {
+            if let Err(e) = state.reset(Some(fen)).await {
+                state.ui_state.status_message = Some(format!("Failed to set FEN: {}", e));
+            }
+        }
+
+        let needs_engine = matches!(config.mode, GameMode::HumanVsEngine { .. } | GameMode::EngineVsEngine);
+        state.mode = config.mode;
+
+        if needs_engine {
+            if let Err(e) = state
+                .set_engine_full(true, config.skill_level, config.engine_threads, config.engine_hash_mb)
+                .await
+            {
+                state.ui_state.status_message = Some(format!("Failed to enable engine: {}", e));
+            }
         }
     }
 
@@ -78,9 +142,8 @@ pub async fn run_app() -> anyhow::Result<()> {
         use crate::timer::ChessTimer;
         let timer = ChessTimer::new(std::time::Duration::from_secs(seconds));
         state.timer = Some(timer);
-        // Start white's clock immediately
         if let Some(ref mut t) = state.timer {
-            t.switch_to(crate::state::PlayerColor::White);
+            t.switch_to(PlayerColor::White);
         }
     }
 
@@ -89,24 +152,13 @@ pub async fn run_app() -> anyhow::Result<()> {
         state.ui_state.status_message = Some(format!("Failed to start event stream: {}", e));
     }
 
-    let result = run_ui_loop(&mut terminal, &mut state).await;
-
-    // Restore terminal
-    disable_raw_mode()?;
-    execute!(
-        terminal.backend_mut(),
-        LeaveAlternateScreen,
-        DisableMouseCapture
-    )?;
-    terminal.show_cursor()?;
-
-    result
+    run_ui_loop(terminal, &mut state).await
 }
 
 async fn run_ui_loop<B: ratatui::backend::Backend>(
     terminal: &mut Terminal<B>,
     state: &mut ClientState,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<ExitReason> {
     use super::input::{self, AppAction};
     use crossterm::event::EventStream;
     use futures::StreamExt;
@@ -120,7 +172,6 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
 
     loop {
         // Wait for whichever comes first: keyboard, server event, or UI tick.
-        // This eliminates the blocking poll — we react instantly to any event.
         let term_event = tokio::select! {
             biased;
 
@@ -155,11 +206,11 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
         // Tick the timer
         if let Some(ref mut timer) = state.timer {
             timer.tick();
-            for &side in &[crate::state::PlayerColor::White, crate::state::PlayerColor::Black] {
+            for &side in &[PlayerColor::White, PlayerColor::Black] {
                 if timer.is_flag_fallen(side) && timer.active_side() == Some(side) {
                     let side_name = match side {
-                        crate::state::PlayerColor::White => "White",
-                        crate::state::PlayerColor::Black => "Black",
+                        PlayerColor::White => "White",
+                        PlayerColor::Black => "Black",
                     };
                     state.ui_state.status_message = Some(format!("{}'s time has expired!", side_name));
                     timer.pause();
@@ -170,8 +221,8 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
         // Drain any additional buffered server events (non-blocking)
         loop {
             match state.poll_events().await {
-                Ok(true) => continue,  // Got an event, try again
-                _ => break,            // No more events or error
+                Ok(true) => continue,
+                _ => break,
             }
         }
 
@@ -206,20 +257,18 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
             use ratatui::text::{Line, Span};
             use ratatui::widgets::Paragraph;
 
-            // Main vertical split: content area (top) and controls line (bottom)
             let main_vertical = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([
-                    Constraint::Min(10),     // Content area
-                    Constraint::Length(1),   // Controls line at bottom
+                    Constraint::Min(10),
+                    Constraint::Length(1),
                 ])
                 .split(f.area());
 
-            // Content area vertical split: board/panels area and UCI panel (if shown)
             let show_debug_panel = show_debug && expanded_panel != Some(PaneId::UciDebug);
-            let mut content_constraints = vec![Constraint::Min(20)]; // Board + panels area
+            let mut content_constraints = vec![Constraint::Min(20)];
             if show_debug_panel {
-                content_constraints.push(Constraint::Length(15)); // UCI panel
+                content_constraints.push(Constraint::Length(15));
             }
 
             let content_chunks = Layout::default()
@@ -227,28 +276,26 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
                 .constraints(content_constraints)
                 .split(main_vertical[0]);
 
-            // Split board/panels area horizontally: left (board or expanded pane) and right (info panels)
             let board_area_chunks = Layout::default()
                 .direction(Direction::Horizontal)
                 .constraints([
-                    Constraint::Min(50),     // Left: Board or expanded pane
-                    Constraint::Length(40),  // Right: Info panels
+                    Constraint::Min(50),
+                    Constraint::Length(40),
                 ])
                 .split(content_chunks[0]);
 
             let left_area = board_area_chunks[0];
 
-            // Dynamic constraints for right side panels (exclude expanded pane)
-            let mut right_constraints = vec![Constraint::Length(10)]; // Game info (always)
+            let mut right_constraints = vec![Constraint::Length(10)];
 
             let show_engine_in_right = show_engine && expanded_panel != Some(PaneId::EngineAnalysis);
             if show_engine_in_right {
-                right_constraints.push(Constraint::Length(12)); // Engine analysis
+                right_constraints.push(Constraint::Length(12));
             }
 
             let show_history_in_right = expanded_panel != Some(PaneId::MoveHistory);
             if show_history_in_right {
-                right_constraints.push(Constraint::Min(15)); // Move history
+                right_constraints.push(Constraint::Min(15));
             }
 
             let right_chunks = Layout::default()
@@ -256,42 +303,31 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
                 .constraints(right_constraints)
                 .split(board_area_chunks[1]);
 
-            // === LEFT AREA: Board or expanded pane ===
+            // === LEFT AREA ===
             if let Some(exp_pane) = expanded_panel {
-                // Render expanded pane in the left area
                 match exp_pane {
                     PaneId::MoveHistory => {
-                        let widget = MoveHistoryPanel::expanded(
-                            state.history(),
-                            history_scroll,
-                        );
+                        let widget = MoveHistoryPanel::expanded(state.history(), history_scroll);
                         f.render_widget(widget, left_area);
                     }
                     PaneId::EngineAnalysis => {
                         let widget = EngineAnalysisPanel::new(
                             state.ui_state.engine_info.as_ref(),
                             state.ui_state.is_engine_thinking,
-                            engine_scroll,
-                            true,
+                            engine_scroll, true,
                         );
                         f.render_widget(widget, left_area);
                     }
                     PaneId::UciDebug => {
-                        let widget = UciDebugPanel::new(
-                            &state.ui_state.uci_log,
-                            debug_scroll,
-                            true,
-                        );
+                        let widget = UciDebugPanel::new(&state.ui_state.uci_log, debug_scroll, true);
                         f.render_widget(widget, left_area);
                     }
                     PaneId::GameInfo => {
-                        // GameInfo is not expandable, but handle gracefully
                         let widget = GameInfoPanel { client_state: state };
                         f.render_widget(widget, left_area);
                     }
                 }
 
-                // Overlay mini-board in bottom-right corner of left area
                 let mini_width = 20u16;
                 let mini_height = 11u16;
                 if left_area.width >= mini_width + 2 && left_area.height >= mini_height + 2 {
@@ -301,16 +337,12 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
                         width: mini_width,
                         height: mini_height,
                     };
-                    let is_flipped = matches!(state.mode, GameMode::HumanVsEngine { human_side: crate::state::PlayerColor::Black });
-                    let mini_board = MiniBoardWidget {
-                        board: state.board(),
-                        flipped: is_flipped,
-                    };
+                    let is_flipped = matches!(state.mode, GameMode::HumanVsEngine { human_side: PlayerColor::Black });
+                    let mini_board = MiniBoardWidget { board: state.board(), flipped: is_flipped };
                     f.render_widget(mini_board, mini_area);
                 }
             } else {
-                // Normal: render full board
-                let is_flipped = matches!(state.mode, GameMode::HumanVsEngine { human_side: crate::state::PlayerColor::Black });
+                let is_flipped = matches!(state.mode, GameMode::HumanVsEngine { human_side: PlayerColor::Black });
                 let board_widget = BoardWidget {
                     client_state: state,
                     typeahead_squares: &typeahead_squares,
@@ -322,49 +354,34 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
             // === RIGHT PANELS ===
             let mut chunk_idx = 0;
 
-            // Render game info panel (always in right column)
-            let game_info = GameInfoPanel {
-                client_state: state,
-            };
+            let game_info = GameInfoPanel { client_state: state };
             f.render_widget(game_info, right_chunks[chunk_idx]);
             chunk_idx += 1;
 
-            // Render engine analysis panel if visible and not expanded
             if show_engine_in_right {
                 let is_selected = selected_panel == Some(PaneId::EngineAnalysis);
                 let engine_panel = EngineAnalysisPanel::new(
                     state.ui_state.engine_info.as_ref(),
                     state.ui_state.is_engine_thinking,
-                    engine_scroll,
-                    is_selected,
+                    engine_scroll, is_selected,
                 );
                 f.render_widget(engine_panel, right_chunks[chunk_idx]);
                 chunk_idx += 1;
             }
 
-            // Render move history panel if not expanded
             if show_history_in_right {
                 let is_selected = selected_panel == Some(PaneId::MoveHistory);
-                let history_widget = MoveHistoryPanel::new(
-                    state.history(),
-                    history_scroll,
-                    is_selected,
-                );
+                let history_widget = MoveHistoryPanel::new(state.history(), history_scroll, is_selected);
                 f.render_widget(history_widget, right_chunks[chunk_idx]);
             }
 
-            // Render UCI debug panel if visible and not expanded
             if show_debug_panel {
                 let is_selected = selected_panel == Some(PaneId::UciDebug);
-                let uci_panel = UciDebugPanel::new(
-                    &state.ui_state.uci_log,
-                    debug_scroll,
-                    is_selected,
-                );
+                let uci_panel = UciDebugPanel::new(&state.ui_state.uci_log, debug_scroll, is_selected);
                 f.render_widget(uci_panel, content_chunks[1]);
             }
 
-            // Render controls as a single line at the bottom
+            // Controls line
             let mut controls_spans = vec![];
 
             if !input_buffer.is_empty() {
@@ -374,15 +391,25 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
                 ));
             }
 
-            // Game controls
+            // Pause indicator for EvE mode
+            if matches!(state.mode, GameMode::EngineVsEngine) {
+                if state.ui_state.paused {
+                    controls_spans.push(Span::styled(
+                        "PAUSED",
+                        Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                    ));
+                    controls_spans.push(Span::raw(" | "));
+                }
+                controls_spans.push(Span::styled("p", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)));
+                controls_spans.push(Span::raw(" Pause | "));
+            }
+
             if state.is_undo_allowed() {
                 controls_spans.push(Span::styled("u", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)));
                 controls_spans.push(Span::raw(" Undo | "));
             }
             controls_spans.push(Span::styled("Esc", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)));
             controls_spans.push(Span::raw(" Menu | "));
-
-            // Panel controls
             controls_spans.push(Span::styled("Tab", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)));
             controls_spans.push(Span::raw(" Panels | "));
             controls_spans.push(Span::styled("\u{2190}\u{2192}", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)));
@@ -400,7 +427,7 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
                 .style(Style::default().bg(Color::Black));
             f.render_widget(controls_line, main_vertical[1]);
 
-            // Render promotion dialog if active
+            // Overlays
             if matches!(state.ui_state.input_phase, InputPhase::SelectPromotion { .. }) {
                 let promotion_widget = PromotionWidget {
                     selected_piece: state.ui_state.selected_promotion_piece,
@@ -408,7 +435,6 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
                 f.render_widget(promotion_widget, f.area());
             }
 
-            // Render popup menu if active
             if let Some(ref popup_state) = state.ui_state.popup_menu {
                 let popup_widget = PopupMenuWidget { state: popup_state };
                 f.render_widget(popup_widget, f.area());
@@ -419,8 +445,8 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
         if let Some(Event::Key(key)) = term_event {
             match input::handle_key(state, &mut input_buffer, key).await {
                 AppAction::Continue => {}
-                AppAction::Quit => break,
-                AppAction::ReturnToMenu => break,
+                AppAction::Quit => return Ok(ExitReason::Quit),
+                AppAction::ReturnToMenu => return Ok(ExitReason::ReturnToMenu),
                 AppAction::SuspendAndReturnToMenu => {
                     let session = crate::session_file::build_saved_session(
                         state.fen(),
@@ -431,7 +457,7 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
                     if let Err(e) = crate::session_file::save_session(&session) {
                         tracing::error!("Failed to save session: {}", e);
                     }
-                    break;
+                    return Ok(ExitReason::ReturnToMenu);
                 }
             }
         }
@@ -443,8 +469,6 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
             }
         }
     }
-
-    Ok(())
 }
 
 pub(super) async fn handle_input(state: &mut ClientState, input: &str) {
@@ -472,7 +496,6 @@ pub(super) async fn handle_input(state: &mut ClientState, input: &str) {
 
         match state.ui_state.input_phase {
             InputPhase::SelectPiece => {
-                // First square - select piece
                 if let Some(square) = parse_square(&input) {
                     if state.ui_state.selectable_squares.contains(&square) {
                         state.select_square(square);
@@ -485,7 +508,6 @@ pub(super) async fn handle_input(state: &mut ClientState, input: &str) {
                 }
             }
             InputPhase::SelectDestination => {
-                // Second square - move to destination
                 if let Some(square) = parse_square(&input) {
                     if let Err(e) = state.try_move_to(square).await {
                         state.ui_state.status_message = Some(format!("Move error: {}", e));
@@ -495,7 +517,6 @@ pub(super) async fn handle_input(state: &mut ClientState, input: &str) {
                 }
             }
             InputPhase::SelectPromotion { from, to } => {
-                // Promotion piece selection
                 let piece = match input.as_str() {
                     "q" | "queen" => Piece::Queen,
                     "r" | "rook" => Piece::Rook,

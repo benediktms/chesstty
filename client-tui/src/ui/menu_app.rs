@@ -62,21 +62,21 @@ pub async fn show_menu() -> anyhow::Result<Option<GameConfig>> {
                 let selected_item = items.get(menu_state.selected_index).cloned();
 
                 match key.code {
-                    KeyCode::Up => {
+                    KeyCode::Up | KeyCode::Char('k') => {
                         if menu_state.selected_index > 0 {
                             menu_state.selected_index -= 1;
                         }
                     }
-                    KeyCode::Down => {
+                    KeyCode::Down | KeyCode::Char('j') => {
                         let max_index = items.len().saturating_sub(1);
                         if menu_state.selected_index < max_index {
                             menu_state.selected_index += 1;
                         }
                     }
-                    KeyCode::Left => {
+                    KeyCode::Left | KeyCode::Char('h') => {
                         cycle_option(&mut menu_state, &selected_item, -1);
                     }
-                    KeyCode::Right => {
+                    KeyCode::Right | KeyCode::Char('l') => {
                         cycle_option(&mut menu_state, &selected_item, 1);
                     }
                     KeyCode::Enter => {
@@ -260,21 +260,34 @@ fn handle_fen_dialog_input(menu_state: &mut MenuState, key_code: KeyCode) {
             };
         }
         KeyCode::Char(c) => {
-            // Add character to input buffer
             if dialog_state.focus == FenDialogFocus::Input {
                 dialog_state.input_buffer.push(c);
                 dialog_state.validation_error = None;
+            } else if dialog_state.focus == FenDialogFocus::HistoryList {
+                // Vim keys for history navigation
+                match c {
+                    'k' => {
+                        if dialog_state.selected_history_index > 0 {
+                            dialog_state.selected_history_index -= 1;
+                        }
+                    }
+                    'j' => {
+                        let max_index = menu_state.fen_history.len().saturating_sub(1);
+                        if dialog_state.selected_history_index < max_index {
+                            dialog_state.selected_history_index += 1;
+                        }
+                    }
+                    _ => {}
+                }
             }
         }
         KeyCode::Backspace => {
-            // Remove last character
             if dialog_state.focus == FenDialogFocus::Input {
                 dialog_state.input_buffer.pop();
                 dialog_state.validation_error = None;
             }
         }
         KeyCode::Up => {
-            // Navigate history list
             if dialog_state.focus == FenDialogFocus::HistoryList {
                 if dialog_state.selected_history_index > 0 {
                     dialog_state.selected_history_index -= 1;
@@ -282,7 +295,6 @@ fn handle_fen_dialog_input(menu_state: &mut MenuState, key_code: KeyCode) {
             }
         }
         KeyCode::Down => {
-            // Navigate history list
             if dialog_state.focus == FenDialogFocus::HistoryList {
                 let max_index = menu_state.fen_history.len().saturating_sub(1);
                 if dialog_state.selected_history_index < max_index {

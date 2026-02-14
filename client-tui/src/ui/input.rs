@@ -85,6 +85,14 @@ async fn handle_board_context(
                 });
             }
         }
+        // Pause toggle (EngineVsEngine only) — must be before Char(c) catch-all
+        KeyCode::Char('p') if matches!(state.mode, GameMode::EngineVsEngine) => {
+            state.ui_state.paused = !state.ui_state.paused;
+            state.ui_state.status_message = Some(
+                if state.ui_state.paused { "Paused".to_string() }
+                else { "Resumed".to_string() }
+            );
+        }
         KeyCode::Char(c) => {
             if !should_disable_input(&state.mode) {
                 input_buffer.push(c);
@@ -100,12 +108,16 @@ async fn handle_board_context(
             }
         }
         KeyCode::Esc => {
-            // If there's a selection, clear it first. Otherwise show popup menu.
             if state.ui_state.selected_square.is_some() {
                 state.clear_selection();
                 input_buffer.clear();
             } else {
                 input_buffer.clear();
+                // Auto-pause for EngineVsEngine when opening menu
+                if matches!(state.mode, GameMode::EngineVsEngine) {
+                    state.ui_state.paused_before_menu = state.ui_state.paused;
+                    state.ui_state.paused = true;
+                }
                 state.ui_state.popup_menu = Some(PopupMenuState::new(&state.mode));
             }
         }
@@ -114,18 +126,25 @@ async fn handle_board_context(
     AppAction::Continue
 }
 
+/// Restore pause state after popup menu is dismissed (for EvE auto-pause).
+fn restore_pause_state(state: &mut ClientState) {
+    if matches!(state.mode, GameMode::EngineVsEngine) {
+        state.ui_state.paused = state.ui_state.paused_before_menu;
+    }
+}
+
 /// Handle keys when the popup menu is active.
 async fn handle_popup_input(
     state: &mut ClientState,
     key: KeyEvent,
 ) -> AppAction {
     match key.code {
-        KeyCode::Up => {
+        KeyCode::Up | KeyCode::Char('k') => {
             if let Some(ref mut menu) = state.ui_state.popup_menu {
                 menu.move_up();
             }
         }
-        KeyCode::Down => {
+        KeyCode::Down | KeyCode::Char('j') => {
             if let Some(ref mut menu) = state.ui_state.popup_menu {
                 menu.move_down();
             }
@@ -137,7 +156,8 @@ async fn handle_popup_input(
                 .as_ref()
                 .map(|m| m.selected_item().clone());
 
-            state.ui_state.popup_menu = None; // Close menu
+            state.ui_state.popup_menu = None;
+            restore_pause_state(state);
 
             if let Some(item) = selected {
                 match item {
@@ -148,7 +168,6 @@ async fn handle_popup_input(
                         }
                     }
                     PopupMenuItem::AdjustDifficulty => {
-                        // Cycle through difficulty levels: 3 -> 10 -> 15 -> 20 -> 3
                         let new_level = match state.skill_level {
                             0..=5 => 10,
                             6..=12 => 15,
@@ -180,7 +199,8 @@ async fn handle_popup_input(
             }
         }
         KeyCode::Esc => {
-            state.ui_state.popup_menu = None; // Dismiss menu
+            state.ui_state.popup_menu = None;
+            restore_pause_state(state);
         }
         _ => {}
     }
@@ -194,7 +214,7 @@ fn handle_pane_selected_context(
     key: KeyEvent,
 ) -> AppAction {
     match key.code {
-        KeyCode::Left => {
+        KeyCode::Left | KeyCode::Char('h') => {
             if let Some(prev) = state.ui_state.pane_manager.prev_selectable(pane_id) {
                 state.ui_state.focus_stack.pop();
                 state.ui_state.focus_stack.push(FocusContext::PaneSelected {
@@ -202,7 +222,7 @@ fn handle_pane_selected_context(
                 });
             }
         }
-        KeyCode::Right | KeyCode::Tab => {
+        KeyCode::Right | KeyCode::Tab | KeyCode::Char('l') => {
             if let Some(next) = state.ui_state.pane_manager.next_selectable(pane_id) {
                 state.ui_state.focus_stack.pop();
                 state.ui_state.focus_stack.push(FocusContext::PaneSelected {
@@ -210,11 +230,11 @@ fn handle_pane_selected_context(
                 });
             }
         }
-        KeyCode::Up => {
+        KeyCode::Up | KeyCode::Char('k') => {
             let scroll = state.ui_state.pane_manager.scroll_mut(pane_id);
             *scroll = scroll.saturating_sub(5);
         }
-        KeyCode::Down => {
+        KeyCode::Down | KeyCode::Char('j') => {
             let scroll = state.ui_state.pane_manager.scroll_mut(pane_id);
             *scroll = scroll.saturating_add(5);
         }
@@ -248,11 +268,11 @@ fn handle_pane_expanded_context(
     key: KeyEvent,
 ) -> AppAction {
     match key.code {
-        KeyCode::Up => {
+        KeyCode::Up | KeyCode::Char('k') => {
             let scroll = state.ui_state.pane_manager.scroll_mut(pane_id);
             *scroll = scroll.saturating_sub(5);
         }
-        KeyCode::Down => {
+        KeyCode::Down | KeyCode::Char('j') => {
             let scroll = state.ui_state.pane_manager.scroll_mut(pane_id);
             *scroll = scroll.saturating_add(5);
         }
