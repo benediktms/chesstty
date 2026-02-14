@@ -6,6 +6,7 @@ use std::collections::HashMap;
 pub struct Game {
     position: Board,
     history: Vec<HistoryEntry>,
+    redo_stack: Vec<HistoryEntry>,  // Stack for redo operations
     pgn_tags: HashMap<String, String>,
     start_position: StartPosition,
 }
@@ -25,6 +26,7 @@ pub struct HistoryEntry {
     pub castling_rights: u8,
     pub en_passant: Option<Square>,
     pub halfmove_clock: u8,
+    pub board_before: Board,      // Board state before this move (for O(1) undo)
 }
 
 /// Starting position of the game
@@ -40,6 +42,7 @@ impl Game {
         Self {
             position: Board::default(),
             history: Vec::new(),
+            redo_stack: Vec::new(),
             pgn_tags: HashMap::new(),
             start_position: StartPosition::Standard,
         }
@@ -51,6 +54,7 @@ impl Game {
         Ok(Self {
             position,
             history: Vec::new(),
+            redo_stack: Vec::new(),
             pgn_tags: HashMap::new(),
             start_position: StartPosition::Fen(fen.to_string()),
         })
@@ -72,6 +76,12 @@ impl Game {
         if !self.legal_moves().contains(&mv) {
             return Err(GameError::IllegalMove);
         }
+
+        // Clear redo stack on new move (standard undo/redo behavior)
+        self.redo_stack.clear();
+
+        // Clone the board before the move for O(1) undo
+        let board_before = self.position.clone();
 
         // Snapshot state for undo (simplified - cozy-chess stores this internally)
         let captured = self.position.piece_on(mv.to);
@@ -108,6 +118,7 @@ impl Game {
             castling_rights: 0, // TODO: Extract from board
             en_passant: None,   // TODO: Extract from board
             halfmove_clock: 0,  // TODO: Extract from board
+            board_before,
         };
 
         self.history.push(entry.clone());
@@ -115,14 +126,20 @@ impl Game {
         Ok(entry)
     }
 
-    /// Undo the last move
+    /// Undo the last move - O(1) operation using board snapshots
     pub fn undo(&mut self) -> Result<(), GameError> {
         if self.history.is_empty() {
             return Err(GameError::NothingToUndo);
         }
 
-        self.history.pop();
-        self.rebuild_position()?;
+        // Pop the last move from history
+        let entry = self.history.pop().unwrap();
+
+        // Restore board from snapshot (clone to avoid partial move)
+        self.position = entry.board_before.clone();
+
+        // Move entry to redo stack
+        self.redo_stack.push(entry);
 
         Ok(())
     }
@@ -152,24 +169,22 @@ impl Game {
         crate::fen::format_fen(&self.position)
     }
 
-    /// Redo is not implemented (would require storing redo stack)
+    /// Redo a previously undone move - O(1) operation
     pub fn redo(&mut self) -> Result<HistoryEntry, GameError> {
-        Err(GameError::NotImplemented)
-    }
-
-    /// Rebuild position from start + history (for undo)
-    fn rebuild_position(&mut self) -> Result<(), GameError> {
-        let mut board = match &self.start_position {
-            StartPosition::Standard => Board::default(),
-            StartPosition::Fen(fen) => crate::fen::parse_fen(fen)?,
-        };
-
-        for entry in &self.history {
-            board.play(entry.mv);
+        if self.redo_stack.is_empty() {
+            return Err(GameError::NothingToRedo);
         }
 
-        self.position = board;
-        Ok(())
+        // Pop from redo stack
+        let entry = self.redo_stack.pop().unwrap();
+
+        // Apply the move
+        self.position.play(entry.mv);
+
+        // Push back to history
+        self.history.push(entry.clone());
+
+        Ok(entry)
     }
 }
 
@@ -254,6 +269,8 @@ pub enum GameError {
     IllegalMove,
     #[error("Nothing to undo")]
     NothingToUndo,
+    #[error("Nothing to redo")]
+    NothingToRedo,
     #[error("Not implemented")]
     NotImplemented,
     #[error("FEN parse error: {0}")]

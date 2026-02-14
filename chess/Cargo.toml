@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 cozy-chess = { workspace = true }
 thiserror = { workspace = true }
+chess-common = { path = "../chess-common" }
 
 [dev-dependencies]
 proptest = "1.4"

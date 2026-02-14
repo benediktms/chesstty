@@ -8,3 +8,4 @@ tokio = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 cozy-chess = { workspace = true }
+chess-common = { path = "../chess-common" }

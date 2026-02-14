@@ -229,7 +229,7 @@ impl ClientState {
 
     /// Update the list of squares with pieces that can be selected
     pub async fn update_selectable_squares(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        use crate::converters::parse_square;
+        use chess_common::parse_square;
 
         // Get all legal moves from server
         let moves = self.client.get_legal_moves(None).await?;
@@ -258,7 +258,7 @@ impl ClientState {
 
     /// Filter selectable squares by partial input (typeahead)
     pub fn filter_selectable_by_input(&self, input: &str) -> Vec<Square> {
-        use crate::converters::format_square;
+        use chess_common::format_square;
 
         if input.is_empty() {
             return vec![];
@@ -274,7 +274,7 @@ impl ClientState {
 
     /// Select a square and highlight legal moves for the piece on it
     pub fn select_square(&mut self, square: Square) {
-        use crate::converters::{format_square, parse_square};
+        use chess_common::{format_square, parse_square};
 
         // Check if this square is selectable
         if !self.ui_state.selectable_squares.contains(&square) {
@@ -300,7 +300,7 @@ impl ClientState {
 
     /// Attempt to move the selected piece to the destination square
     pub async fn try_move_to(&mut self, to_square: Square) -> Result<(), String> {
-        use crate::converters::format_square;
+        use chess_common::format_square;
 
         let from_square = self
             .ui_state
@@ -373,7 +373,7 @@ impl ClientState {
         to: Square,
         piece: Piece,
     ) -> Result<(), String> {
-        use crate::converters::{format_square, format_piece};
+        use chess_common::{format_square, format_piece};
 
         let from_str = format_square(from);
         let to_str = format_square(to);
@@ -578,7 +578,7 @@ impl ClientState {
                         tracing::info!("Move made: {}", move_record.san);
 
                         // Update last move for highlighting
-                        use crate::converters::parse_square;
+                        use chess_common::parse_square;
                         if let (Some(from), Some(to)) = (
                             parse_square(&move_record.from),
                             parse_square(&move_record.to)

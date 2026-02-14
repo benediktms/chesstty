@@ -1,0 +1,10 @@
+[package]
+name = "chess-common"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+cozy-chess = { workspace = true }
+
+[lints]
+workspace = true

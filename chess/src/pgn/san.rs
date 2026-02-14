@@ -2,14 +2,14 @@ use cozy_chess::{Board, File, Move, Piece, Rank, Square};
 
 /// Parse Standard Algebraic Notation (SAN) move
 pub fn parse_san(board: &Board, san: &str) -> Result<Move, SanError> {
-    // TODO: Implement SAN parser
+    // FUTURE WORK: Implement full SAN parser with disambiguation
     // For now, return error
     Err(SanError::NotImplemented)
 }
 
 /// Format a move as SAN
 pub fn format_san(board: &Board, mv: Move) -> String {
-    // TODO: Implement SAN formatter
+    // FUTURE WORK: Implement full SAN formatter with proper notation
     // For now, use UCI format as fallback
     format_move_simple(mv)
 }

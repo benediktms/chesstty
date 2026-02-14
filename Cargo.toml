@@ -6,6 +6,7 @@ members = [
     "client-tui",
     "chess",
     "engine",
+    "chess-common",
 ]
 
 [workspace.dependencies]

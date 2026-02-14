@@ -9,6 +9,7 @@ path = "src/main.rs"
 
 [dependencies]
 chess-proto = { path = "../proto" }
+chess-common = { path = "../chess-common" }
 
 tokio = { workspace = true }
 tonic = { workspace = true }

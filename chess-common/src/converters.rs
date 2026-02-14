@@ -1,4 +1,4 @@
-// Conversion utilities between ClientState (string-based) and UI expectations (cozy-chess types)
+//! Conversion utilities between string representations and cozy-chess types
 
 use cozy_chess::{Color, File, Piece, Rank, Square};
 
@@ -89,15 +89,11 @@ pub fn parse_color(s: &str) -> Option<Color> {
     }
 }
 
-/// Format a piece to its character representation
-pub fn format_piece(piece: Piece) -> char {
-    match piece {
-        Piece::Pawn => 'p',
-        Piece::Knight => 'n',
-        Piece::Bishop => 'b',
-        Piece::Rook => 'r',
-        Piece::Queen => 'q',
-        Piece::King => 'k',
+/// Format a color to string
+pub fn format_color(color: Color) -> String {
+    match color {
+        Color::White => "white".to_string(),
+        Color::Black => "black".to_string(),
     }
 }
 
@@ -112,6 +108,23 @@ pub fn parse_piece(c: char) -> Option<Piece> {
         'k' => Some(Piece::King),
         _ => None,
     }
+}
+
+/// Format a piece to its lowercase character representation
+pub fn format_piece(piece: Piece) -> char {
+    match piece {
+        Piece::Pawn => 'p',
+        Piece::Knight => 'n',
+        Piece::Bishop => 'b',
+        Piece::Rook => 'r',
+        Piece::Queen => 'q',
+        Piece::King => 'k',
+    }
+}
+
+/// Format a piece to its uppercase character representation
+pub fn format_piece_upper(piece: Piece) -> char {
+    format_piece(piece).to_ascii_uppercase()
 }
 
 #[cfg(test)]
@@ -136,5 +149,24 @@ mod tests {
         assert_eq!(parse_color("white"), Some(Color::White));
         assert_eq!(parse_color("black"), Some(Color::Black));
         assert_eq!(parse_color("invalid"), None);
+    }
+
+    #[test]
+    fn test_format_color() {
+        assert_eq!(format_color(Color::White), "white");
+        assert_eq!(format_color(Color::Black), "black");
+    }
+
+    #[test]
+    fn test_parse_piece() {
+        assert_eq!(parse_piece('q'), Some(Piece::Queen));
+        assert_eq!(parse_piece('N'), Some(Piece::Knight));
+        assert_eq!(parse_piece('x'), None);
+    }
+
+    #[test]
+    fn test_format_piece() {
+        assert_eq!(format_piece(Piece::Queen), 'q');
+        assert_eq!(format_piece_upper(Piece::Knight), 'N');
     }
 }

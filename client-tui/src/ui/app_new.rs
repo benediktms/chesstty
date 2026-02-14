@@ -4,7 +4,7 @@ use crate::ui::widgets::{
     MenuState, MenuWidget, MoveHistoryPanel, PromotionWidget, UciDebugPanel,
 };
 use crate::ui::widgets::menu::StartPositionOption;
-use crate::converters::{parse_square, format_square};
+use chess_common::{parse_square, format_square};
 use cozy_chess::{Board, Square};
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyModifiers},

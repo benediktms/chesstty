@@ -11,6 +11,7 @@ path = "src/main.rs"
 chess-proto = { path = "../proto" }
 chess = { path = "../chess" }
 engine = { path = "../engine" }
+chess-common = { path = "../chess-common" }
 
 tokio = { workspace = true }
 tokio-stream = { workspace = true }

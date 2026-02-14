@@ -238,9 +238,9 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
             controls_spans.push(Span::raw(" Clear | "));
 
             // Panel controls
-            controls_spans.push(Span::styled("[ ]", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)));
+            controls_spans.push(Span::styled("\u{2190}\u{2192}", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)));
             controls_spans.push(Span::raw(" Select Panel | "));
-            controls_spans.push(Span::styled("PgUp/PgDn", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)));
+            controls_spans.push(Span::styled("\u{2191}\u{2193}", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)));
             controls_spans.push(Span::raw(" Scroll | "));
             controls_spans.push(Span::styled("@", Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)));
             controls_spans.push(Span::raw(" UCI | "));
@@ -275,10 +275,10 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
                     KeyCode::Char('#') => {
                         state.toggle_engine_panel();
                     }
-                    KeyCode::Char('[') => {
+                    KeyCode::Left => {
                         state.select_prev_panel();
                     }
-                    KeyCode::Char(']') => {
+                    KeyCode::Right => {
                         state.select_next_panel();
                     }
                     KeyCode::Char(c) => {
@@ -302,7 +302,7 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
                         }
                         input_buffer.clear();
                     }
-                    KeyCode::PageUp => {
+                    KeyCode::Up => {
                         // Scroll up in selected panel only
                         use crate::state::SelectedPanel;
                         match state.ui_state.selected_panel {
@@ -318,7 +318,7 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
                             SelectedPanel::None => {}
                         }
                     }
-                    KeyCode::PageDown => {
+                    KeyCode::Down => {
                         // Scroll down in selected panel only
                         use crate::state::SelectedPanel;
                         match state.ui_state.selected_panel {
@@ -334,7 +334,7 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
                             SelectedPanel::None => {}
                         }
                     }
-                    KeyCode::Home => {
+                    KeyCode::PageUp => {
                         // Scroll to top of selected panel
                         use crate::state::SelectedPanel;
                         match state.ui_state.selected_panel {
@@ -344,7 +344,7 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
                             SelectedPanel::None => {}
                         }
                     }
-                    KeyCode::End => {
+                    KeyCode::PageDown => {
                         // Scroll to bottom of selected panel
                         use crate::state::SelectedPanel;
                         match state.ui_state.selected_panel {
@@ -396,7 +396,7 @@ async fn handle_input(state: &mut ClientState, input: &str) {
 
     // Parse square notation (e.g., "e2", "e4")
     if input.len() == 2 {
-        use crate::converters::parse_square;
+        use chess_common::parse_square;
         use cozy_chess::Piece;
 
         match state.ui_state.input_phase {

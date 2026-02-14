@@ -1,5 +1,9 @@
 use crate::session::{SessionEvent, SessionInfo, SessionManager};
 use ::chess::HistoryEntry;
+use chess_common::{
+    format_color, format_piece, format_piece_upper, format_square, format_uci_move, parse_file,
+    parse_piece, parse_rank, parse_square,
+};
 use chess_proto::chess_service_server::ChessService;
 use chess_proto::*;
 use cozy_chess::{File as CozyFile, GameStatus as CozyGameStatus, Move, Piece, Rank, Square};
@@ -107,7 +111,7 @@ impl ChessService for ChessServiceImpl {
         let req = request.into_inner();
 
         let from_square = if let Some(ref sq_str) = req.from_square {
-            Some(parse_square(sq_str)?)
+            Some(parse_square_grpc(sq_str)?)
         } else {
             None
         };
@@ -137,7 +141,7 @@ impl ChessService for ChessServiceImpl {
                 MoveDetail {
                     from: format_square(mv.from),
                     to: format_square(mv.to),
-                    promotion: mv.promotion.map(format_piece_lower),
+                    promotion: mv.promotion.map(|p| format_piece(p).to_string()),
                     san,
                     is_capture,
                     is_check,
@@ -316,19 +320,19 @@ fn convert_history_entry_to_proto(entry: &HistoryEntry) -> MoveRecord {
     MoveRecord {
         from: format_square(entry.from),
         to: format_square(entry.to),
-        piece: format_piece(entry.piece),
-        captured: entry.captured.map(format_piece),
+        piece: format_piece_upper(entry.piece).to_string(),
+        captured: entry.captured.map(|p| format_piece_upper(p).to_string()),
         san: entry.san.clone(),
         fen_after: entry.fen.clone(),
-        promotion: entry.promotion.map(format_piece_lower),
+        promotion: entry.promotion.map(|p| format_piece(p).to_string()),
     }
 }
 
 fn convert_game_status(status: CozyGameStatus) -> GameStatus {
     match status {
         CozyGameStatus::Ongoing => GameStatus::Ongoing,
-        CozyGameStatus::Won => GameStatus::Checkmate,
-        CozyGameStatus::Drawn => GameStatus::Draw,
+        CozyGameStatus::Won => GameStatus::Won,
+        CozyGameStatus::Drawn => GameStatus::Drawn,
     }
 }
 
@@ -365,7 +369,7 @@ fn convert_session_event_to_proto(event: SessionEvent, session_id: &str) -> Opti
                 r#move: Some(MoveRepr {
                     from: format_square(best_move.from),
                     to: format_square(best_move.to),
-                    promotion: best_move.promotion.map(format_piece_lower),
+                    promotion: best_move.promotion.map(|p| format_piece(p).to_string()),
                 }),
                 evaluation,
             })),
@@ -379,18 +383,30 @@ fn convert_session_event_to_proto(event: SessionEvent, session_id: &str) -> Opti
                     time_ms: info.time_ms,
                     nodes: info.nodes,
                     score: info.score.map(|s| format!("{:?}", s)),
-                    pv: info.pv.iter().map(|mv| format_uci_move_str(*mv)).collect(),
+                    pv: info.pv.iter().map(|mv| format_uci_move(*mv)).collect(),
                     nps: info.nps,
                 }),
             })),
         }),
-        SessionEvent::GameEnded { result, reason } => Some(GameEvent {
-            event: Some(game_event::Event::GameEnded(GameEndedEvent {
-                session_id: session_id.to_string(),
-                result,
-                reason,
-            })),
-        }),
+        SessionEvent::GameEnded { result, reason } => {
+            // Determine winner from result
+            let winner = if result == "1-0" {
+                "white".to_string()
+            } else if result == "0-1" {
+                "black".to_string()
+            } else {
+                String::new() // Draw
+            };
+
+            Some(GameEvent {
+                event: Some(game_event::Event::GameEnded(GameEndedEvent {
+                    session_id: session_id.to_string(),
+                    result,
+                    reason,
+                    winner,
+                })),
+            })
+        }
         SessionEvent::Error { message } => Some(GameEvent {
             event: Some(game_event::Event::Error(ErrorEvent {
                 session_id: session_id.to_string(),
@@ -422,10 +438,15 @@ fn convert_session_event_to_proto(event: SessionEvent, session_id: &str) -> Opti
 // ============================================================================
 
 fn parse_move_repr(mv: &MoveRepr) -> Result<Move, Status> {
-    let from = parse_square(&mv.from)?;
-    let to = parse_square(&mv.to)?;
+    let from = parse_square_grpc(&mv.from)?;
+    let to = parse_square_grpc(&mv.to)?;
     let promotion = if let Some(ref p) = mv.promotion {
-        Some(parse_piece(p)?)
+        if p.len() == 1 {
+            let c = p.chars().next().unwrap();
+            Some(parse_piece_grpc(c)?)
+        } else {
+            return Err(Status::invalid_argument(format!("Invalid piece: {}", p)));
+        }
     } else {
         None
     };
@@ -437,129 +458,28 @@ fn parse_move_repr(mv: &MoveRepr) -> Result<Move, Status> {
     })
 }
 
-fn parse_square(s: &str) -> Result<Square, Status> {
-    if s.len() != 2 {
-        return Err(Status::invalid_argument(format!("Invalid square: {}", s)));
-    }
-
-    let chars: Vec<char> = s.chars().collect();
-    let file = parse_file(chars[0])?;
-    let rank = parse_rank(chars[1])?;
-
-    Ok(Square::new(file, rank))
+// Wrapper for parse_square that returns Result<Square, Status>
+fn parse_square_grpc(s: &str) -> Result<Square, Status> {
+    parse_square(s).ok_or_else(|| Status::invalid_argument(format!("Invalid square: {}", s)))
 }
 
-fn parse_file(c: char) -> Result<CozyFile, Status> {
-    match c {
-        'a' => Ok(CozyFile::A),
-        'b' => Ok(CozyFile::B),
-        'c' => Ok(CozyFile::C),
-        'd' => Ok(CozyFile::D),
-        'e' => Ok(CozyFile::E),
-        'f' => Ok(CozyFile::F),
-        'g' => Ok(CozyFile::G),
-        'h' => Ok(CozyFile::H),
-        _ => Err(Status::invalid_argument(format!("Invalid file: {}", c))),
-    }
+// Wrapper for parse_file that returns Result<File, Status>
+fn parse_file_grpc(c: char) -> Result<CozyFile, Status> {
+    parse_file(c).ok_or_else(|| Status::invalid_argument(format!("Invalid file: {}", c)))
 }
 
-fn parse_rank(c: char) -> Result<Rank, Status> {
-    match c {
-        '1' => Ok(Rank::First),
-        '2' => Ok(Rank::Second),
-        '3' => Ok(Rank::Third),
-        '4' => Ok(Rank::Fourth),
-        '5' => Ok(Rank::Fifth),
-        '6' => Ok(Rank::Sixth),
-        '7' => Ok(Rank::Seventh),
-        '8' => Ok(Rank::Eighth),
-        _ => Err(Status::invalid_argument(format!("Invalid rank: {}", c))),
-    }
+// Wrapper for parse_rank that returns Result<Rank, Status>
+fn parse_rank_grpc(c: char) -> Result<Rank, Status> {
+    parse_rank(c).ok_or_else(|| Status::invalid_argument(format!("Invalid rank: {}", c)))
 }
 
-fn parse_piece(s: &str) -> Result<Piece, Status> {
-    match s.to_lowercase().as_str() {
-        "q" => Ok(Piece::Queen),
-        "r" => Ok(Piece::Rook),
-        "b" => Ok(Piece::Bishop),
-        "n" => Ok(Piece::Knight),
-        _ => Err(Status::invalid_argument(format!("Invalid piece: {}", s))),
-    }
-}
-
-// ============================================================================
-// Formatting Functions
-// ============================================================================
-
-fn format_square(sq: Square) -> String {
-    let file = match sq.file() {
-        CozyFile::A => 'a',
-        CozyFile::B => 'b',
-        CozyFile::C => 'c',
-        CozyFile::D => 'd',
-        CozyFile::E => 'e',
-        CozyFile::F => 'f',
-        CozyFile::G => 'g',
-        CozyFile::H => 'h',
-    };
-    let rank = match sq.rank() {
-        Rank::First => '1',
-        Rank::Second => '2',
-        Rank::Third => '3',
-        Rank::Fourth => '4',
-        Rank::Fifth => '5',
-        Rank::Sixth => '6',
-        Rank::Seventh => '7',
-        Rank::Eighth => '8',
-    };
-    format!("{}{}", file, rank)
-}
-
-fn format_piece(piece: Piece) -> String {
-    match piece {
-        Piece::Pawn => "P".to_string(),
-        Piece::Knight => "N".to_string(),
-        Piece::Bishop => "B".to_string(),
-        Piece::Rook => "R".to_string(),
-        Piece::Queen => "Q".to_string(),
-        Piece::King => "K".to_string(),
-    }
-}
-
-fn format_piece_lower(piece: Piece) -> String {
-    match piece {
-        Piece::Pawn => "p".to_string(),
-        Piece::Knight => "n".to_string(),
-        Piece::Bishop => "b".to_string(),
-        Piece::Rook => "r".to_string(),
-        Piece::Queen => "q".to_string(),
-        Piece::King => "k".to_string(),
-    }
-}
-
-fn format_color(color: cozy_chess::Color) -> String {
-    match color {
-        cozy_chess::Color::White => "white".to_string(),
-        cozy_chess::Color::Black => "black".to_string(),
-    }
+// Wrapper for parse_piece that returns Result<Piece, Status>
+fn parse_piece_grpc(c: char) -> Result<Piece, Status> {
+    parse_piece(c).ok_or_else(|| Status::invalid_argument(format!("Invalid piece: {}", c)))
 }
 
 fn format_move_san(mv: &Move) -> String {
     // Simplified SAN format (just from-to notation)
     // A full implementation would need game context
     format!("{}{}", format_square(mv.from), format_square(mv.to))
-}
-
-fn format_uci_move_str(mv: Move) -> String {
-    let mut s = format!("{}{}", format_square(mv.from), format_square(mv.to));
-    if let Some(promo) = mv.promotion {
-        s.push(match promo {
-            Piece::Queen => 'q',
-            Piece::Rook => 'r',
-            Piece::Bishop => 'b',
-            Piece::Knight => 'n',
-            _ => '?',
-        });
-    }
-    s
 }

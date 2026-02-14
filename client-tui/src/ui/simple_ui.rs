@@ -136,7 +136,7 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
 }
 
 async fn handle_command(state: &mut ClientState, command: &str) {
-    use crate::converters::parse_square;
+    use chess_common::parse_square;
 
     let parts: Vec<&str> = command.trim().split_whitespace().collect();
 

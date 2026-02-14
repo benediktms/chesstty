@@ -1,52 +1,12 @@
 use chess::{Game, GameError, HistoryEntry};
+use chess_common::uci::convert_uci_castling_to_cozy;
 use cozy_chess::{Color, GameStatus as CozyGameStatus, Move, Piece, Square};
 use engine::{EngineCommand, EngineEvent, EngineHandle, GoParams, StockfishEngine};
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::{broadcast, RwLock};
+use tokio::sync::{broadcast, mpsc, RwLock};
+use tokio::task::JoinHandle;
 use uuid::Uuid;
-
-/// Convert UCI castling notation to cozy_chess notation
-///
-/// UCI uses standard notation (king moves 2 squares): e1g1, e1c1, e8g8, e8c8
-/// cozy_chess uses king-to-rook notation: e1h1, e1a1, e8h8, e8a8
-///
-/// This function checks if the move is a castling move and converts it to the
-/// appropriate cozy_chess format by finding the matching legal move.
-fn convert_uci_castling_to_cozy(mv: Move, legal_moves: &[Move]) -> Move {
-    use cozy_chess::{File, Rank};
-
-    // Check if this looks like a UCI castling move (king moving 2 squares on rank 1 or 8)
-    let is_rank_1_or_8 = matches!(mv.from.rank(), Rank::First | Rank::Eighth);
-    let is_e_file = matches!(mv.from.file(), File::E);
-    let is_g_or_c_file = matches!(mv.to.file(), File::G | File::C);
-
-    if is_rank_1_or_8 && is_e_file && is_g_or_c_file && mv.promotion.is_none() {
-        // This looks like a castling move in UCI notation
-        // Convert to cozy_chess notation
-        let target_square = match (mv.from.rank(), mv.to.file()) {
-            (Rank::First, File::G) => Square::new(File::H, Rank::First),   // e1g1 → e1h1 (white kingside)
-            (Rank::First, File::C) => Square::new(File::A, Rank::First),   // e1c1 → e1a1 (white queenside)
-            (Rank::Eighth, File::G) => Square::new(File::H, Rank::Eighth), // e8g8 → e8h8 (black kingside)
-            (Rank::Eighth, File::C) => Square::new(File::A, Rank::Eighth), // e8c8 → e8a8 (black queenside)
-            _ => return mv, // Not a castling move
-        };
-
-        let converted = Move {
-            from: mv.from,
-            to: target_square,
-            promotion: None,
-        };
-
-        // Verify the converted move is in the legal moves list
-        if legal_moves.contains(&converted) {
-            return converted;
-        }
-    }
-
-    // Not a castling move or conversion didn't work, return original
-    mv
-}
 
 /// Manages multiple chess game sessions
 pub struct SessionManager {
@@ -56,8 +16,9 @@ pub struct SessionManager {
 /// A single game session with associated game state and engine
 pub struct GameSession {
     id: String,
-    game: Game,
-    engine: Option<StockfishEngine>,
+    game: Arc<RwLock<Game>>,  // Shared for event handler
+    engine_cmd_tx: Option<mpsc::Sender<EngineCommand>>,  // Channel to send commands to engine task
+    engine_task: Option<JoinHandle<()>>,  // Per-session event handler task
     skill_level: u8,
     engine_enabled: bool,
     event_tx: broadcast::Sender<SessionEvent>,
@@ -102,34 +63,10 @@ pub enum UciMessageDirection {
 
 impl SessionManager {
     pub fn new() -> Self {
-        let manager = Self {
+        Self {
             sessions: Arc::new(RwLock::new(HashMap::new())),
-        };
-
-        // Start background task to process engine events
-        manager.start_engine_event_processor();
-
-        manager
-    }
-
-    /// Start a background task that processes engine events for all sessions
-    fn start_engine_event_processor(&self) {
-        let sessions = Arc::clone(&self.sessions);
-
-        tokio::spawn(async move {
-            loop {
-                // Process events for all sessions
-                let sessions_read = sessions.read().await;
-                for session_arc in sessions_read.values() {
-                    let mut session = session_arc.write().await;
-                    session.process_engine_events();
-                }
-                drop(sessions_read);
-
-                // Sleep briefly to avoid spinning
-                tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
-            }
-        });
+        }
+        // No more global polling loop! Each session has its own event handler.
     }
 
     /// Create a new game session
@@ -145,8 +82,9 @@ impl SessionManager {
         let (event_tx, _) = broadcast::channel(100);
         let session = GameSession {
             id: session_id.clone(),
-            game,
-            engine: None,
+            game: Arc::new(RwLock::new(game)),
+            engine_cmd_tx: None,
+            engine_task: None,
             skill_level: 10,
             engine_enabled: false,
             event_tx,
@@ -172,11 +110,13 @@ impl SessionManager {
     pub async fn close_session(&self, session_id: &str) -> Result<(), String> {
         let mut sessions = self.sessions.write().await;
         if let Some(session_arc) = sessions.remove(session_id) {
-            // Stop engine if running
             let mut session = session_arc.write().await;
-            if let Some(engine) = session.engine.take() {
-                let _ = engine.shutdown().await;
+
+            // Abort the engine task if running (this will clean up the engine)
+            if let Some(task) = session.engine_task.take() {
+                task.abort();
             }
+
             tracing::info!("Closed session: {}", session_id);
             Ok(())
         } else {
@@ -193,6 +133,8 @@ impl SessionManager {
         let session_arc = self.get_session(session_id).await?;
         let mut session = session_arc.write().await;
 
+        // Note: make_move will validate legality internally
+
         session.make_move(mv).await
     }
 
@@ -205,7 +147,10 @@ impl SessionManager {
         let session_arc = self.get_session(session_id).await?;
         let session = session_arc.read().await;
 
-        let legal_moves = session.game.legal_moves();
+        let legal_moves = {
+            let game = session.game.read().await;
+            game.legal_moves()
+        };
 
         if let Some(from) = from_square {
             Ok(legal_moves
@@ -289,18 +234,171 @@ impl SessionManager {
     pub async fn get_session_info(&self, session_id: &str) -> Result<SessionInfo, String> {
         let session_arc = self.get_session(session_id).await?;
         let session = session_arc.read().await;
+        let game = session.game.read().await;
 
         Ok(SessionInfo {
             id: session.id.clone(),
-            fen: session.game.to_fen(),
-            side_to_move: session.game.side_to_move(),
-            status: session.game.status(),
-            move_count: session.game.history().len(),
-            history: session.game.history().to_vec(),
+            fen: game.to_fen(),
+            side_to_move: game.side_to_move(),
+            status: game.status(),
+            move_count: game.history().len(),
+            history: game.history().to_vec(),
             engine_enabled: session.engine_enabled,
             skill_level: session.skill_level,
         })
     }
+}
+
+/// Spawns a background task to handle engine commands and events
+/// This replaces the old polling loop with an event-driven architecture
+fn spawn_engine_event_handler(
+    session_id: String,
+    mut engine: StockfishEngine,
+    mut cmd_rx: mpsc::Receiver<EngineCommand>,
+    event_tx: broadcast::Sender<SessionEvent>,
+    game: Arc<RwLock<Game>>,
+) -> JoinHandle<()> {
+    tokio::spawn(async move {
+        tracing::info!("Engine event handler started for session {}", session_id);
+
+        loop {
+            tokio::select! {
+                // Handle commands from the GameSession
+                Some(cmd) = cmd_rx.recv() => {
+                    tracing::debug!("Sending command to engine: {:?}", cmd);
+                    if let Err(e) = engine.send_command(cmd).await {
+                        tracing::error!("Failed to send command to engine: {}", e);
+                        let _ = event_tx.send(SessionEvent::Error {
+                            message: format!("Engine command failed: {}", e),
+                        });
+                    }
+                }
+
+                // Handle events from the engine (blocking wait - instant response!)
+                Some(event) = engine.recv_event() => {
+                    match event {
+                        EngineEvent::BestMove(mv) => {
+                            tracing::info!("Engine found best move: {:?}", mv);
+
+                            // Get legal moves and convert UCI castling notation
+                            let legal_moves = {
+                                let game = game.read().await;
+                                game.legal_moves()
+                            };
+
+                            let converted_mv = convert_uci_castling_to_cozy(mv, &legal_moves);
+
+                            if !legal_moves.contains(&converted_mv) {
+                                let fen = {
+                                    let game = game.read().await;
+                                    game.to_fen()
+                                };
+
+                                tracing::error!(
+                                    "Engine suggested illegal move {:?} (converted: {:?}). Legal moves: {:?}. Current FEN: {}",
+                                    mv, converted_mv, legal_moves, fen
+                                );
+
+                                let _ = event_tx.send(SessionEvent::Error {
+                                    message: format!("Engine suggested illegal move: {:?}", mv),
+                                });
+                                continue;
+                            }
+
+                            // Execute the move
+                            let result = {
+                                let mut game = game.write().await;
+                                game.make_move(converted_mv)
+                            };
+
+                            match result {
+                                Ok(entry) => {
+                                    let status = {
+                                        let game = game.read().await;
+                                        game.status()
+                                    };
+
+                                    tracing::info!("Engine move executed: {}", entry.san);
+
+                                    // Broadcast move made event
+                                    let _ = event_tx.send(SessionEvent::MoveMade {
+                                        from: entry.from,
+                                        to: entry.to,
+                                        san: entry.san.clone(),
+                                        fen: entry.fen.clone(),
+                                        status,
+                                    });
+
+                                    // Check if game ended
+                                    if !matches!(status, CozyGameStatus::Ongoing) {
+                                        let winner = {
+                                            let game = game.read().await;
+                                            if game.side_to_move() == Color::White {
+                                                "0-1"
+                                            } else {
+                                                "1-0"
+                                            }
+                                        };
+
+                                        let (result, reason) = match status {
+                                            CozyGameStatus::Won => {
+                                                (winner.to_string(), "Checkmate".to_string())
+                                            }
+                                            CozyGameStatus::Drawn => {
+                                                ("1/2-1/2".to_string(), "Draw".to_string())
+                                            }
+                                            CozyGameStatus::Ongoing => unreachable!(),
+                                        };
+
+                                        let _ = event_tx.send(SessionEvent::GameEnded { result, reason });
+                                    }
+                                }
+                                Err(e) => {
+                                    tracing::error!("Failed to execute engine move: {}", e);
+                                    let _ = event_tx.send(SessionEvent::Error {
+                                        message: format!("Engine move failed: {}", e),
+                                    });
+                                }
+                            }
+                        }
+                        EngineEvent::Info(info) => {
+                            let _ = event_tx.send(SessionEvent::EngineThinking { info: info.clone() });
+                        }
+                        EngineEvent::RawUciMessage { direction, message } => {
+                            let _ = event_tx.send(SessionEvent::UciMessage {
+                                direction: match direction {
+                                    engine::UciMessageDirection::ToEngine => {
+                                        UciMessageDirection::ToEngine
+                                    }
+                                    engine::UciMessageDirection::FromEngine => {
+                                        UciMessageDirection::FromEngine
+                                    }
+                                },
+                                message,
+                                context: None,
+                            });
+                        }
+                        EngineEvent::Ready => {
+                            tracing::debug!("Engine ready");
+                        }
+                        EngineEvent::Error(err) => {
+                            tracing::error!("Engine error: {}", err);
+                            let _ = event_tx.send(SessionEvent::Error {
+                                message: format!("Engine error: {}", err),
+                            });
+                        }
+                    }
+                }
+
+                // Channel closed - clean up
+                else => {
+                    tracing::info!("Engine event handler stopping for session {}", session_id);
+                    let _ = engine.shutdown().await;
+                    break;
+                }
+            }
+        }
+    })
 }
 
 impl GameSession {
@@ -308,15 +406,24 @@ impl GameSession {
     async fn make_move(&mut self, mv: Move) -> Result<(HistoryEntry, CozyGameStatus), String> {
         // Log the move attempt for debugging
         tracing::info!("Attempting move: {:?}", mv);
-        tracing::debug!("Current FEN: {}", self.game.to_fen());
+
+        let current_fen = {
+            let game = self.game.read().await;
+            game.to_fen()
+        };
+        tracing::debug!("Current FEN: {}", current_fen);
 
         // Validate and execute the move
-        let entry = self.game.make_move(mv).map_err(|e| {
-            let legal_moves = self.game.legal_moves();
-            tracing::error!("Move {:?} rejected: {}. Legal move count: {}", mv, e, legal_moves.len());
-            format!("Illegal move: {}", e)
-        })?;
-        let status = self.game.status();
+        let (entry, status) = {
+            let mut game = self.game.write().await;
+            let entry = game.make_move(mv).map_err(|e| {
+                let legal_moves = game.legal_moves();
+                tracing::error!("Move {:?} rejected: {}. Legal move count: {}", mv, e, legal_moves.len());
+                format!("Illegal move: {}", e)
+            })?;
+            let status = game.status();
+            (entry, status)
+        };
 
         // Broadcast the move event
         let _ = self.event_tx.send(SessionEvent::MoveMade {
@@ -329,13 +436,17 @@ impl GameSession {
 
         // Check if game ended
         if !matches!(status, CozyGameStatus::Ongoing) {
+            let winner = {
+                let game = self.game.read().await;
+                if game.side_to_move() == Color::White {
+                    "0-1" // Black won (white to move but lost)
+                } else {
+                    "1-0" // White won (black to move but lost)
+                }
+            };
+
             let (result, reason) = match status {
                 CozyGameStatus::Won => {
-                    let winner = if self.game.side_to_move() == Color::White {
-                        "0-1" // Black won (white to move but lost)
-                    } else {
-                        "1-0" // White won (black to move but lost)
-                    };
                     (winner.to_string(), "Checkmate".to_string())
                 }
                 CozyGameStatus::Drawn => ("1/2-1/2".to_string(), "Draw".to_string()),
@@ -352,23 +463,29 @@ impl GameSession {
 
     /// Undo the last move
     async fn undo_move(&mut self) -> Result<(), String> {
-        self.game.undo().map_err(|e| e.to_string())?;
+        let mut game = self.game.write().await;
+        game.undo().map_err(|e| e.to_string())?;
         Ok(())
     }
 
     /// Redo a previously undone move
     async fn redo_move(&mut self) -> Result<(), String> {
-        // Redo is not yet implemented in the Game struct
-        Err("Redo is not yet implemented".to_string())
+        let mut game = self.game.write().await;
+        game.redo()
+            .map(|_| ())
+            .map_err(|e| e.to_string())
     }
 
     /// Reset the game
     async fn reset_game(&mut self, fen: Option<String>) -> Result<(), String> {
-        self.game = if let Some(fen_str) = fen {
+        let new_game = if let Some(fen_str) = fen {
             Game::from_fen(&fen_str).map_err(|e| format!("Invalid FEN: {}", e))?
         } else {
             Game::new()
         };
+
+        let mut game = self.game.write().await;
+        *game = new_game;
         Ok(())
     }
 
@@ -381,7 +498,7 @@ impl GameSession {
         self.skill_level = skill_level;
         self.engine_enabled = enabled;
 
-        if enabled && self.engine.is_none() {
+        if enabled && self.engine_task.is_none() {
             // Initialize engine
             tracing::info!("Initializing Stockfish engine for session {}", self.id);
             let mut engine = StockfishEngine::spawn(Some(skill_level))
@@ -397,12 +514,26 @@ impl GameSession {
                 .await
                 .map_err(|e| format!("Failed to set skill level: {}", e))?;
 
-            self.engine = Some(engine);
+            // Create command channel
+            let (cmd_tx, cmd_rx) = mpsc::channel::<EngineCommand>(32);
+
+            // Spawn event handler task
+            let task = spawn_engine_event_handler(
+                self.id.clone(),
+                engine,
+                cmd_rx,
+                self.event_tx.clone(),
+                self.game.clone(),
+            );
+
+            self.engine_cmd_tx = Some(cmd_tx);
+            self.engine_task = Some(task);
         } else if !enabled {
-            // Shutdown engine if running
-            if let Some(engine) = self.engine.take() {
-                let _ = engine.shutdown().await;
+            // Abort engine task if running (this will clean up the engine)
+            if let Some(task) = self.engine_task.take() {
+                task.abort();
             }
+            self.engine_cmd_tx = None;
         }
 
         Ok(())
@@ -410,8 +541,8 @@ impl GameSession {
 
     /// Trigger engine to calculate a move
     async fn trigger_engine_move(&mut self, movetime_ms: Option<u64>) -> Result<(), String> {
-        let engine = self
-            .engine
+        let cmd_tx = self
+            .engine_cmd_tx
             .as_ref()
             .ok_or_else(|| "Engine not initialized".to_string())?;
 
@@ -419,15 +550,19 @@ impl GameSession {
             return Err("Engine not enabled".to_string());
         }
 
-        // Check if game is ongoing
-        if !matches!(self.game.status(), CozyGameStatus::Ongoing) {
+        // Check if game is ongoing and get FEN
+        let (status, fen) = {
+            let game = self.game.read().await;
+            (game.status(), game.to_fen())
+        };
+
+        if !matches!(status, CozyGameStatus::Ongoing) {
             return Err("Game is not ongoing".to_string());
         }
 
-        // Send position to engine
-        let fen = self.game.to_fen();
-        engine
-            .send_command(EngineCommand::SetPosition { fen, moves: vec![] })
+        // Send position to engine via channel
+        cmd_tx
+            .send(EngineCommand::SetPosition { fen, moves: vec![] })
             .await
             .map_err(|e| format!("Failed to send position: {}", e))?;
 
@@ -439,9 +574,9 @@ impl GameSession {
             _ => 2000,
         });
 
-        // Start calculation
-        engine
-            .send_command(EngineCommand::Go(GoParams {
+        // Start calculation via channel
+        cmd_tx
+            .send(EngineCommand::Go(GoParams {
                 movetime: Some(movetime),
                 depth: None,
                 infinite: false,
@@ -454,105 +589,15 @@ impl GameSession {
 
     /// Stop engine calculation
     async fn stop_engine(&self) -> Result<(), String> {
-        if let Some(engine) = &self.engine {
-            engine
-                .send_command(EngineCommand::Stop)
+        if let Some(cmd_tx) = &self.engine_cmd_tx {
+            cmd_tx
+                .send(EngineCommand::Stop)
                 .await
                 .map_err(|e| format!("Failed to stop engine: {}", e))?;
         }
         Ok(())
     }
 
-    /// Process engine events (should be called periodically)
-    pub fn process_engine_events(&mut self) {
-        if let Some(engine) = &mut self.engine {
-            while let Some(event) = engine.try_recv_event() {
-                match event {
-                    EngineEvent::BestMove(mv) => {
-                        tracing::info!("Engine found best move: {:?}", mv);
-
-                        // Automatically execute the engine move on the server
-                        if self.engine_enabled {
-                            // Convert UCI castling notation to cozy_chess notation
-                            let legal_moves = self.game.legal_moves();
-                            let converted_mv = convert_uci_castling_to_cozy(mv, &legal_moves);
-
-                            if !legal_moves.contains(&converted_mv) {
-                                tracing::error!(
-                                    "Engine suggested illegal move {:?} (converted: {:?}). Legal moves: {:?}. Current FEN: {}",
-                                    mv, converted_mv, legal_moves, self.game.to_fen()
-                                );
-                                let _ = self.event_tx.send(SessionEvent::Error {
-                                    message: format!("Engine suggested illegal move: {:?}", mv),
-                                });
-                                continue;
-                            }
-
-                            match self.game.make_move(converted_mv) {
-                                Ok(entry) => {
-                                    let status = self.game.status();
-                                    tracing::info!("Engine move executed: {}", entry.san);
-
-                                    // Broadcast move made event
-                                    let _ = self.event_tx.send(SessionEvent::MoveMade {
-                                        from: entry.from,
-                                        to: entry.to,
-                                        san: entry.san.clone(),
-                                        fen: entry.fen.clone(),
-                                        status,
-                                    });
-
-                                    // Check if game ended
-                                    if !matches!(status, CozyGameStatus::Ongoing) {
-                                        let (result, reason) = match status {
-                                            CozyGameStatus::Won => {
-                                                let winner = if self.game.side_to_move() == Color::White {
-                                                    "0-1"
-                                                } else {
-                                                    "1-0"
-                                                };
-                                                (winner.to_string(), "Checkmate".to_string())
-                                            }
-                                            CozyGameStatus::Drawn => ("1/2-1/2".to_string(), "Draw".to_string()),
-                                            CozyGameStatus::Ongoing => unreachable!(),
-                                        };
-
-                                        let _ = self.event_tx.send(SessionEvent::GameEnded { result, reason });
-                                    }
-                                }
-                                Err(e) => {
-                                    tracing::error!("Failed to execute engine move: {}", e);
-                                    let _ = self.event_tx.send(SessionEvent::Error {
-                                        message: format!("Engine move failed: {}", e),
-                                    });
-                                }
-                            }
-                        }
-                    }
-                    EngineEvent::Info(info) => {
-                        let _ = self
-                            .event_tx
-                            .send(SessionEvent::EngineThinking { info: info.clone() });
-                    }
-                    EngineEvent::RawUciMessage { direction, message } => {
-                        let _ = self.event_tx.send(SessionEvent::UciMessage {
-                            direction: match direction {
-                                engine::UciMessageDirection::ToEngine => {
-                                    UciMessageDirection::ToEngine
-                                }
-                                engine::UciMessageDirection::FromEngine => {
-                                    UciMessageDirection::FromEngine
-                                }
-                            },
-                            message,
-                            context: None,
-                        });
-                    }
-                    _ => {}
-                }
-            }
-        }
-    }
 }
 
 /// Information about a game session

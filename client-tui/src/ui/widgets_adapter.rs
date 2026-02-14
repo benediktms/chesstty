@@ -20,7 +20,7 @@ pub struct BoardWidget {
 
 impl Widget for BoardWidget {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        use crate::converters::format_square;
+        use chess_common::format_square;
 
         // For now, render a simple FEN display
         // TODO: Integrate the full board rendering from the original widgets

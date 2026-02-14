@@ -151,6 +151,7 @@ message GameEndedEvent {
   string session_id = 1;
   string result = 2;  // "1-0", "0-1", "1/2-1/2"
   string reason = 3;
+  string winner = 4;  // "white", "black", or "" for draw
 }
 
 message ErrorEvent {
@@ -212,9 +213,8 @@ message EngineInfo {
 
 enum GameStatus {
   ONGOING = 0;
-  CHECKMATE = 1;
-  STALEMATE = 2;
-  DRAW = 3;
+  WON = 1;     // Renamed from CHECKMATE - aligns with cozy_chess::GameStatus::Won
+  DRAWN = 2;   // Merged STALEMATE + DRAW - aligns with cozy_chess::GameStatus::Drawn
 }
 
 message Empty {}
