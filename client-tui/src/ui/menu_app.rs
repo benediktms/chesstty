@@ -14,6 +14,8 @@ pub struct GameConfig {
     pub skill_level: u8,
     pub start_fen: Option<String>,
     pub time_control_seconds: Option<u64>,
+    pub engine_threads: Option<u32>,
+    pub engine_hash_mb: Option<u32>,
     pub resume: bool,
 }
 
@@ -177,6 +179,37 @@ fn cycle_option(menu_state: &mut MenuState, selected_item: &Option<crate::ui::wi
                 }
             };
         }
+        MenuItem::EngineThreads(_) => {
+            use crate::ui::widgets::menu::ThreadsOption;
+            menu_state.engine_threads = match menu_state.engine_threads {
+                ThreadsOption::Auto => {
+                    if _direction > 0 { ThreadsOption::One } else { ThreadsOption::Four }
+                }
+                ThreadsOption::One => {
+                    if _direction > 0 { ThreadsOption::Two } else { ThreadsOption::Auto }
+                }
+                ThreadsOption::Two => {
+                    if _direction > 0 { ThreadsOption::Four } else { ThreadsOption::One }
+                }
+                ThreadsOption::Four => {
+                    if _direction > 0 { ThreadsOption::Auto } else { ThreadsOption::Two }
+                }
+            };
+        }
+        MenuItem::EngineHash(_) => {
+            use crate::ui::widgets::menu::HashOption;
+            menu_state.engine_hash = match menu_state.engine_hash {
+                HashOption::Small => {
+                    if _direction > 0 { HashOption::Medium } else { HashOption::Large }
+                }
+                HashOption::Medium => {
+                    if _direction > 0 { HashOption::Large } else { HashOption::Small }
+                }
+                HashOption::Large => {
+                    if _direction > 0 { HashOption::Small } else { HashOption::Medium }
+                }
+            };
+        }
         MenuItem::StartPosition(_) => {
             menu_state.start_position = match menu_state.start_position {
                 StartPositionOption::Standard => StartPositionOption::CustomFen,
@@ -316,11 +349,28 @@ fn create_game_config(menu_state: &MenuState) -> GameConfig {
     let start_fen = menu_state.selected_fen.clone();
     let time_control_seconds = menu_state.time_control.seconds();
 
+    let has_engine = matches!(
+        menu_state.game_mode,
+        GameModeOption::HumanVsEngine | GameModeOption::EngineVsEngine
+    );
+    let engine_threads = if has_engine {
+        Some(menu_state.engine_threads.resolve())
+    } else {
+        None
+    };
+    let engine_hash_mb = if has_engine {
+        Some(menu_state.engine_hash.megabytes())
+    } else {
+        None
+    };
+
     GameConfig {
         mode,
         skill_level,
         start_fen,
         time_control_seconds,
+        engine_threads,
+        engine_hash_mb,
         resume: false,
     }
 }

@@ -33,7 +33,7 @@ cozy-chess = "0.3"
 
 # TUI
 ratatui = "0.28"
-crossterm = "0.28"
+crossterm = { version = "0.28", features = ["event-stream"] }
 
 # Utilities
 uuid = { version = "1.0", features = ["v4", "serde"] }

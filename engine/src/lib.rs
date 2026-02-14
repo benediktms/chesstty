@@ -1,7 +1,7 @@
 pub mod stockfish;
 pub mod uci;
 
-pub use stockfish::StockfishEngine;
+pub use stockfish::{EngineConfig as StockfishConfig, StockfishEngine};
 pub use uci::{UciEngine, UciError, UciMessage};
 
 use cozy_chess::Move;

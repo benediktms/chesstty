@@ -218,7 +218,13 @@ impl ChessService for ChessServiceImpl {
     ) -> Result<Response<Empty>, Status> {
         let req = request.into_inner();
         self.session_manager
-            .set_engine(&req.session_id, req.enabled, req.skill_level as u8)
+            .set_engine(
+                &req.session_id,
+                req.enabled,
+                req.skill_level as u8,
+                req.threads,
+                req.hash_mb,
+            )
             .await
             .map_err(|e| Status::invalid_argument(e))?;
 
@@ -309,6 +315,8 @@ fn convert_session_info_to_proto(info: crate::session::SessionInfo) -> chess_pro
             Some(EngineConfig {
                 enabled: info.engine_enabled,
                 skill_level: info.skill_level as u32,
+                threads: 0,  // Not tracked per-session currently
+                hash_mb: 0,
             })
         } else {
             None

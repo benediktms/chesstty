@@ -94,6 +94,8 @@ message SetEngineRequest {
   string session_id = 1;
   bool enabled = 2;
   uint32 skill_level = 3;  // 0-20
+  optional uint32 threads = 4;   // CPU threads (1-16, default auto-detect capped at 4)
+  optional uint32 hash_mb = 5;   // Hash table size in MB (1-2048, default 128)
 }
 
 message TriggerEngineMoveRequest {
@@ -108,6 +110,8 @@ message StopEngineRequest {
 message EngineConfig {
   bool enabled = 1;
   uint32 skill_level = 2;  // 0-20
+  uint32 threads = 3;      // CPU threads
+  uint32 hash_mb = 4;      // Hash table size in MB
 }
 
 // ============================================================================

@@ -65,7 +65,10 @@ pub async fn run_app() -> anyhow::Result<()> {
     state.mode = config.mode;
 
     if needs_engine {
-        if let Err(e) = state.set_engine(true, config.skill_level).await {
+        if let Err(e) = state
+            .set_engine_full(true, config.skill_level, config.engine_threads, config.engine_hash_mb)
+            .await
+        {
             state.ui_state.status_message = Some(format!("Failed to enable engine: {}", e));
         }
     }
@@ -75,7 +78,6 @@ pub async fn run_app() -> anyhow::Result<()> {
         use crate::timer::ChessTimer;
         let timer = ChessTimer::new(std::time::Duration::from_secs(seconds));
         state.timer = Some(timer);
-        // Timer will start ticking when the first move clock switches
         // Start white's clock immediately
         if let Some(ref mut t) = state.timer {
             t.switch_to(crate::state::PlayerColor::White);
@@ -106,14 +108,53 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
     state: &mut ClientState,
 ) -> anyhow::Result<()> {
     use super::input::{self, AppAction};
+    use crossterm::event::EventStream;
+    use futures::StreamExt;
 
     let mut input_buffer = String::new();
+    let mut term_events = EventStream::new();
+
+    // UI refresh interval — controls max frame rate (~30fps).
+    // Keyboard and server events wake the loop immediately via select!.
+    let mut ui_tick = tokio::time::interval(Duration::from_millis(33));
 
     loop {
-        // Tick the timer each frame
+        // Wait for whichever comes first: keyboard, server event, or UI tick.
+        // This eliminates the blocking poll — we react instantly to any event.
+        let term_event = tokio::select! {
+            biased;
+
+            // Keyboard / terminal event (highest priority)
+            maybe_event = term_events.next() => {
+                match maybe_event {
+                    Some(Ok(ev)) => Some(ev),
+                    Some(Err(e)) => {
+                        tracing::warn!("Terminal event error: {}", e);
+                        None
+                    }
+                    None => None,
+                }
+            }
+
+            // Server event from gRPC stream
+            consumed = async {
+                state.poll_event_async().await
+            } => {
+                if let Err(e) = consumed {
+                    tracing::warn!("Error polling server events: {}", e);
+                }
+                None
+            }
+
+            // Periodic UI refresh (timer display, animations)
+            _ = ui_tick.tick() => {
+                None
+            }
+        };
+
+        // Tick the timer
         if let Some(ref mut timer) = state.timer {
             timer.tick();
-            // Check for flag fall
             for &side in &[crate::state::PlayerColor::White, crate::state::PlayerColor::Black] {
                 if timer.is_flag_fallen(side) && timer.active_side() == Some(side) {
                     let side_name = match side {
@@ -126,9 +167,12 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
             }
         }
 
-        // Poll for events from server (engine thinking, moves, etc.)
-        if let Err(e) = state.poll_events().await {
-            tracing::warn!("Error polling events: {}", e);
+        // Drain any additional buffered server events (non-blocking)
+        loop {
+            match state.poll_events().await {
+                Ok(true) => continue,  // Got an event, try again
+                _ => break,            // No more events or error
+            }
         }
 
         // Refresh state from server if needed (after MoveMadeEvent)
@@ -371,26 +415,23 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
             }
         })?;
 
-        // Handle input via context-based dispatch
-        if event::poll(Duration::from_millis(100))? {
-            if let Event::Key(key) = event::read()? {
-                match input::handle_key(state, &mut input_buffer, key).await {
-                    AppAction::Continue => {}
-                    AppAction::Quit => break,
-                    AppAction::ReturnToMenu => break,
-                    AppAction::SuspendAndReturnToMenu => {
-                        // Save session state before returning to menu
-                        let session = crate::session_file::build_saved_session(
-                            state.fen(),
-                            state.history(),
-                            &state.mode,
-                            state.skill_level,
-                        );
-                        if let Err(e) = crate::session_file::save_session(&session) {
-                            tracing::error!("Failed to save session: {}", e);
-                        }
-                        break;
+        // Handle keyboard event if one arrived
+        if let Some(Event::Key(key)) = term_event {
+            match input::handle_key(state, &mut input_buffer, key).await {
+                AppAction::Continue => {}
+                AppAction::Quit => break,
+                AppAction::ReturnToMenu => break,
+                AppAction::SuspendAndReturnToMenu => {
+                    let session = crate::session_file::build_saved_session(
+                        state.fen(),
+                        state.history(),
+                        &state.mode,
+                        state.skill_level,
+                    );
+                    if let Err(e) = crate::session_file::save_session(&session) {
+                        tracing::error!("Failed to save session: {}", e);
                     }
+                    break;
                 }
             }
         }
@@ -476,7 +517,7 @@ pub(super) async fn handle_input(state: &mut ClientState, input: &str) {
         }
     } else {
         state.ui_state.status_message = Some(
-            "Enter a square (e.g., 'e2'). Type 'u' to undo. Press Esc for menu.".to_string(),
+            "Enter a square (e.g., 'e2'). Use 'undo' for special commands".to_string(),
         );
     }
 }

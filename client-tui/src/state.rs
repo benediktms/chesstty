@@ -455,34 +455,63 @@ impl ClientState {
         Ok(())
     }
 
-    /// Poll for events from the stream (non-blocking)
-    pub async fn poll_events(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    /// Wait for the next server event (async, for use in tokio::select!).
+    /// Returns Ok(()) when an event was consumed, or Err if stream is closed/errored.
+    pub async fn poll_event_async(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         use futures::StreamExt;
 
         if let Some(stream) = &mut self.event_stream {
-            // Try to get next event without blocking
+            match stream.next().await {
+                Some(Ok(event)) => {
+                    self.handle_event(event);
+                    Ok(())
+                }
+                Some(Err(e)) => {
+                    self.ui_state.status_message = Some(format!("Stream error: {}", e));
+                    self.event_stream = None;
+                    Err(e.into())
+                }
+                None => {
+                    self.event_stream = None;
+                    Err("Event stream ended".into())
+                }
+            }
+        } else {
+            // No stream — park forever (will be cancelled by select!)
+            std::future::pending::<()>().await;
+            Ok(())
+        }
+    }
+
+    /// Try to consume one buffered server event (non-blocking).
+    /// Returns Ok(true) if an event was consumed, Ok(false) if none available.
+    pub async fn poll_events(&mut self) -> Result<bool, Box<dyn std::error::Error>> {
+        use futures::StreamExt;
+
+        if let Some(stream) = &mut self.event_stream {
             match futures::poll!(stream.next()) {
                 std::task::Poll::Ready(Some(result)) => {
                     match result {
                         Ok(event) => {
                             self.handle_event(event);
+                            Ok(true)
                         }
                         Err(e) => {
                             self.ui_state.status_message = Some(format!("Stream error: {}", e));
                             self.event_stream = None;
+                            Err(e.into())
                         }
                     }
                 }
                 std::task::Poll::Ready(None) => {
-                    // Stream ended
                     self.event_stream = None;
+                    Ok(false)
                 }
-                std::task::Poll::Pending => {
-                    // No event available right now
-                }
+                std::task::Poll::Pending => Ok(false),
             }
+        } else {
+            Ok(false)
         }
-        Ok(())
     }
 
     /// Handle an event from the server
@@ -630,10 +659,21 @@ impl ClientState {
 
     /// Set engine configuration
     pub async fn set_engine(&mut self, enabled: bool, skill_level: u8) -> Result<(), String> {
+        self.set_engine_full(enabled, skill_level, None, None).await
+    }
+
+    /// Set engine configuration with performance tuning options
+    pub async fn set_engine_full(
+        &mut self,
+        enabled: bool,
+        skill_level: u8,
+        threads: Option<u32>,
+        hash_mb: Option<u32>,
+    ) -> Result<(), String> {
         self.skill_level = skill_level;
 
         self.client
-            .set_engine(enabled, skill_level as u32)
+            .set_engine(enabled, skill_level as u32, threads, hash_mb)
             .await
             .map_err(|e| e.to_string())?;
 

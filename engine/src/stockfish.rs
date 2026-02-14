@@ -14,11 +14,29 @@ pub struct StockfishEngine {
     event_rx: mpsc::Receiver<EngineEvent>,
 }
 
+/// Configuration for engine performance tuning.
+#[derive(Debug, Clone, Default)]
+pub struct EngineConfig {
+    pub skill_level: Option<u8>,
+    pub threads: Option<u32>,
+    pub hash_mb: Option<u32>,
+}
+
 impl StockfishEngine {
-    /// Spawn a new Stockfish instance
-    #[tracing::instrument(level = "info")]
+    /// Spawn a new Stockfish instance with just skill level (backwards compatible).
     pub async fn spawn(skill_level: Option<u8>) -> Result<Self, String> {
-        tracing::info!("Starting Stockfish engine spawn");
+        Self::spawn_with_config(EngineConfig {
+            skill_level,
+            ..Default::default()
+        })
+        .await
+    }
+
+    /// Spawn a new Stockfish instance with full configuration.
+    #[tracing::instrument(level = "info")]
+    pub async fn spawn_with_config(config: EngineConfig) -> Result<Self, String> {
+        let skill_level = config.skill_level;
+        tracing::info!("Starting Stockfish engine spawn (config: {:?})", config);
         let path = find_stockfish_path().ok_or("Stockfish not found")?;
         tracing::info!("Found Stockfish at: {:?}", path);
 
@@ -161,6 +179,28 @@ impl StockfishEngine {
                 format!("Failed to flush: {}", e)
             })?;
             tracing::debug!("Skill level set successfully");
+        }
+
+        // Set Threads if provided
+        if let Some(threads) = config.threads {
+            let threads = threads.clamp(1, 16);
+            tracing::info!("Setting Threads to {}", threads);
+            stdin
+                .write_all(format!("setoption name Threads value {}\n", threads).as_bytes())
+                .await
+                .map_err(|e| format!("Failed to set Threads: {}", e))?;
+            stdin.flush().await.map_err(|e| format!("Failed to flush: {}", e))?;
+        }
+
+        // Set Hash if provided
+        if let Some(hash_mb) = config.hash_mb {
+            let hash_mb = hash_mb.clamp(1, 2048);
+            tracing::info!("Setting Hash to {} MB", hash_mb);
+            stdin
+                .write_all(format!("setoption name Hash value {}\n", hash_mb).as_bytes())
+                .await
+                .map_err(|e| format!("Failed to set Hash: {}", e))?;
+            stdin.flush().await.map_err(|e| format!("Failed to flush: {}", e))?;
         }
 
         // Clone stdin for the command processor task

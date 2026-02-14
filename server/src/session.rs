@@ -1,7 +1,7 @@
 use chess::{Game, GameError, HistoryEntry};
 use chess_common::uci::convert_uci_castling_to_cozy;
 use cozy_chess::{Color, GameStatus as CozyGameStatus, Move, Piece, Square};
-use engine::{EngineCommand, EngineEvent, EngineHandle, GoParams, StockfishEngine};
+use engine::{EngineCommand, EngineEvent, EngineHandle, GoParams, StockfishConfig, StockfishEngine};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc, RwLock};
@@ -192,11 +192,13 @@ impl SessionManager {
         session_id: &str,
         enabled: bool,
         skill_level: u8,
+        threads: Option<u32>,
+        hash_mb: Option<u32>,
     ) -> Result<(), String> {
         let session_arc = self.get_session(session_id).await?;
         let mut session = session_arc.write().await;
 
-        session.set_engine(enabled, skill_level).await
+        session.set_engine(enabled, skill_level, threads, hash_mb).await
     }
 
     /// Trigger the engine to make a move
@@ -490,7 +492,13 @@ impl GameSession {
     }
 
     /// Configure the engine
-    async fn set_engine(&mut self, enabled: bool, skill_level: u8) -> Result<(), String> {
+    async fn set_engine(
+        &mut self,
+        enabled: bool,
+        skill_level: u8,
+        threads: Option<u32>,
+        hash_mb: Option<u32>,
+    ) -> Result<(), String> {
         if skill_level > 20 {
             return Err("Skill level must be between 0 and 20".to_string());
         }
@@ -499,13 +507,18 @@ impl GameSession {
         self.engine_enabled = enabled;
 
         if enabled && self.engine_task.is_none() {
-            // Initialize engine
+            // Initialize engine with performance config
             tracing::info!("Initializing Stockfish engine for session {}", self.id);
-            let mut engine = StockfishEngine::spawn(Some(skill_level))
+            let config = StockfishConfig {
+                skill_level: Some(skill_level),
+                threads,
+                hash_mb,
+            };
+            let mut engine = StockfishEngine::spawn_with_config(config)
                 .await
                 .map_err(|e| format!("Failed to initialize engine: {}", e))?;
 
-            // Set skill level
+            // Set skill level (redundant with spawn config, but ensures it's set via command channel too)
             engine
                 .send_command(EngineCommand::SetOption {
                     name: "Skill Level".to_string(),
@@ -566,21 +579,25 @@ impl GameSession {
             .await
             .map_err(|e| format!("Failed to send position: {}", e))?;
 
-        // Calculate move time based on skill level
-        let movetime = movetime_ms.unwrap_or_else(|| match self.skill_level {
-            0..=5 => 200,
-            6..=10 => 500,
-            11..=15 => 1000,
-            _ => 2000,
-        });
+        // Calculate search params based on skill level.
+        // Lower skill levels use depth limits for near-instant response since
+        // Stockfish's Skill Level UCI option already weakens play.
+        // Higher skill levels use movetime so the engine can search deeper.
+        let go_params = if let Some(mt) = movetime_ms {
+            GoParams { movetime: Some(mt), depth: None, infinite: false }
+        } else {
+            match self.skill_level {
+                0..=3 => GoParams { depth: Some(4), movetime: None, infinite: false },
+                4..=7 => GoParams { depth: Some(8), movetime: None, infinite: false },
+                8..=12 => GoParams { movetime: Some(500), depth: None, infinite: false },
+                13..=17 => GoParams { movetime: Some(1000), depth: None, infinite: false },
+                _ => GoParams { movetime: Some(2000), depth: None, infinite: false },
+            }
+        };
 
         // Start calculation via channel
         cmd_tx
-            .send(EngineCommand::Go(GoParams {
-                movetime: Some(movetime),
-                depth: None,
-                infinite: false,
-            }))
+            .send(EngineCommand::Go(go_params))
             .await
             .map_err(|e| format!("Failed to start engine calculation: {}", e))?;
 

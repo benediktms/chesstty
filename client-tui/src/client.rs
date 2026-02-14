@@ -119,6 +119,8 @@ impl ChessClient {
         &mut self,
         enabled: bool,
         skill_level: u32,
+        threads: Option<u32>,
+        hash_mb: Option<u32>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let session_id = self.session_id.as_ref().ok_or("No active session")?;
 
@@ -126,6 +128,8 @@ impl ChessClient {
             session_id: session_id.clone(),
             enabled,
             skill_level,
+            threads,
+            hash_mb,
         };
 
         self.client.set_engine(request).await?;

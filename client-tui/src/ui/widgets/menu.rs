@@ -12,11 +12,62 @@ pub enum MenuItem {
     GameMode(GameModeOption),
     PlayAs(PlayAsOption),
     Difficulty(DifficultyOption),
+    EngineThreads(ThreadsOption),
+    EngineHash(HashOption),
     TimeControl(TimeControlOption),
     StartPosition(StartPositionOption),
     ResumeSession,
     StartGame,
     Quit,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ThreadsOption {
+    Auto,       // Auto-detect, capped at 4
+    One,
+    Two,
+    Four,
+}
+
+impl ThreadsOption {
+    pub fn value(&self) -> Option<u32> {
+        match self {
+            ThreadsOption::Auto => None, // Will be resolved at engine init
+            ThreadsOption::One => Some(1),
+            ThreadsOption::Two => Some(2),
+            ThreadsOption::Four => Some(4),
+        }
+    }
+
+    /// Resolve Auto to an actual thread count (capped at 4).
+    pub fn resolve(&self) -> u32 {
+        match self {
+            ThreadsOption::Auto => std::thread::available_parallelism()
+                .map(|n| n.get() as u32)
+                .unwrap_or(1)
+                .min(4),
+            ThreadsOption::One => 1,
+            ThreadsOption::Two => 2,
+            ThreadsOption::Four => 4,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum HashOption {
+    Small,    // 32 MB
+    Medium,   // 128 MB
+    Large,    // 256 MB
+}
+
+impl HashOption {
+    pub fn megabytes(&self) -> u32 {
+        match self {
+            HashOption::Small => 32,
+            HashOption::Medium => 128,
+            HashOption::Large => 256,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -59,6 +110,8 @@ pub struct MenuState {
     pub game_mode: GameModeOption,
     pub play_as: PlayAsOption,
     pub difficulty: DifficultyOption,
+    pub engine_threads: ThreadsOption,
+    pub engine_hash: HashOption,
     pub time_control: TimeControlOption,
     pub start_position: StartPositionOption,
     pub fen_dialog_state: Option<FenDialogState>,
@@ -74,6 +127,8 @@ impl Default for MenuState {
             game_mode: GameModeOption::HumanVsEngine,
             play_as: PlayAsOption::White,
             difficulty: DifficultyOption::Intermediate,
+            engine_threads: ThreadsOption::Auto,
+            engine_hash: HashOption::Medium,
             time_control: TimeControlOption::None,
             start_position: StartPositionOption::Standard,
             fen_dialog_state: None,
@@ -100,6 +155,11 @@ impl MenuState {
     }
 
     pub fn items(&self) -> Vec<MenuItem> {
+        let has_engine = matches!(
+            self.game_mode,
+            GameModeOption::HumanVsEngine | GameModeOption::EngineVsEngine
+        );
+
         let mut items = vec![MenuItem::GameMode(self.game_mode.clone())];
 
         // Show Play As only for Human vs Engine
@@ -108,6 +168,13 @@ impl MenuState {
         }
 
         items.push(MenuItem::Difficulty(self.difficulty));
+
+        // Show engine tuning options when an engine is involved
+        if has_engine {
+            items.push(MenuItem::EngineThreads(self.engine_threads));
+            items.push(MenuItem::EngineHash(self.engine_hash));
+        }
+
         items.push(MenuItem::TimeControl(self.time_control));
         items.push(MenuItem::StartPosition(self.start_position));
 
@@ -263,6 +330,36 @@ impl Widget for MenuWidget<'_> {
                         Span::styled("Time Control: ", style),
                         Span::styled(time_str, style.fg(Color::Magenta)),
                         Span::styled(" [←/→]", Style::default().fg(Color::DarkGray)),
+                    ])
+                }
+                MenuItem::EngineThreads(threads) => {
+                    let threads_str = match threads {
+                        ThreadsOption::Auto => {
+                            let resolved = threads.resolve();
+                            format!("Auto ({})", resolved)
+                        }
+                        ThreadsOption::One => "1".to_string(),
+                        ThreadsOption::Two => "2".to_string(),
+                        ThreadsOption::Four => "4".to_string(),
+                    };
+                    Line::from(vec![
+                        Span::styled(prefix, style),
+                        Span::styled("Engine Threads: ", style),
+                        Span::styled(threads_str, style.fg(Color::Cyan)),
+                        Span::styled(" [\u{2190}/\u{2192}]", Style::default().fg(Color::DarkGray)),
+                    ])
+                }
+                MenuItem::EngineHash(hash) => {
+                    let hash_str = match hash {
+                        HashOption::Small => "32 MB",
+                        HashOption::Medium => "128 MB",
+                        HashOption::Large => "256 MB",
+                    };
+                    Line::from(vec![
+                        Span::styled(prefix, style),
+                        Span::styled("Engine Hash: ", style),
+                        Span::styled(hash_str, style.fg(Color::Cyan)),
+                        Span::styled(" [\u{2190}/\u{2192}]", Style::default().fg(Color::DarkGray)),
                     ])
                 }
                 MenuItem::StartPosition(pos) => {
