@@ -1,0 +1,10 @@
+[package]
+name = "engine"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+cozy-chess = { workspace = true }

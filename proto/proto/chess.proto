@@ -1,0 +1,220 @@
+syntax = "proto3";
+package chess;
+
+// Core chess service providing game management and engine control
+service ChessService {
+  // Session management
+  rpc CreateSession(CreateSessionRequest) returns (SessionInfo);
+  rpc GetSession(GetSessionRequest) returns (SessionInfo);
+  rpc CloseSession(CloseSessionRequest) returns (Empty);
+
+  // Game actions
+  rpc MakeMove(MakeMoveRequest) returns (MakeMoveResponse);
+  rpc GetLegalMoves(GetLegalMovesRequest) returns (LegalMovesResponse);
+  rpc UndoMove(UndoMoveRequest) returns (SessionInfo);
+  rpc RedoMove(RedoMoveRequest) returns (SessionInfo);
+  rpc ResetGame(ResetGameRequest) returns (SessionInfo);
+
+  // Engine control
+  rpc SetEngine(SetEngineRequest) returns (Empty);
+  rpc TriggerEngineMove(TriggerEngineMoveRequest) returns (Empty);
+  rpc StopEngine(StopEngineRequest) returns (Empty);
+
+  // Event streaming (server -> client push)
+  rpc StreamEvents(StreamEventsRequest) returns (stream GameEvent);
+}
+
+// ============================================================================
+// Session Management Messages
+// ============================================================================
+
+message CreateSessionRequest {
+  optional string fen = 1;  // null = standard starting position
+}
+
+message GetSessionRequest {
+  string session_id = 1;
+}
+
+message CloseSessionRequest {
+  string session_id = 1;
+}
+
+message SessionInfo {
+  string session_id = 1;
+  string fen = 2;
+  string side_to_move = 3;  // "white" | "black"
+  GameStatus status = 4;
+  uint32 move_count = 5;
+  repeated MoveRecord history = 6;
+  optional EngineConfig engine_config = 7;
+}
+
+// ============================================================================
+// Game Action Messages
+// ============================================================================
+
+message MakeMoveRequest {
+  string session_id = 1;
+  MoveRepr move = 2;
+}
+
+message MakeMoveResponse {
+  SessionInfo session_info = 1;
+  MoveRecord move_record = 2;
+}
+
+message GetLegalMovesRequest {
+  string session_id = 1;
+  optional string from_square = 2;  // null = all moves, otherwise filter by from square
+}
+
+message LegalMovesResponse {
+  repeated MoveDetail moves = 1;
+}
+
+message UndoMoveRequest {
+  string session_id = 1;
+}
+
+message RedoMoveRequest {
+  string session_id = 1;
+}
+
+message ResetGameRequest {
+  string session_id = 1;
+  optional string fen = 2;  // null = standard starting position
+}
+
+// ============================================================================
+// Engine Control Messages
+// ============================================================================
+
+message SetEngineRequest {
+  string session_id = 1;
+  bool enabled = 2;
+  uint32 skill_level = 3;  // 0-20
+}
+
+message TriggerEngineMoveRequest {
+  string session_id = 1;
+  optional uint64 movetime_ms = 2;  // null = use default
+}
+
+message StopEngineRequest {
+  string session_id = 1;
+}
+
+message EngineConfig {
+  bool enabled = 1;
+  uint32 skill_level = 2;  // 0-20
+}
+
+// ============================================================================
+// Event Streaming Messages
+// ============================================================================
+
+message StreamEventsRequest {
+  string session_id = 1;
+}
+
+message GameEvent {
+  oneof event {
+    MoveMadeEvent move_made = 1;
+    EngineMoveReadyEvent engine_move_ready = 2;
+    EngineThinkingEvent engine_thinking = 3;
+    GameEndedEvent game_ended = 4;
+    ErrorEvent error = 5;
+    UciMessageEvent uci_message = 6;
+  }
+}
+
+message MoveMadeEvent {
+  string session_id = 1;
+  MoveRecord move = 2;
+  string new_fen = 3;
+  GameStatus status = 4;
+}
+
+message EngineMoveReadyEvent {
+  string session_id = 1;
+  MoveRepr move = 2;
+  optional string evaluation = 3;
+}
+
+message EngineThinkingEvent {
+  string session_id = 1;
+  EngineInfo info = 2;
+}
+
+message GameEndedEvent {
+  string session_id = 1;
+  string result = 2;  // "1-0", "0-1", "1/2-1/2"
+  string reason = 3;
+}
+
+message ErrorEvent {
+  string session_id = 1;
+  string error_message = 2;
+}
+
+message UciMessageEvent {
+  string session_id = 1;
+  UciDirection direction = 2;
+  string message = 3;
+  optional string context = 4;  // Optional context (e.g., "After move e4")
+}
+
+enum UciDirection {
+  TO_ENGINE = 0;
+  FROM_ENGINE = 1;
+}
+
+// ============================================================================
+// Core Data Types
+// ============================================================================
+
+message MoveRepr {
+  string from = 1;  // e.g., "e2"
+  string to = 2;    // e.g., "e4"
+  optional string promotion = 3;  // "q", "r", "b", "n"
+}
+
+message MoveRecord {
+  string from = 1;
+  string to = 2;
+  string piece = 3;           // "P", "N", "B", "R", "Q", "K"
+  optional string captured = 4;  // "P", "N", "B", "R", "Q" (if capture)
+  string san = 5;             // Standard Algebraic Notation (e.g., "Nf3", "exd5")
+  string fen_after = 6;       // FEN position after this move
+  optional string promotion = 7;  // "q", "r", "b", "n" (if promotion)
+}
+
+message MoveDetail {
+  string from = 1;
+  string to = 2;
+  optional string promotion = 3;
+  string san = 4;
+  bool is_capture = 5;
+  bool is_check = 6;
+  bool is_checkmate = 7;
+}
+
+message EngineInfo {
+  optional uint32 depth = 1;
+  optional uint32 seldepth = 2;
+  optional uint64 time_ms = 3;
+  optional uint64 nodes = 4;
+  optional string score = 5;    // e.g., "cp 25" or "mate 5"
+  repeated string pv = 6;       // Principal variation (sequence of moves)
+  optional uint64 nps = 7;      // Nodes per second
+}
+
+enum GameStatus {
+  ONGOING = 0;
+  CHECKMATE = 1;
+  STALEMATE = 2;
+  DRAW = 3;
+}
+
+message Empty {}

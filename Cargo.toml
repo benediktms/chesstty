@@ -1,9 +1,32 @@
-[package]
-name = "chesstty"
-version = "0.1.0"
-edition = "2021"
+[workspace]
+resolver = "2"
+members = [
+    "proto",
+    "server",
+    "client-tui",
+    "chess",
+    "engine",
+]
 
-[dependencies]
+[workspace.dependencies]
+# Async runtime
+tokio = { version = "1.41", features = ["full"] }
+tokio-stream = { version = "0.1", features = ["sync"] }
+
+# gRPC and Protocol Buffers
+tonic = "0.12"
+prost = "0.13"
+prost-types = "0.13"
+
+# Error handling
+thiserror = "2.0"
+anyhow = "1.0"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender = "0.2"
+
 # Chess core
 cozy-chess = "0.3"
 
@@ -11,12 +34,11 @@ cozy-chess = "0.3"
 ratatui = "0.28"
 crossterm = "0.28"
 
-# Async runtime
-tokio = { version = "1.41", features = ["full"] }
+# Utilities
+uuid = { version = "1.0", features = ["v4", "serde"] }
 
-# Error handling
-thiserror = "2.0"
-anyhow = "1.0"
+[workspace.lints.rust]
+unsafe_code = "forbid"
 
-[dev-dependencies]
-proptest = "1.4"
+[workspace.lints.clippy]
+enum_glob_use = "deny"

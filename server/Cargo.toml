@@ -1,0 +1,29 @@
+[package]
+name = "chesstty-server"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "chesstty-server"
+path = "src/main.rs"
+
+[dependencies]
+chess-proto = { path = "../proto" }
+chess = { path = "../chess" }
+engine = { path = "../engine" }
+
+tokio = { workspace = true }
+tokio-stream = { workspace = true }
+tonic = { workspace = true }
+
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+tracing-appender = { workspace = true }
+
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true }
+
+# For async streaming
+async-stream = "0.3"
+cozy-chess = { workspace = true }

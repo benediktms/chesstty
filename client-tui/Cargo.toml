@@ -1,0 +1,31 @@
+[package]
+name = "chesstty-tui"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "chesstty-tui"
+path = "src/main.rs"
+
+[dependencies]
+chess-proto = { path = "../proto" }
+
+tokio = { workspace = true }
+tonic = { workspace = true }
+futures = "0.3"
+
+ratatui = { workspace = true }
+crossterm = { workspace = true }
+
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+tracing-appender = { workspace = true }
+
+cozy-chess = { workspace = true }
+
+# For connection management
+tower = "0.5"
+hyper = "1.5"
+hyper-util = { version = "0.1", features = ["tokio"] }

@@ -1,0 +1,11 @@
+[package]
+name = "chess"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+cozy-chess = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+proptest = "1.4"
