@@ -6,6 +6,48 @@ use std::sync::Arc;
 use tokio::sync::{broadcast, RwLock};
 use uuid::Uuid;
 
+/// Convert UCI castling notation to cozy_chess notation
+///
+/// UCI uses standard notation (king moves 2 squares): e1g1, e1c1, e8g8, e8c8
+/// cozy_chess uses king-to-rook notation: e1h1, e1a1, e8h8, e8a8
+///
+/// This function checks if the move is a castling move and converts it to the
+/// appropriate cozy_chess format by finding the matching legal move.
+fn convert_uci_castling_to_cozy(mv: Move, legal_moves: &[Move]) -> Move {
+    use cozy_chess::{File, Rank};
+
+    // Check if this looks like a UCI castling move (king moving 2 squares on rank 1 or 8)
+    let is_rank_1_or_8 = matches!(mv.from.rank(), Rank::First | Rank::Eighth);
+    let is_e_file = matches!(mv.from.file(), File::E);
+    let is_g_or_c_file = matches!(mv.to.file(), File::G | File::C);
+
+    if is_rank_1_or_8 && is_e_file && is_g_or_c_file && mv.promotion.is_none() {
+        // This looks like a castling move in UCI notation
+        // Convert to cozy_chess notation
+        let target_square = match (mv.from.rank(), mv.to.file()) {
+            (Rank::First, File::G) => Square::new(File::H, Rank::First),   // e1g1 → e1h1 (white kingside)
+            (Rank::First, File::C) => Square::new(File::A, Rank::First),   // e1c1 → e1a1 (white queenside)
+            (Rank::Eighth, File::G) => Square::new(File::H, Rank::Eighth), // e8g8 → e8h8 (black kingside)
+            (Rank::Eighth, File::C) => Square::new(File::A, Rank::Eighth), // e8c8 → e8a8 (black queenside)
+            _ => return mv, // Not a castling move
+        };
+
+        let converted = Move {
+            from: mv.from,
+            to: target_square,
+            promotion: None,
+        };
+
+        // Verify the converted move is in the legal moves list
+        if legal_moves.contains(&converted) {
+            return converted;
+        }
+    }
+
+    // Not a castling move or conversion didn't work, return original
+    mv
+}
+
 /// Manages multiple chess game sessions
 pub struct SessionManager {
     sessions: Arc<RwLock<HashMap<String, Arc<RwLock<GameSession>>>>>,
@@ -431,7 +473,22 @@ impl GameSession {
 
                         // Automatically execute the engine move on the server
                         if self.engine_enabled {
-                            match self.game.make_move(mv) {
+                            // Convert UCI castling notation to cozy_chess notation
+                            let legal_moves = self.game.legal_moves();
+                            let converted_mv = convert_uci_castling_to_cozy(mv, &legal_moves);
+
+                            if !legal_moves.contains(&converted_mv) {
+                                tracing::error!(
+                                    "Engine suggested illegal move {:?} (converted: {:?}). Legal moves: {:?}. Current FEN: {}",
+                                    mv, converted_mv, legal_moves, self.game.to_fen()
+                                );
+                                let _ = self.event_tx.send(SessionEvent::Error {
+                                    message: format!("Engine suggested illegal move: {:?}", mv),
+                                });
+                                continue;
+                            }
+
+                            match self.game.make_move(converted_mv) {
                                 Ok(entry) => {
                                     let status = self.game.status();
                                     tracing::info!("Engine move executed: {}", entry.san);
