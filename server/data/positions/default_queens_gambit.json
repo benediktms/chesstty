@@ -1,0 +1,7 @@
+{
+  "position_id": "default_queens_gambit",
+  "name": "Queen's Gambit",
+  "fen": "rnbqkbnr/ppp1pppp/8/3p4/2PP4/8/PP2PPPP/RNBQKBNR b KQkq c3 0 2",
+  "is_default": true,
+  "created_at": 0
+}

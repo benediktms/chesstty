@@ -176,4 +176,95 @@ impl ChessClient {
 
         Ok(())
     }
+
+    /// Suspend the current session (persist state on server, close active session)
+    pub async fn suspend_session(
+        &mut self,
+        game_mode: &str,
+        human_side: Option<&str>,
+        skill_level: u32,
+    ) -> Result<String, Box<dyn std::error::Error>> {
+        let session_id = self.session_id.as_ref().ok_or("No active session")?;
+
+        let request = SuspendSessionRequest {
+            session_id: session_id.clone(),
+            game_mode: game_mode.to_string(),
+            human_side: human_side.map(|s| s.to_string()),
+            skill_level,
+        };
+
+        let response = self.client.suspend_session(request).await?;
+        self.session_id = None; // Session is no longer active
+        Ok(response.into_inner().suspended_id)
+    }
+
+    /// List all suspended sessions on the server
+    pub async fn list_suspended_sessions(
+        &mut self,
+    ) -> Result<Vec<SuspendedSessionInfo>, Box<dyn std::error::Error>> {
+        let request = ListSuspendedSessionsRequest {};
+        let response = self.client.list_suspended_sessions(request).await?;
+        Ok(response.into_inner().sessions)
+    }
+
+    /// Resume a suspended session (creates a new active session from saved state)
+    pub async fn resume_suspended_session(
+        &mut self,
+        suspended_id: &str,
+    ) -> Result<SessionInfo, Box<dyn std::error::Error>> {
+        let request = ResumeSuspendedSessionRequest {
+            suspended_id: suspended_id.to_string(),
+        };
+        let response = self.client.resume_suspended_session(request).await?;
+        let info = response.into_inner();
+        self.session_id = Some(info.session_id.clone());
+        Ok(info)
+    }
+
+    /// Delete a suspended session
+    pub async fn delete_suspended_session(
+        &mut self,
+        suspended_id: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let request = DeleteSuspendedSessionRequest {
+            suspended_id: suspended_id.to_string(),
+        };
+        self.client.delete_suspended_session(request).await?;
+        Ok(())
+    }
+
+    /// Save a named position (validates FEN on server)
+    pub async fn save_position(
+        &mut self,
+        name: &str,
+        fen: &str,
+    ) -> Result<String, Box<dyn std::error::Error>> {
+        let request = SavePositionRequest {
+            name: name.to_string(),
+            fen: fen.to_string(),
+        };
+        let response = self.client.save_position(request).await?;
+        Ok(response.into_inner().position_id)
+    }
+
+    /// List all saved positions from the server
+    pub async fn list_positions(
+        &mut self,
+    ) -> Result<Vec<SavedPosition>, Box<dyn std::error::Error>> {
+        let request = ListPositionsRequest {};
+        let response = self.client.list_positions(request).await?;
+        Ok(response.into_inner().positions)
+    }
+
+    /// Delete a saved position
+    pub async fn delete_position(
+        &mut self,
+        position_id: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let request = DeletePositionRequest {
+            position_id: position_id.to_string(),
+        };
+        self.client.delete_position(request).await?;
+        Ok(())
+    }
 }

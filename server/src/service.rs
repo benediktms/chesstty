@@ -31,6 +31,7 @@ impl ChessService for ChessServiceImpl {
         request: Request<CreateSessionRequest>,
     ) -> Result<Response<chess_proto::SessionInfo>, Status> {
         let req = request.into_inner();
+        tracing::info!(fen = ?req.fen, "RPC create_session");
         let session_id = self
             .session_manager
             .create_session(req.fen)
@@ -51,6 +52,7 @@ impl ChessService for ChessServiceImpl {
         request: Request<GetSessionRequest>,
     ) -> Result<Response<chess_proto::SessionInfo>, Status> {
         let req = request.into_inner();
+        tracing::debug!(session_id = %req.session_id, "RPC get_session");
         let info = self
             .session_manager
             .get_session_info(&req.session_id)
@@ -65,6 +67,7 @@ impl ChessService for ChessServiceImpl {
         request: Request<CloseSessionRequest>,
     ) -> Result<Response<Empty>, Status> {
         let req = request.into_inner();
+        tracing::info!(session_id = %req.session_id, "RPC close_session");
         self.session_manager
             .close_session(&req.session_id)
             .await
@@ -78,6 +81,7 @@ impl ChessService for ChessServiceImpl {
         request: Request<MakeMoveRequest>,
     ) -> Result<Response<MakeMoveResponse>, Status> {
         let req = request.into_inner();
+        tracing::info!(session_id = %req.session_id, mv = ?req.r#move, "RPC make_move");
         let mv_repr = req
             .r#move
             .ok_or_else(|| Status::invalid_argument("Move is required"))?;
@@ -109,6 +113,7 @@ impl ChessService for ChessServiceImpl {
         request: Request<GetLegalMovesRequest>,
     ) -> Result<Response<LegalMovesResponse>, Status> {
         let req = request.into_inner();
+        tracing::debug!(session_id = %req.session_id, from = ?req.from_square, "RPC get_legal_moves");
 
         let from_square = if let Some(ref sq_str) = req.from_square {
             Some(parse_square_grpc(sq_str)?)
@@ -160,6 +165,7 @@ impl ChessService for ChessServiceImpl {
         request: Request<UndoMoveRequest>,
     ) -> Result<Response<chess_proto::SessionInfo>, Status> {
         let req = request.into_inner();
+        tracing::info!(session_id = %req.session_id, "RPC undo_move");
         self.session_manager
             .undo_move(&req.session_id)
             .await
@@ -179,6 +185,7 @@ impl ChessService for ChessServiceImpl {
         request: Request<RedoMoveRequest>,
     ) -> Result<Response<chess_proto::SessionInfo>, Status> {
         let req = request.into_inner();
+        tracing::info!(session_id = %req.session_id, "RPC redo_move");
         self.session_manager
             .redo_move(&req.session_id)
             .await
@@ -198,6 +205,7 @@ impl ChessService for ChessServiceImpl {
         request: Request<ResetGameRequest>,
     ) -> Result<Response<chess_proto::SessionInfo>, Status> {
         let req = request.into_inner();
+        tracing::info!(session_id = %req.session_id, fen = ?req.fen, "RPC reset_game");
         self.session_manager
             .reset_game(&req.session_id, req.fen)
             .await
@@ -217,6 +225,7 @@ impl ChessService for ChessServiceImpl {
         request: Request<SetEngineRequest>,
     ) -> Result<Response<Empty>, Status> {
         let req = request.into_inner();
+        tracing::info!(session_id = %req.session_id, enabled = req.enabled, skill = req.skill_level, threads = ?req.threads, hash = ?req.hash_mb, "RPC set_engine");
         self.session_manager
             .set_engine(
                 &req.session_id,
@@ -236,6 +245,7 @@ impl ChessService for ChessServiceImpl {
         request: Request<TriggerEngineMoveRequest>,
     ) -> Result<Response<Empty>, Status> {
         let req = request.into_inner();
+        tracing::info!(session_id = %req.session_id, movetime = ?req.movetime_ms, "RPC trigger_engine_move");
         self.session_manager
             .trigger_engine_move(&req.session_id, req.movetime_ms)
             .await
@@ -249,6 +259,7 @@ impl ChessService for ChessServiceImpl {
         request: Request<StopEngineRequest>,
     ) -> Result<Response<Empty>, Status> {
         let req = request.into_inner();
+        tracing::info!(session_id = %req.session_id, "RPC stop_engine");
         self.session_manager
             .stop_engine(&req.session_id)
             .await
@@ -264,6 +275,7 @@ impl ChessService for ChessServiceImpl {
         request: Request<StreamEventsRequest>,
     ) -> Result<Response<Self::StreamEventsStream>, Status> {
         let req = request.into_inner();
+        tracing::info!(session_id = %req.session_id, "RPC stream_events");
 
         let mut event_rx = self
             .session_manager
@@ -292,6 +304,142 @@ impl ChessService for ChessServiceImpl {
         };
 
         Ok(Response::new(Box::pin(stream)))
+    }
+
+    async fn suspend_session(
+        &self,
+        request: Request<SuspendSessionRequest>,
+    ) -> Result<Response<SuspendSessionResponse>, Status> {
+        let req = request.into_inner();
+        tracing::info!(session_id = %req.session_id, game_mode = %req.game_mode, "RPC suspend_session");
+        let suspended_id = self
+            .session_manager
+            .suspend_session(
+                &req.session_id,
+                req.game_mode,
+                req.human_side,
+                req.skill_level as u8,
+            )
+            .await
+            .map_err(|e| Status::internal(e))?;
+
+        Ok(Response::new(SuspendSessionResponse { suspended_id }))
+    }
+
+    async fn list_suspended_sessions(
+        &self,
+        _request: Request<ListSuspendedSessionsRequest>,
+    ) -> Result<Response<ListSuspendedSessionsResponse>, Status> {
+        tracing::info!("RPC list_suspended_sessions");
+        let sessions = self
+            .session_manager
+            .list_suspended()
+            .map_err(|e| Status::internal(e))?;
+
+        let proto_sessions: Vec<SuspendedSessionInfo> = sessions
+            .into_iter()
+            .map(|s| SuspendedSessionInfo {
+                suspended_id: s.suspended_id,
+                fen: s.fen,
+                game_mode: s.game_mode,
+                human_side: s.human_side,
+                skill_level: s.skill_level as u32,
+                move_count: s.move_count,
+                side_to_move: s.side_to_move,
+                created_at: s.created_at,
+            })
+            .collect();
+
+        Ok(Response::new(ListSuspendedSessionsResponse {
+            sessions: proto_sessions,
+        }))
+    }
+
+    async fn resume_suspended_session(
+        &self,
+        request: Request<ResumeSuspendedSessionRequest>,
+    ) -> Result<Response<chess_proto::SessionInfo>, Status> {
+        let req = request.into_inner();
+        tracing::info!(suspended_id = %req.suspended_id, "RPC resume_suspended_session");
+        let (session_id, _data) = self
+            .session_manager
+            .resume_suspended(&req.suspended_id)
+            .await
+            .map_err(|e| Status::not_found(e))?;
+
+        // Get full session info for the newly created session
+        let info = self
+            .session_manager
+            .get_session_info(&session_id)
+            .await
+            .map_err(|e| Status::internal(e))?;
+
+        Ok(Response::new(convert_session_info_to_proto(info)))
+    }
+
+    async fn delete_suspended_session(
+        &self,
+        request: Request<DeleteSuspendedSessionRequest>,
+    ) -> Result<Response<Empty>, Status> {
+        let req = request.into_inner();
+        tracing::info!(suspended_id = %req.suspended_id, "RPC delete_suspended_session");
+        self.session_manager
+            .delete_suspended(&req.suspended_id)
+            .map_err(|e| Status::not_found(e))?;
+
+        Ok(Response::new(Empty {}))
+    }
+    async fn save_position(
+        &self,
+        request: Request<SavePositionRequest>,
+    ) -> Result<Response<SavePositionResponse>, Status> {
+        let req = request.into_inner();
+        tracing::info!(name = %req.name, fen = %req.fen, "RPC save_position");
+        let position_id = self
+            .session_manager
+            .save_position(req.name, req.fen)
+            .map_err(|e| Status::invalid_argument(e))?;
+
+        Ok(Response::new(SavePositionResponse { position_id }))
+    }
+
+    async fn list_positions(
+        &self,
+        _request: Request<ListPositionsRequest>,
+    ) -> Result<Response<ListPositionsResponse>, Status> {
+        tracing::info!("RPC list_positions");
+        let positions = self
+            .session_manager
+            .list_positions()
+            .map_err(|e| Status::internal(e))?;
+
+        let proto_positions: Vec<SavedPosition> = positions
+            .into_iter()
+            .map(|p| SavedPosition {
+                position_id: p.position_id,
+                name: p.name,
+                fen: p.fen,
+                is_default: p.is_default,
+                created_at: p.created_at,
+            })
+            .collect();
+
+        Ok(Response::new(ListPositionsResponse {
+            positions: proto_positions,
+        }))
+    }
+
+    async fn delete_position(
+        &self,
+        request: Request<DeletePositionRequest>,
+    ) -> Result<Response<Empty>, Status> {
+        let req = request.into_inner();
+        tracing::info!(position_id = %req.position_id, "RPC delete_position");
+        self.session_manager
+            .delete_position(&req.position_id)
+            .map_err(|e| Status::invalid_argument(e))?;
+
+        Ok(Response::new(Empty {}))
     }
 }
 

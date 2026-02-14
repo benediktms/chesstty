@@ -7,6 +7,7 @@ pub mod mini_board;
 pub mod move_history_panel;
 pub mod popup_menu;
 pub mod promotion_dialog;
+pub mod selectable_table;
 pub mod uci_debug_panel;
 
 pub use board::BoardWidget;
@@ -18,4 +19,5 @@ pub use mini_board::MiniBoardWidget;
 pub use move_history_panel::MoveHistoryPanel;
 pub use popup_menu::{PopupMenuState, PopupMenuWidget};
 pub use promotion_dialog::PromotionWidget;
+pub use selectable_table::{SelectableTableState, render_table_overlay};
 pub use uci_debug_panel::UciDebugPanel;

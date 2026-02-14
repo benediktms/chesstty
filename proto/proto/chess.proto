@@ -20,6 +20,17 @@ service ChessService {
   rpc TriggerEngineMove(TriggerEngineMoveRequest) returns (Empty);
   rpc StopEngine(StopEngineRequest) returns (Empty);
 
+  // Session persistence
+  rpc SuspendSession(SuspendSessionRequest) returns (SuspendSessionResponse);
+  rpc ListSuspendedSessions(ListSuspendedSessionsRequest) returns (ListSuspendedSessionsResponse);
+  rpc ResumeSuspendedSession(ResumeSuspendedSessionRequest) returns (SessionInfo);
+  rpc DeleteSuspendedSession(DeleteSuspendedSessionRequest) returns (Empty);
+
+  // Saved positions
+  rpc SavePosition(SavePositionRequest) returns (SavePositionResponse);
+  rpc ListPositions(ListPositionsRequest) returns (ListPositionsResponse);
+  rpc DeletePosition(DeletePositionRequest) returns (Empty);
+
   // Event streaming (server -> client push)
   rpc StreamEvents(StreamEventsRequest) returns (stream GameEvent);
 }
@@ -222,3 +233,74 @@ enum GameStatus {
 }
 
 message Empty {}
+
+// ============================================================================
+// Session Persistence Messages
+// ============================================================================
+
+message SuspendSessionRequest {
+  string session_id = 1;
+  string game_mode = 2;            // "HumanVsHuman", "HumanVsEngine", "EngineVsEngine"
+  optional string human_side = 3;  // "white" or "black" (for HvE)
+  uint32 skill_level = 4;
+}
+
+message SuspendSessionResponse {
+  string suspended_id = 1;
+}
+
+message ListSuspendedSessionsRequest {}
+
+message ListSuspendedSessionsResponse {
+  repeated SuspendedSessionInfo sessions = 1;
+}
+
+message SuspendedSessionInfo {
+  string suspended_id = 1;
+  string fen = 2;
+  string game_mode = 3;
+  optional string human_side = 4;
+  uint32 skill_level = 5;
+  uint32 move_count = 6;
+  string side_to_move = 7;
+  uint64 created_at = 8;           // unix timestamp seconds
+}
+
+message ResumeSuspendedSessionRequest {
+  string suspended_id = 1;
+}
+
+message DeleteSuspendedSessionRequest {
+  string suspended_id = 1;
+}
+
+// ============================================================================
+// Saved Positions Messages
+// ============================================================================
+
+message SavePositionRequest {
+  string name = 1;
+  string fen = 2;
+}
+
+message SavePositionResponse {
+  string position_id = 1;
+}
+
+message ListPositionsRequest {}
+
+message ListPositionsResponse {
+  repeated SavedPosition positions = 1;
+}
+
+message SavedPosition {
+  string position_id = 1;
+  string name = 2;
+  string fen = 3;
+  bool is_default = 4;
+  uint64 created_at = 5;
+}
+
+message DeletePositionRequest {
+  string position_id = 1;
+}

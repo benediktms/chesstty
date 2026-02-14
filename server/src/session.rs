@@ -1,3 +1,4 @@
+use crate::persistence::{self, PositionStore, SavedPositionData, SessionStore, SuspendedSessionData};
 use chess::{Game, GameError, HistoryEntry};
 use chess_common::uci::convert_uci_castling_to_cozy;
 use cozy_chess::{Color, GameStatus as CozyGameStatus, Move, Piece, Square};
@@ -11,6 +12,8 @@ use uuid::Uuid;
 /// Manages multiple chess game sessions
 pub struct SessionManager {
     sessions: Arc<RwLock<HashMap<String, Arc<RwLock<GameSession>>>>>,
+    store: SessionStore,
+    position_store: PositionStore,
 }
 
 /// A single game session with associated game state and engine
@@ -65,8 +68,9 @@ impl SessionManager {
     pub fn new() -> Self {
         Self {
             sessions: Arc::new(RwLock::new(HashMap::new())),
+            store: SessionStore::new("data"),
+            position_store: PositionStore::new("data"),
         }
-        // No more global polling loop! Each session has its own event handler.
     }
 
     /// Create a new game session
@@ -248,6 +252,92 @@ impl SessionManager {
             engine_enabled: session.engine_enabled,
             skill_level: session.skill_level,
         })
+    }
+
+    /// Suspend an active session — persist its state and close it.
+    pub async fn suspend_session(
+        &self,
+        session_id: &str,
+        game_mode: String,
+        human_side: Option<String>,
+        skill_level: u8,
+    ) -> Result<String, String> {
+        // Get session state before closing
+        let info = self.get_session_info(session_id).await?;
+
+        let suspended_id = persistence::generate_suspended_id();
+        let data = SuspendedSessionData {
+            suspended_id: suspended_id.clone(),
+            fen: info.fen,
+            side_to_move: format!("{:?}", info.side_to_move).to_lowercase(),
+            move_count: info.move_count as u32,
+            game_mode,
+            human_side,
+            skill_level,
+            created_at: persistence::now_timestamp(),
+        };
+
+        self.store.save(&data)?;
+
+        // Close the active session (frees engine resources)
+        self.close_session(session_id).await?;
+
+        tracing::info!("Suspended session {} as {}", session_id, suspended_id);
+        Ok(suspended_id)
+    }
+
+    /// Resume a suspended session — load from persistence and create a new active session.
+    pub async fn resume_suspended(&self, suspended_id: &str) -> Result<(String, SuspendedSessionData), String> {
+        let data = self
+            .store
+            .load(suspended_id)?
+            .ok_or_else(|| format!("Suspended session not found: {}", suspended_id))?;
+
+        // Create a new active session with the saved FEN
+        let session_id = self.create_session(Some(data.fen.clone())).await?;
+
+        // Delete the suspended entry now that it's been resumed
+        self.store.delete(suspended_id)?;
+
+        tracing::info!("Resumed suspended session {} as active session {}", suspended_id, session_id);
+        Ok((session_id, data))
+    }
+
+    /// List all suspended sessions.
+    pub fn list_suspended(&self) -> Result<Vec<SuspendedSessionData>, String> {
+        self.store.list()
+    }
+
+    /// Delete a suspended session.
+    pub fn delete_suspended(&self, suspended_id: &str) -> Result<(), String> {
+        self.store.delete(suspended_id)
+    }
+
+    /// Save a named position. Validates the FEN on the server side.
+    pub fn save_position(&self, name: String, fen: String) -> Result<String, String> {
+        // Validate FEN by trying to parse it
+        use cozy_chess::Board;
+        fen.parse::<Board>().map_err(|e| format!("Invalid FEN: {}", e))?;
+
+        let id = persistence::generate_position_id();
+        let data = SavedPositionData {
+            position_id: id,
+            name,
+            fen,
+            is_default: false,
+            created_at: persistence::now_timestamp(),
+        };
+        self.position_store.save(&data)
+    }
+
+    /// List all saved positions.
+    pub fn list_positions(&self) -> Result<Vec<SavedPositionData>, String> {
+        self.position_store.list()
+    }
+
+    /// Delete a saved position (cannot delete defaults).
+    pub fn delete_position(&self, position_id: &str) -> Result<(), String> {
+        self.position_store.delete(position_id)
     }
 }
 

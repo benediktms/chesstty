@@ -1,3 +1,4 @@
+mod persistence;
 mod service;
 mod session;
 
@@ -9,12 +10,14 @@ use tonic::transport::Server;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Initialize tracing
+    // Initialize tracing with span durations
+    use tracing_subscriber::fmt::format::FmtSpan;
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
         )
+        .with_span_events(FmtSpan::CLOSE)
         .init();
 
     tracing::info!("Starting ChessTTY gRPC server");

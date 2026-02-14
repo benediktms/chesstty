@@ -17,4 +17,7 @@ Cargo.lock
 # Logs
 /logs/
 
+# Server data (suspended sessions)
+/data/
+
 .claude/

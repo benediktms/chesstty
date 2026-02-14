@@ -25,8 +25,27 @@ enum ExitReason {
 pub async fn run_app() -> anyhow::Result<()> {
     // Outer loop: menu → game → menu → game → ...
     loop {
+        // Pre-fetch data from server for the menu
+        let (suspended, positions) = match crate::client::ChessClient::connect("http://[::1]:50051").await {
+            Ok(mut client) => {
+                let sessions = client.list_suspended_sessions().await.unwrap_or_else(|e| {
+                    tracing::warn!("Failed to list suspended sessions: {}", e);
+                    vec![]
+                });
+                let positions = client.list_positions().await.unwrap_or_else(|e| {
+                    tracing::warn!("Failed to list positions: {}", e);
+                    vec![]
+                });
+                (sessions, positions)
+            }
+            Err(e) => {
+                tracing::warn!("Failed to connect to server: {}", e);
+                (vec![], vec![])
+            }
+        };
+
         // Show menu and get game configuration
-        let config = match menu_app::show_menu().await? {
+        let config = match menu_app::show_menu(suspended, positions).await? {
             Some(cfg) => cfg,
             None => return Ok(()), // User quit from menu
         };
@@ -67,20 +86,22 @@ async fn run_game<B: ratatui::backend::Backend>(
         .map_err(|e| anyhow::anyhow!("Failed to connect to server: {}", e))?;
 
     // Handle resume vs new game
-    if config.resume {
-        // Load saved session and restore state
-        match crate::session_file::load_session() {
-            Ok(Some(saved)) => {
-                // Reset to the saved FEN
-                if let Err(e) = state.reset(Some(saved.fen)).await {
-                    state.ui_state.status_message = Some(format!("Failed to restore position: {}", e));
+    if let Some(ref suspended_id) = config.resume_session_id {
+        // Resume a suspended session from the server.
+        // This creates a new active session with the saved FEN.
+        match state.client.resume_suspended_session(suspended_id).await {
+            Ok(_session_info) => {
+                // Refresh our cached state from the newly created server session
+                if let Err(e) = state.refresh_from_server().await {
+                    state.ui_state.status_message = Some(format!("Failed to sync state: {}", e));
                 }
 
-                // Restore game mode
-                state.mode = match saved.game_mode.as_str() {
+                // Restore game mode from the config metadata
+                let game_mode_str = config.resume_game_mode.as_deref().unwrap_or("HumanVsHuman");
+                state.mode = match game_mode_str {
                     "HumanVsHuman" => GameMode::HumanVsHuman,
                     "HumanVsEngine" => {
-                        let side = match saved.human_side.as_deref() {
+                        let side = match config.resume_human_side.as_deref() {
                             Some("black") => PlayerColor::Black,
                             _ => PlayerColor::White,
                         };
@@ -90,28 +111,20 @@ async fn run_game<B: ratatui::backend::Backend>(
                     _ => GameMode::HumanVsHuman,
                 };
 
-                state.skill_level = saved.skill_level;
+                state.skill_level = config.resume_skill_level.unwrap_or(10);
 
                 // Re-enable engine if needed
                 let needs_engine = matches!(state.mode, GameMode::HumanVsEngine { .. } | GameMode::EngineVsEngine);
                 if needs_engine {
-                    if let Err(e) = state.set_engine(true, saved.skill_level).await {
+                    if let Err(e) = state.set_engine(true, state.skill_level).await {
                         state.ui_state.status_message = Some(format!("Failed to enable engine: {}", e));
                     }
                 }
 
                 state.ui_state.status_message = Some("Session resumed".to_string());
-
-                // Clear the saved session file now that we've loaded it
-                if let Err(e) = crate::session_file::clear_saved_session() {
-                    tracing::warn!("Failed to clear saved session: {}", e);
-                }
-            }
-            Ok(None) => {
-                state.ui_state.status_message = Some("No saved session found".to_string());
             }
             Err(e) => {
-                state.ui_state.status_message = Some(format!("Failed to load session: {}", e));
+                state.ui_state.status_message = Some(format!("Failed to resume session: {}", e));
             }
         }
     } else {
@@ -448,14 +461,25 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
                 AppAction::Quit => return Ok(ExitReason::Quit),
                 AppAction::ReturnToMenu => return Ok(ExitReason::ReturnToMenu),
                 AppAction::SuspendAndReturnToMenu => {
-                    let session = crate::session_file::build_saved_session(
-                        state.fen(),
-                        state.history(),
-                        &state.mode,
-                        state.skill_level,
-                    );
-                    if let Err(e) = crate::session_file::save_session(&session) {
-                        tracing::error!("Failed to save session: {}", e);
+                    // Suspend via server RPC
+                    let game_mode_str = match &state.mode {
+                        GameMode::HumanVsHuman => "HumanVsHuman",
+                        GameMode::HumanVsEngine { .. } => "HumanVsEngine",
+                        GameMode::EngineVsEngine => "EngineVsEngine",
+                        GameMode::AnalysisMode => "AnalysisMode",
+                        GameMode::ReviewMode => "ReviewMode",
+                    };
+                    let human_side_str = match &state.mode {
+                        GameMode::HumanVsEngine { human_side: PlayerColor::Black } => Some("black"),
+                        GameMode::HumanVsEngine { human_side: PlayerColor::White } => Some("white"),
+                        _ => None,
+                    };
+                    if let Err(e) = state.client.suspend_session(
+                        game_mode_str,
+                        human_side_str,
+                        state.skill_level as u32,
+                    ).await {
+                        tracing::error!("Failed to suspend session: {}", e);
                     }
                     return Ok(ExitReason::ReturnToMenu);
                 }

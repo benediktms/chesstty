@@ -1,0 +1,7 @@
+{
+  "position_id": "default_standard_starting_position",
+  "name": "Standard Starting Position",
+  "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+  "is_default": true,
+  "created_at": 0
+}

@@ -1,64 +1,61 @@
-// FenHistory simplified for client-server architecture
+use crate::ui::widgets::selectable_table::SelectableTableState;
 use ratatui::{
     buffer::Buffer,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
-    text::{Line, Span},
-    widgets::{Block, Borders, Clear, Paragraph, Widget},
+    text::{Line, Span, Text},
+    widgets::{Block, Borders, Cell, Clear, Paragraph, Row, StatefulWidget, Table, Widget},
 };
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum FenDialogFocus {
     Input,
-    HistoryList,
+    PositionList,
 }
 
 pub struct FenDialogState {
     pub input_buffer: String,
+    pub name_buffer: String,
     pub focus: FenDialogFocus,
-    pub selected_history_index: usize,
+    pub position_table: SelectableTableState,
     pub validation_error: Option<String>,
 }
 
 impl FenDialogState {
-    pub fn new() -> Self {
+    pub fn new(position_count: usize) -> Self {
         Self {
             input_buffer: String::new(),
+            name_buffer: String::new(),
             focus: FenDialogFocus::Input,
-            selected_history_index: 0,
+            position_table: SelectableTableState::new(position_count),
             validation_error: None,
         }
     }
 }
 
-impl Default for FenDialogState {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 pub struct FenDialogWidget<'a> {
-    pub dialog_state: &'a FenDialogState,
-    pub fen_history: &'a [String],
+    pub dialog_state: &'a mut FenDialogState,
+    pub positions: &'a [chess_proto::SavedPosition],
 }
 
 impl<'a> FenDialogWidget<'a> {
-    pub fn new(dialog_state: &'a FenDialogState, fen_history: &'a [String]) -> Self {
+    pub fn new(
+        dialog_state: &'a mut FenDialogState,
+        positions: &'a [chess_proto::SavedPosition],
+    ) -> Self {
         Self {
             dialog_state,
-            fen_history,
+            positions,
         }
     }
 }
 
 impl Widget for FenDialogWidget<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        // Clear the background
         Clear.render(area, buf);
 
-        // Calculate centered dialog area
-        let dialog_width = 70;
-        let dialog_height = 28;
+        let dialog_width = 76;
+        let dialog_height = 30;
         let x = (area.width.saturating_sub(dialog_width)) / 2;
         let y = (area.height.saturating_sub(dialog_height)) / 2;
 
@@ -70,7 +67,7 @@ impl Widget for FenDialogWidget<'_> {
         };
 
         let block = Block::default()
-            .title("♟ Enter FEN Position ♟")
+            .title(" \u{265f} Select or Enter Position \u{265f} ")
             .borders(Borders::ALL)
             .border_style(Style::default().fg(Color::Yellow))
             .style(Style::default().bg(Color::Black));
@@ -78,13 +75,12 @@ impl Widget for FenDialogWidget<'_> {
         let inner = block.inner(dialog_area);
         block.render(dialog_area, buf);
 
-        // Split into sections: Input (5 lines), History (remaining), Help (2 lines)
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Length(5),  // Input section
-                Constraint::Min(10),    // History list
-                Constraint::Length(3),  // Help text + error
+                Constraint::Min(10),   // Positions table
+                Constraint::Length(3), // Help text
             ])
             .split(inner);
 
@@ -98,75 +94,99 @@ impl Widget for FenDialogWidget<'_> {
 
         let input_text = if self.dialog_state.input_buffer.is_empty() {
             Span::styled(
-                "Type or paste FEN string...",
+                "Type FEN string, then Enter to save & use...",
                 Style::default().fg(Color::DarkGray),
             )
         } else {
-            Span::styled(&self.dialog_state.input_buffer, Style::default().fg(Color::White))
+            Span::styled(
+                self.dialog_state.input_buffer.clone(),
+                Style::default().fg(Color::White),
+            )
         };
 
         let input_widget = Paragraph::new(Line::from(vec![input_text]))
             .alignment(Alignment::Left)
             .block(
                 Block::default()
-                    .title(" Input FEN ")
+                    .title(" FEN Input ")
                     .borders(Borders::ALL)
                     .border_style(input_border_style),
             );
         input_widget.render(chunks[0], buf);
 
-        // === History List Section ===
-        let list_focused = self.dialog_state.focus == FenDialogFocus::HistoryList;
+        // === Positions Table ===
+        let list_focused = self.dialog_state.focus == FenDialogFocus::PositionList;
         let list_border_style = if list_focused {
             Style::default().fg(Color::Green)
         } else {
             Style::default().fg(Color::DarkGray)
         };
 
-        let mut lines = Vec::new();
-
-        for (idx, entry) in self.fen_history.iter().enumerate() {
-            let is_selected = idx == self.dialog_state.selected_history_index && list_focused;
-            let prefix = if is_selected { "► " } else { "  " };
-
-            let style = if is_selected {
+        let header = Row::new(vec![
+            Cell::from(Text::from("Name")).style(
                 Style::default()
                     .fg(Color::Yellow)
-                    .add_modifier(Modifier::BOLD)
-            } else {
-                Style::default().fg(Color::White)
-            };
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Cell::from(Text::from("FEN")).style(
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ])
+        .height(1);
 
-            // Truncate FEN if too long
-            let display_fen = if entry.len() > 60 {
-                format!("{}...", &entry[..57])
-            } else {
-                entry.clone()
-            };
-
-            let line = {
-                Line::from(vec![
-                    Span::styled(prefix, style),
-                    Span::styled(display_fen, style),
+        let rows: Vec<Row> = self
+            .positions
+            .iter()
+            .map(|pos| {
+                let name_display = if pos.is_default {
+                    format!("[D] {}", pos.name)
+                } else {
+                    pos.name.clone()
+                };
+                let fen_preview = if pos.fen.len() > 40 {
+                    format!("{}...", &pos.fen[..37])
+                } else {
+                    pos.fen.clone()
+                };
+                Row::new(vec![
+                    Cell::from(Text::from(name_display)),
+                    Cell::from(Text::from(fen_preview)),
                 ])
-            };
+            })
+            .collect();
 
-            lines.push(line);
-        }
+        let highlight_style = if list_focused {
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD)
+                .bg(Color::DarkGray)
+        } else {
+            Style::default()
+        };
 
-        let history_widget = Paragraph::new(lines)
-            .alignment(Alignment::Left)
+        let table = Table::new(rows, [Constraint::Length(28), Constraint::Min(30)])
+            .header(header)
             .block(
                 Block::default()
-                    .title(" Recent FENs ")
+                    .title(" Saved Positions (Enter to select, d to delete) ")
                     .borders(Borders::ALL)
                     .border_style(list_border_style),
-            );
-        history_widget.render(chunks[1], buf);
+            )
+            .highlight_style(highlight_style)
+            .highlight_symbol(" \u{25b6} ");
 
-        // === Help Text + Error ===
+        StatefulWidget::render(
+            table,
+            chunks[1],
+            buf,
+            &mut self.dialog_state.position_table.table_state,
+        );
+
+        // === Help Text ===
         let mut help_lines = vec![Line::from(vec![Span::styled(
-            "Tab/h/l: Switch Focus  ↑/↓/j/k: Navigate  Enter: Confirm  Esc: Cancel",
+            "Tab: Switch Focus  \u{2191}/\u{2193}/j/k: Navigate  Enter: Select/Save  d: Delete  Esc: Cancel",
             Style::default().fg(Color::DarkGray),
         )])];
 

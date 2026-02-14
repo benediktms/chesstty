@@ -1,11 +1,12 @@
 use crate::state::{GameMode, PlayerColor};
-use crate::ui::widgets::{FenDialogState, FenDialogWidget, MenuState, MenuWidget};
+use crate::ui::widgets::selectable_table::SelectableTableState;
+use crate::ui::widgets::{FenDialogState, FenDialogWidget, MenuState, MenuWidget, render_table_overlay};
 use crossterm::{
     event::{self, Event, KeyCode},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use ratatui::{backend::CrosstermBackend, Terminal};
+use ratatui::{backend::CrosstermBackend, layout::Constraint, Terminal};
 use std::io;
 use std::time::Duration;
 
@@ -16,11 +17,20 @@ pub struct GameConfig {
     pub time_control_seconds: Option<u64>,
     pub engine_threads: Option<u32>,
     pub engine_hash_mb: Option<u32>,
-    pub resume: bool,
+    /// If set, resume this suspended session by ID instead of starting a new game.
+    pub resume_session_id: Option<String>,
+    /// Metadata from the suspended session (game mode, skill level etc.)
+    pub resume_game_mode: Option<String>,
+    pub resume_human_side: Option<String>,
+    pub resume_skill_level: Option<u8>,
 }
 
-/// Show menu and get game configuration
-pub async fn show_menu() -> anyhow::Result<Option<GameConfig>> {
+/// Show menu and get game configuration.
+/// Pre-fetched data from the server is passed in to avoid async calls during menu rendering.
+pub async fn show_menu(
+    suspended_sessions: Vec<chess_proto::SuspendedSessionInfo>,
+    saved_positions: Vec<chess_proto::SavedPosition>,
+) -> anyhow::Result<Option<GameConfig>> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen)?;
@@ -28,11 +38,9 @@ pub async fn show_menu() -> anyhow::Result<Option<GameConfig>> {
     let mut terminal = Terminal::new(backend)?;
 
     let mut menu_state = MenuState::default();
-    // Check for saved session
-    menu_state.has_saved_session = crate::session_file::load_session()
-        .ok()
-        .flatten()
-        .is_some();
+    menu_state.has_saved_session = !suspended_sessions.is_empty();
+    menu_state.suspended_sessions = suspended_sessions;
+    menu_state.saved_positions = saved_positions;
     let result = loop {
         terminal.draw(|f| {
             let menu_widget = MenuWidget {
@@ -41,14 +49,50 @@ pub async fn show_menu() -> anyhow::Result<Option<GameConfig>> {
             f.render_widget(menu_widget, f.area());
 
             // Render FEN dialog if active
-            if let Some(ref dialog_state) = menu_state.fen_dialog_state {
-                let fen_dialog = FenDialogWidget::new(dialog_state, &menu_state.fen_history);
+            if let Some(ref mut dialog_state) = menu_state.fen_dialog_state {
+                let fen_dialog = FenDialogWidget::new(dialog_state, &menu_state.saved_positions);
                 f.render_widget(fen_dialog, f.area());
+            }
+
+            // Render session selection table if active
+            if let Some(ref mut ctx) = menu_state.session_table {
+                let rows: Vec<Vec<String>> = ctx.sessions.iter().map(|s| {
+                    let mode = s.game_mode.as_str();
+                    let moves = format!("{} moves", s.move_count);
+                    let side = s.side_to_move.clone();
+                    let fen_preview = if s.fen.len() > 30 {
+                        format!("{}...", &s.fen[..27])
+                    } else {
+                        s.fen.clone()
+                    };
+                    vec![mode.to_string(), moves, side, fen_preview]
+                }).collect();
+
+                render_table_overlay(
+                    f.area(),
+                    f.buffer_mut(),
+                    "Resume Session",
+                    &["Mode", "Moves", "Turn", "Position"],
+                    &rows,
+                    &[Constraint::Length(16), Constraint::Length(10), Constraint::Length(8), Constraint::Min(20)],
+                    &mut ctx.table_state,
+                    70,
+                    (ctx.sessions.len() as u16 + 5).min(20),
+                );
             }
         })?;
 
         if event::poll(Duration::from_millis(100))? {
             if let Event::Key(key) = event::read()? {
+                // Session table takes highest priority
+                if menu_state.session_table.is_some() {
+                    let action = handle_session_table_input(&mut menu_state, key.code);
+                    if let Some(config) = action {
+                        break Some(config);
+                    }
+                    continue;
+                }
+
                 // Handle FEN dialog input if active
                 if menu_state.fen_dialog_state.is_some() {
                     handle_fen_dialog_input(&mut menu_state, key.code);
@@ -86,16 +130,22 @@ pub async fn show_menu() -> anyhow::Result<Option<GameConfig>> {
                                 if menu_state.start_position == StartPositionOption::CustomFen
                                     && menu_state.selected_fen.is_none()
                                 {
-                                    menu_state.fen_dialog_state = Some(FenDialogState::new());
+                                    menu_state.fen_dialog_state = Some(FenDialogState::new(menu_state.saved_positions.len()));
                                 } else {
                                     let config = create_game_config(&menu_state);
                                     break Some(config);
                                 }
                             }
                             Some(MenuItem::ResumeSession) => {
-                                let mut config = create_game_config(&menu_state);
-                                config.resume = true;
-                                break Some(config);
+                                let sessions = menu_state.suspended_sessions.clone();
+                                if !sessions.is_empty() {
+                                    use crate::ui::widgets::menu::SessionTableContext;
+                                    let count = sessions.len();
+                                    menu_state.session_table = Some(SessionTableContext {
+                                        table_state: SelectableTableState::new(count),
+                                        sessions,
+                                    });
+                                }
                             }
                             Some(MenuItem::Quit) => {
                                 break None;
@@ -103,7 +153,7 @@ pub async fn show_menu() -> anyhow::Result<Option<GameConfig>> {
                             Some(MenuItem::StartPosition(_)) => {
                                 use crate::ui::widgets::menu::StartPositionOption;
                                 if menu_state.start_position == StartPositionOption::CustomFen {
-                                    menu_state.fen_dialog_state = Some(FenDialogState::new());
+                                    menu_state.fen_dialog_state = Some(FenDialogState::new(menu_state.saved_positions.len()));
                                 }
                             }
                             _ => {}
@@ -230,51 +280,67 @@ fn handle_fen_dialog_input(menu_state: &mut MenuState, key_code: KeyCode) {
 
     match key_code {
         KeyCode::Esc => {
-            // Cancel and close dialog
             menu_state.fen_dialog_state = None;
         }
         KeyCode::Enter => {
-            // Confirm FEN
-            let fen = dialog_state.input_buffer.trim().to_string();
-            if !fen.is_empty() {
-                // Basic FEN validation (check if it has the right structure)
-                if validate_fen_basic(&fen) {
-                    // Add to history if not already present
-                    if !menu_state.fen_history.contains(&fen) {
-                        menu_state.fen_history.push(fen.clone());
+            match dialog_state.focus {
+                FenDialogFocus::Input => {
+                    // Use the FEN from the input buffer
+                    let fen = dialog_state.input_buffer.trim().to_string();
+                    if !fen.is_empty() {
+                        if validate_fen_basic(&fen) {
+                            // Server will do full validation when creating the session.
+                            // For now, just accept it.
+                            menu_state.selected_fen = Some(fen);
+                            menu_state.fen_dialog_state = None;
+                        } else {
+                            dialog_state.validation_error = Some("Invalid FEN format".to_string());
+                        }
+                    } else {
+                        dialog_state.validation_error = Some("FEN cannot be empty".to_string());
                     }
-                    menu_state.selected_fen = Some(fen);
-                    menu_state.fen_dialog_state = None;
-                } else {
-                    dialog_state.validation_error = Some("Invalid FEN format".to_string());
                 }
-            } else {
-                dialog_state.validation_error = Some("FEN cannot be empty".to_string());
+                FenDialogFocus::PositionList => {
+                    // Select the FEN from the positions table
+                    if let Some(idx) = dialog_state.position_table.selected_index() {
+                        if let Some(pos) = menu_state.saved_positions.get(idx) {
+                            menu_state.selected_fen = Some(pos.fen.clone());
+                            menu_state.fen_dialog_state = None;
+                        }
+                    }
+                }
             }
         }
         KeyCode::Tab => {
-            // Switch focus between input and history
             dialog_state.focus = match dialog_state.focus {
-                FenDialogFocus::Input => FenDialogFocus::HistoryList,
-                FenDialogFocus::HistoryList => FenDialogFocus::Input,
+                FenDialogFocus::Input => FenDialogFocus::PositionList,
+                FenDialogFocus::PositionList => FenDialogFocus::Input,
             };
         }
         KeyCode::Char(c) => {
             if dialog_state.focus == FenDialogFocus::Input {
                 dialog_state.input_buffer.push(c);
                 dialog_state.validation_error = None;
-            } else if dialog_state.focus == FenDialogFocus::HistoryList {
-                // Vim keys for history navigation
+            } else if dialog_state.focus == FenDialogFocus::PositionList {
                 match c {
-                    'k' => {
-                        if dialog_state.selected_history_index > 0 {
-                            dialog_state.selected_history_index -= 1;
-                        }
-                    }
-                    'j' => {
-                        let max_index = menu_state.fen_history.len().saturating_sub(1);
-                        if dialog_state.selected_history_index < max_index {
-                            dialog_state.selected_history_index += 1;
+                    'k' => dialog_state.position_table.move_up(),
+                    'j' => dialog_state.position_table.move_down(),
+                    'd' => {
+                        // Delete selected position (not defaults)
+                        if let Some(idx) = dialog_state.position_table.selected_index() {
+                            if let Some(pos) = menu_state.saved_positions.get(idx) {
+                                if !pos.is_default {
+                                    menu_state.saved_positions.remove(idx);
+                                    dialog_state.position_table.update_row_count(
+                                        menu_state.saved_positions.len(),
+                                    );
+                                    // Note: actual server deletion happens via RPC
+                                    // (would need async; for now just remove from local list)
+                                } else {
+                                    dialog_state.validation_error =
+                                        Some("Cannot delete default positions".to_string());
+                                }
+                            }
                         }
                     }
                     _ => {}
@@ -288,26 +354,13 @@ fn handle_fen_dialog_input(menu_state: &mut MenuState, key_code: KeyCode) {
             }
         }
         KeyCode::Up => {
-            if dialog_state.focus == FenDialogFocus::HistoryList {
-                if dialog_state.selected_history_index > 0 {
-                    dialog_state.selected_history_index -= 1;
-                }
+            if dialog_state.focus == FenDialogFocus::PositionList {
+                dialog_state.position_table.move_up();
             }
         }
         KeyCode::Down => {
-            if dialog_state.focus == FenDialogFocus::HistoryList {
-                let max_index = menu_state.fen_history.len().saturating_sub(1);
-                if dialog_state.selected_history_index < max_index {
-                    dialog_state.selected_history_index += 1;
-                }
-            }
-        }
-        KeyCode::Right if dialog_state.focus == FenDialogFocus::HistoryList => {
-            // Select from history
-            if let Some(fen) = menu_state.fen_history.get(dialog_state.selected_history_index) {
-                dialog_state.input_buffer = fen.clone();
-                dialog_state.focus = FenDialogFocus::Input;
-                dialog_state.validation_error = None;
+            if dialog_state.focus == FenDialogFocus::PositionList {
+                dialog_state.position_table.move_down();
             }
         }
         _ => {}
@@ -383,6 +436,59 @@ fn create_game_config(menu_state: &MenuState) -> GameConfig {
         time_control_seconds,
         engine_threads,
         engine_hash_mb,
-        resume: false,
+        resume_session_id: None,
+        resume_game_mode: None,
+        resume_human_side: None,
+        resume_skill_level: None,
     }
+}
+
+/// Handle input for the session selection table.
+/// Returns Some(GameConfig) when a session is selected, None to continue.
+fn handle_session_table_input(menu_state: &mut MenuState, key_code: KeyCode) -> Option<GameConfig> {
+    let ctx = menu_state.session_table.as_mut()?;
+
+    match key_code {
+        KeyCode::Up | KeyCode::Char('k') => {
+            ctx.table_state.move_up();
+        }
+        KeyCode::Down | KeyCode::Char('j') => {
+            ctx.table_state.move_down();
+        }
+        KeyCode::Enter => {
+            if let Some(idx) = ctx.table_state.selected_index() {
+                if let Some(session) = ctx.sessions.get(idx).cloned() {
+                    menu_state.session_table = None;
+                    let mut config = create_game_config(menu_state);
+                    config.resume_session_id = Some(session.suspended_id);
+                    config.resume_game_mode = Some(session.game_mode);
+                    config.resume_human_side = session.human_side;
+                    config.resume_skill_level = Some(session.skill_level as u8);
+                    return Some(config);
+                }
+            }
+        }
+        KeyCode::Char('d') | KeyCode::Delete => {
+            // Delete the selected session (will be handled by caller via RPC later;
+            // for now just remove from the local list)
+            if let Some(idx) = ctx.table_state.selected_index() {
+                if idx < ctx.sessions.len() {
+                    ctx.sessions.remove(idx);
+                    ctx.table_state.update_row_count(ctx.sessions.len());
+                    // Update the main menu's session list too
+                    menu_state.suspended_sessions = ctx.sessions.clone();
+                    menu_state.has_saved_session = !ctx.sessions.is_empty();
+                    if ctx.sessions.is_empty() {
+                        menu_state.session_table = None;
+                    }
+                }
+            }
+        }
+        KeyCode::Esc => {
+            menu_state.session_table = None;
+        }
+        _ => {}
+    }
+
+    None
 }

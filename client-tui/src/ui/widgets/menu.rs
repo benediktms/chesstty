@@ -1,4 +1,5 @@
 use crate::ui::widgets::fen_dialog::FenDialogState;
+use crate::ui::widgets::selectable_table::SelectableTableState;
 use ratatui::{
     buffer::Buffer,
     layout::{Alignment, Rect},
@@ -115,9 +116,17 @@ pub struct MenuState {
     pub time_control: TimeControlOption,
     pub start_position: StartPositionOption,
     pub fen_dialog_state: Option<FenDialogState>,
-    pub fen_history: Vec<String>,
+    pub saved_positions: Vec<chess_proto::SavedPosition>,
     pub selected_fen: Option<String>,
     pub has_saved_session: bool,
+    pub suspended_sessions: Vec<chess_proto::SuspendedSessionInfo>,
+    pub session_table: Option<SessionTableContext>,
+}
+
+/// Context for the session selection table dialog.
+pub struct SessionTableContext {
+    pub table_state: SelectableTableState,
+    pub sessions: Vec<chess_proto::SuspendedSessionInfo>,
 }
 
 impl Default for MenuState {
@@ -132,11 +141,11 @@ impl Default for MenuState {
             time_control: TimeControlOption::None,
             start_position: StartPositionOption::Standard,
             fen_dialog_state: None,
-            fen_history: vec![
-                "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1".to_string(),
-            ],
+            saved_positions: vec![],
             selected_fen: None,
             has_saved_session: false,
+            suspended_sessions: vec![],
+            session_table: None,
         }
     }
 }
