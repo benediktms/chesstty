@@ -14,8 +14,10 @@ use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // Set up tracing with file output
-    let file_appender = tracing_appender::rolling::daily(".", "chesstty-client.log");
+    // Set up tracing with file output in logs directory
+    let log_dir = "logs";
+    std::fs::create_dir_all(log_dir).ok();
+    let file_appender = tracing_appender::rolling::daily(log_dir, "chesstty-client-tui");
     let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
 
     tracing_subscriber::registry()
@@ -42,11 +44,11 @@ async fn main() -> anyhow::Result<()> {
         println!("Using simplified text-based UI");
         println!("Commands: m <from> <to> | u (undo) | r (reset) | q (quit)");
         println!();
-        println!("Debug logs: chesstty-client.log");
+        println!("Debug logs: logs/chesstty-client-tui.YYYY-MM-DD");
         ui::run_simple_app().await?;
     } else {
         println!("ChessTTY - Starting menu...");
-        println!("Debug logs: chesstty-client.log");
+        println!("Debug logs: logs/chesstty-client-tui.YYYY-MM-DD");
         ui::run_app().await?;
     }
 
