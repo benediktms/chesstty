@@ -26,7 +26,7 @@ pub async fn run_app() -> anyhow::Result<()> {
     // Outer loop: menu → game → menu → game → ...
     loop {
         // Pre-fetch data from server for the menu
-        let (suspended, positions) = match crate::client::ChessClient::connect("http://[::1]:50051").await {
+        let (suspended, positions) = match chess_client::ChessClient::connect("http://[::1]:50051").await {
             Ok(mut client) => {
                 let sessions = client.list_suspended_sessions().await.unwrap_or_else(|e| {
                     tracing::warn!("Failed to list suspended sessions: {}", e);

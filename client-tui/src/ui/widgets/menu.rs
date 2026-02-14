@@ -116,17 +116,17 @@ pub struct MenuState {
     pub time_control: TimeControlOption,
     pub start_position: StartPositionOption,
     pub fen_dialog_state: Option<FenDialogState>,
-    pub saved_positions: Vec<chess_proto::SavedPosition>,
+    pub saved_positions: Vec<chess_client::SavedPosition>,
     pub selected_fen: Option<String>,
     pub has_saved_session: bool,
-    pub suspended_sessions: Vec<chess_proto::SuspendedSessionInfo>,
+    pub suspended_sessions: Vec<chess_client::SuspendedSessionInfo>,
     pub session_table: Option<SessionTableContext>,
 }
 
 /// Context for the session selection table dialog.
 pub struct SessionTableContext {
     pub table_state: SelectableTableState,
-    pub sessions: Vec<chess_proto::SuspendedSessionInfo>,
+    pub sessions: Vec<chess_client::SuspendedSessionInfo>,
 }
 
 impl Default for MenuState {

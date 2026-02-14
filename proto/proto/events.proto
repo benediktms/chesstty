@@ -1,0 +1,65 @@
+syntax = "proto3";
+package chess;
+
+import "common.proto";
+
+// ============================================================================
+// Event Streaming Messages
+// ============================================================================
+
+message StreamEventsRequest {
+  string session_id = 1;
+}
+
+message GameEvent {
+  oneof event {
+    MoveMadeEvent move_made = 1;
+    EngineMoveReadyEvent engine_move_ready = 2;
+    EngineThinkingEvent engine_thinking = 3;
+    GameEndedEvent game_ended = 4;
+    ErrorEvent error = 5;
+    UciMessageEvent uci_message = 6;
+  }
+}
+
+message MoveMadeEvent {
+  string session_id = 1;
+  MoveRecord move = 2;
+  string new_fen = 3;
+  GameStatus status = 4;
+}
+
+message EngineMoveReadyEvent {
+  string session_id = 1;
+  MoveRepr move = 2;
+  optional string evaluation = 3;
+}
+
+message EngineThinkingEvent {
+  string session_id = 1;
+  EngineInfo info = 2;
+}
+
+message GameEndedEvent {
+  string session_id = 1;
+  string result = 2;  // "1-0", "0-1", "1/2-1/2"
+  string reason = 3;
+  string winner = 4;  // "white", "black", or "" for draw
+}
+
+message ErrorEvent {
+  string session_id = 1;
+  string error_message = 2;
+}
+
+message UciMessageEvent {
+  string session_id = 1;
+  UciDirection direction = 2;
+  string message = 3;
+  optional string context = 4;  // Optional context (e.g., "After move e4")
+}
+
+enum UciDirection {
+  TO_ENGINE = 0;
+  FROM_ENGINE = 1;
+}

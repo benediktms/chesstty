@@ -1,0 +1,41 @@
+syntax = "proto3";
+package chess;
+
+import "common.proto";
+import "session.proto";
+
+// ============================================================================
+// Game Action Messages
+// ============================================================================
+
+message MakeMoveRequest {
+  string session_id = 1;
+  MoveRepr move = 2;
+}
+
+message MakeMoveResponse {
+  SessionInfo session_info = 1;
+  MoveRecord move_record = 2;
+}
+
+message GetLegalMovesRequest {
+  string session_id = 1;
+  optional string from_square = 2;  // null = all moves, otherwise filter by from square
+}
+
+message LegalMovesResponse {
+  repeated MoveDetail moves = 1;
+}
+
+message UndoMoveRequest {
+  string session_id = 1;
+}
+
+message RedoMoveRequest {
+  string session_id = 1;
+}
+
+message ResetGameRequest {
+  string session_id = 1;
+  optional string fen = 2;  // null = standard starting position
+}

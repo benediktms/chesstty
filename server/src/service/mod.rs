@@ -1,17 +1,32 @@
-use crate::session::{SessionEvent, SessionManager};
-use ::chess::HistoryEntry;
-use chess_common::{
-    format_color, format_piece, format_piece_upper, format_square, format_uci_move, parse_file,
-    parse_piece, parse_rank, parse_square,
-};
+//! gRPC service implementation with modular organization
+//!
+//! This module contains the ChessService gRPC implementation split into:
+//! - converters: Domain model → Proto conversions
+//! - parsers: Proto → Domain model parsing
+//! - Service implementation with clear endpoint organization
+
+mod converters;
+mod parsers;
+
+use crate::session::SessionManager;
+use chess_common::format_square;
 use chess_proto::chess_service_server::ChessService;
 use chess_proto::*;
-use cozy_chess::{File as CozyFile, GameStatus as CozyGameStatus, Move, Piece, Rank, Square};
+use cozy_chess::Square;
 use std::pin::Pin;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 use tokio_stream::Stream;
 use tonic::{Request, Response, Status};
+
+pub use converters::{
+    convert_game_status, convert_history_entry_to_proto, convert_session_event_to_proto,
+    convert_session_info_to_proto,
+};
+pub use parsers::{
+    format_move_san, parse_file_grpc, parse_move_repr, parse_piece_grpc, parse_rank_grpc,
+    parse_square_grpc,
+};
 
 /// Implementation of the ChessService gRPC service
 pub struct ChessServiceImpl {
@@ -26,6 +41,10 @@ impl ChessServiceImpl {
 
 #[tonic::async_trait]
 impl ChessService for ChessServiceImpl {
+    // =========================================================================
+    // Session Management Endpoints
+    // =========================================================================
+
     async fn create_session(
         &self,
         request: Request<CreateSessionRequest>,
@@ -76,6 +95,10 @@ impl ChessService for ChessServiceImpl {
         Ok(Response::new(Empty {}))
     }
 
+    // =========================================================================
+    // Game Action Endpoints
+    // =========================================================================
+
     async fn make_move(
         &self,
         request: Request<MakeMoveRequest>,
@@ -88,7 +111,7 @@ impl ChessService for ChessServiceImpl {
 
         let mv = parse_move_repr(&mv_repr)?;
 
-        let (entry, status) = self
+        let (entry, _status) = self
             .session_manager
             .make_move(&req.session_id, mv)
             .await
@@ -127,30 +150,17 @@ impl ChessService for ChessServiceImpl {
             .await
             .map_err(|e| Status::not_found(e))?;
 
-        // Get session to access game state for move details
-        let session = self
-            .session_manager
-            .get_session(&req.session_id)
-            .await
-            .map_err(|e| Status::not_found(e))?;
-        let session_guard = session.read().await;
-
         let move_details: Vec<MoveDetail> = moves
             .into_iter()
             .map(|mv| {
-                let san = format_move_san(&mv); // Simplified SAN
-                let is_capture = false; // Would need board state to determine
-                let is_check = false; // Would need to make move to determine
-                let is_checkmate = false; // Would need to make move to determine
-
                 MoveDetail {
                     from: format_square(mv.from),
                     to: format_square(mv.to),
-                    promotion: mv.promotion.map(|p| format_piece(p).to_string()),
-                    san,
-                    is_capture,
-                    is_check,
-                    is_checkmate,
+                    promotion: mv.promotion.map(|p| chess_common::format_piece(p).to_string()),
+                    san: format_move_san(&mv),
+                    is_capture: false,
+                    is_check: false,
+                    is_checkmate: false,
                 }
             })
             .collect();
@@ -220,6 +230,10 @@ impl ChessService for ChessServiceImpl {
         Ok(Response::new(convert_session_info_to_proto(info)))
     }
 
+    // =========================================================================
+    // Engine Control Endpoints
+    // =========================================================================
+
     async fn set_engine(
         &self,
         request: Request<SetEngineRequest>,
@@ -268,6 +282,10 @@ impl ChessService for ChessServiceImpl {
         Ok(Response::new(Empty {}))
     }
 
+    // =========================================================================
+    // Event Streaming Endpoint
+    // =========================================================================
+
     type StreamEventsStream = Pin<Box<dyn Stream<Item = Result<GameEvent, Status>> + Send>>;
 
     async fn stream_events(
@@ -283,11 +301,12 @@ impl ChessService for ChessServiceImpl {
             .await
             .map_err(|e| Status::not_found(e))?;
 
+        let session_id = req.session_id.clone();
         let stream = async_stream::stream! {
             loop {
                 match event_rx.recv().await {
                     Ok(event) => {
-                        if let Some(proto_event) = convert_session_event_to_proto(event, &req.session_id) {
+                        if let Some(proto_event) = convert_session_event_to_proto(event, &session_id) {
                             yield Ok(proto_event);
                         }
                     }
@@ -296,7 +315,7 @@ impl ChessService for ChessServiceImpl {
                         continue;
                     }
                     Err(broadcast::error::RecvError::Closed) => {
-                        tracing::info!("Event stream closed for session {}", req.session_id);
+                        tracing::info!("Event stream closed for session {}", session_id);
                         break;
                     }
                 }
@@ -305,6 +324,10 @@ impl ChessService for ChessServiceImpl {
 
         Ok(Response::new(Box::pin(stream)))
     }
+
+    // =========================================================================
+    // Session Persistence Endpoints
+    // =========================================================================
 
     async fn suspend_session(
         &self,
@@ -367,7 +390,6 @@ impl ChessService for ChessServiceImpl {
             .await
             .map_err(|e| Status::not_found(e))?;
 
-        // Get full session info for the newly created session
         let info = self
             .session_manager
             .get_session_info(&session_id)
@@ -389,6 +411,11 @@ impl ChessService for ChessServiceImpl {
 
         Ok(Response::new(Empty {}))
     }
+
+    // =========================================================================
+    // Saved Positions Endpoints
+    // =========================================================================
+
     async fn save_position(
         &self,
         request: Request<SavePositionRequest>,
@@ -441,201 +468,4 @@ impl ChessService for ChessServiceImpl {
 
         Ok(Response::new(Empty {}))
     }
-}
-
-// ============================================================================
-// Conversion Functions
-// ============================================================================
-
-fn convert_session_info_to_proto(info: crate::session::SessionInfo) -> chess_proto::SessionInfo {
-    chess_proto::SessionInfo {
-        session_id: info.id,
-        fen: info.fen,
-        side_to_move: format_color(info.side_to_move),
-        status: convert_game_status(info.status) as i32,
-        move_count: info.move_count as u32,
-        history: info
-            .history
-            .iter()
-            .map(convert_history_entry_to_proto)
-            .collect(),
-        engine_config: if info.engine_enabled {
-            Some(EngineConfig {
-                enabled: info.engine_enabled,
-                skill_level: info.skill_level as u32,
-                threads: 0,  // Not tracked per-session currently
-                hash_mb: 0,
-            })
-        } else {
-            None
-        },
-    }
-}
-
-fn convert_history_entry_to_proto(entry: &HistoryEntry) -> MoveRecord {
-    MoveRecord {
-        from: format_square(entry.from),
-        to: format_square(entry.to),
-        piece: format_piece_upper(entry.piece).to_string(),
-        captured: entry.captured.map(|p| format_piece_upper(p).to_string()),
-        san: entry.san.clone(),
-        fen_after: entry.fen.clone(),
-        promotion: entry.promotion.map(|p| format_piece(p).to_string()),
-    }
-}
-
-fn convert_game_status(status: CozyGameStatus) -> GameStatus {
-    match status {
-        CozyGameStatus::Ongoing => GameStatus::Ongoing,
-        CozyGameStatus::Won => GameStatus::Won,
-        CozyGameStatus::Drawn => GameStatus::Drawn,
-    }
-}
-
-fn convert_session_event_to_proto(event: SessionEvent, session_id: &str) -> Option<GameEvent> {
-    match event {
-        SessionEvent::MoveMade {
-            from,
-            to,
-            san,
-            fen,
-            status,
-        } => Some(GameEvent {
-            event: Some(game_event::Event::MoveMade(MoveMadeEvent {
-                session_id: session_id.to_string(),
-                r#move: Some(MoveRecord {
-                    from: format_square(from),
-                    to: format_square(to),
-                    piece: String::new(), // Would need to track
-                    captured: None,
-                    san,
-                    fen_after: fen.clone(),
-                    promotion: None,
-                }),
-                new_fen: fen,
-                status: convert_game_status(status) as i32,
-            })),
-        }),
-        SessionEvent::EngineMoveReady {
-            best_move,
-            evaluation,
-        } => Some(GameEvent {
-            event: Some(game_event::Event::EngineMoveReady(EngineMoveReadyEvent {
-                session_id: session_id.to_string(),
-                r#move: Some(MoveRepr {
-                    from: format_square(best_move.from),
-                    to: format_square(best_move.to),
-                    promotion: best_move.promotion.map(|p| format_piece(p).to_string()),
-                }),
-                evaluation,
-            })),
-        }),
-        SessionEvent::EngineThinking { info } => Some(GameEvent {
-            event: Some(game_event::Event::EngineThinking(EngineThinkingEvent {
-                session_id: session_id.to_string(),
-                info: Some(EngineInfo {
-                    depth: info.depth.map(|d| d as u32),
-                    seldepth: info.seldepth.map(|d| d as u32),
-                    time_ms: info.time_ms,
-                    nodes: info.nodes,
-                    score: info.score.map(|s| format!("{:?}", s)),
-                    pv: info.pv.iter().map(|mv| format_uci_move(*mv)).collect(),
-                    nps: info.nps,
-                }),
-            })),
-        }),
-        SessionEvent::GameEnded { result, reason } => {
-            // Determine winner from result
-            let winner = if result == "1-0" {
-                "white".to_string()
-            } else if result == "0-1" {
-                "black".to_string()
-            } else {
-                String::new() // Draw
-            };
-
-            Some(GameEvent {
-                event: Some(game_event::Event::GameEnded(GameEndedEvent {
-                    session_id: session_id.to_string(),
-                    result,
-                    reason,
-                    winner,
-                })),
-            })
-        }
-        SessionEvent::Error { message } => Some(GameEvent {
-            event: Some(game_event::Event::Error(ErrorEvent {
-                session_id: session_id.to_string(),
-                error_message: message,
-            })),
-        }),
-        SessionEvent::UciMessage {
-            direction,
-            message,
-            context,
-        } => Some(GameEvent {
-            event: Some(game_event::Event::UciMessage(UciMessageEvent {
-                session_id: session_id.to_string(),
-                direction: match direction {
-                    crate::session::UciMessageDirection::ToEngine => UciDirection::ToEngine as i32,
-                    crate::session::UciMessageDirection::FromEngine => {
-                        UciDirection::FromEngine as i32
-                    }
-                },
-                message,
-                context,
-            })),
-        }),
-    }
-}
-
-// ============================================================================
-// Parsing Functions
-// ============================================================================
-
-fn parse_move_repr(mv: &MoveRepr) -> Result<Move, Status> {
-    let from = parse_square_grpc(&mv.from)?;
-    let to = parse_square_grpc(&mv.to)?;
-    let promotion = if let Some(ref p) = mv.promotion {
-        if p.len() == 1 {
-            let c = p.chars().next().unwrap();
-            Some(parse_piece_grpc(c)?)
-        } else {
-            return Err(Status::invalid_argument(format!("Invalid piece: {}", p)));
-        }
-    } else {
-        None
-    };
-
-    Ok(Move {
-        from,
-        to,
-        promotion,
-    })
-}
-
-// Wrapper for parse_square that returns Result<Square, Status>
-fn parse_square_grpc(s: &str) -> Result<Square, Status> {
-    parse_square(s).ok_or_else(|| Status::invalid_argument(format!("Invalid square: {}", s)))
-}
-
-// Wrapper for parse_file that returns Result<File, Status>
-fn parse_file_grpc(c: char) -> Result<CozyFile, Status> {
-    parse_file(c).ok_or_else(|| Status::invalid_argument(format!("Invalid file: {}", c)))
-}
-
-// Wrapper for parse_rank that returns Result<Rank, Status>
-fn parse_rank_grpc(c: char) -> Result<Rank, Status> {
-    parse_rank(c).ok_or_else(|| Status::invalid_argument(format!("Invalid rank: {}", c)))
-}
-
-// Wrapper for parse_piece that returns Result<Piece, Status>
-fn parse_piece_grpc(c: char) -> Result<Piece, Status> {
-    parse_piece(c).ok_or_else(|| Status::invalid_argument(format!("Invalid piece: {}", c)))
-}
-
-fn format_move_san(mv: &Move) -> String {
-    // Simplified SAN format (just from-to notation)
-    // A full implementation would need game context
-    format!("{}{}", format_square(mv.from), format_square(mv.to))
 }

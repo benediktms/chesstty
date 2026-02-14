@@ -1,4 +1,4 @@
-use chess_proto::EngineInfo;
+use chess_client::EngineInfo;
 use ratatui::{
     buffer::Buffer,
     layout::Rect,

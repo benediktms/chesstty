@@ -28,8 +28,8 @@ pub struct GameConfig {
 /// Show menu and get game configuration.
 /// Pre-fetched data from the server is passed in to avoid async calls during menu rendering.
 pub async fn show_menu(
-    suspended_sessions: Vec<chess_proto::SuspendedSessionInfo>,
-    saved_positions: Vec<chess_proto::SavedPosition>,
+    suspended_sessions: Vec<chess_client::SuspendedSessionInfo>,
+    saved_positions: Vec<chess_client::SavedPosition>,
 ) -> anyhow::Result<Option<GameConfig>> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();

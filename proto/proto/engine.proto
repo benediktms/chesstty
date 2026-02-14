@@ -1,0 +1,32 @@
+syntax = "proto3";
+package chess;
+
+import "common.proto";
+
+// ============================================================================
+// Engine Control Messages
+// ============================================================================
+
+message SetEngineRequest {
+  string session_id = 1;
+  bool enabled = 2;
+  uint32 skill_level = 3;  // 0-20
+  optional uint32 threads = 4;   // CPU threads (1-16, default auto-detect capped at 4)
+  optional uint32 hash_mb = 5;   // Hash table size in MB (1-2048, default 128)
+}
+
+message TriggerEngineMoveRequest {
+  string session_id = 1;
+  optional uint64 movetime_ms = 2;  // null = use default
+}
+
+message StopEngineRequest {
+  string session_id = 1;
+}
+
+message EngineConfig {
+  bool enabled = 1;
+  uint32 skill_level = 2;  // 0-20
+  uint32 threads = 3;      // CPU threads
+  uint32 hash_mb = 4;      // Hash table size in MB
+}

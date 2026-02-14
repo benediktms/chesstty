@@ -1,0 +1,50 @@
+syntax = "proto3";
+package chess;
+
+// ============================================================================
+// Core Data Types - Shared across all services
+// ============================================================================
+
+message MoveRepr {
+  string from = 1;  // e.g., "e2"
+  string to = 2;    // e.g., "e4"
+  optional string promotion = 3;  // "q", "r", "b", "n"
+}
+
+message MoveRecord {
+  string from = 1;
+  string to = 2;
+  string piece = 3;           // "P", "N", "B", "R", "Q", "K"
+  optional string captured = 4;  // "P", "N", "B", "R", "Q" (if capture)
+  string san = 5;             // Standard Algebraic Notation (e.g., "Nf3", "exd5")
+  string fen_after = 6;       // FEN position after this move
+  optional string promotion = 7;  // "q", "r", "b", "n" (if promotion)
+}
+
+message MoveDetail {
+  string from = 1;
+  string to = 2;
+  optional string promotion = 3;
+  string san = 4;
+  bool is_capture = 5;
+  bool is_check = 6;
+  bool is_checkmate = 7;
+}
+
+message EngineInfo {
+  optional uint32 depth = 1;
+  optional uint32 seldepth = 2;
+  optional uint64 time_ms = 3;
+  optional uint64 nodes = 4;
+  optional string score = 5;    // e.g., "cp 25" or "mate 5"
+  repeated string pv = 6;       // Principal variation (sequence of moves)
+  optional uint64 nps = 7;      // Nodes per second
+}
+
+enum GameStatus {
+  ONGOING = 0;
+  WON = 1;     // Renamed from CHECKMATE - aligns with cozy_chess::GameStatus::Won
+  DRAWN = 2;   // Merged STALEMATE + DRAW - aligns with cozy_chess::GameStatus::Drawn
+}
+
+message Empty {}

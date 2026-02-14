@@ -1,4 +1,4 @@
-use chess_proto::MoveRecord;
+use chess_client::MoveRecord;
 use ratatui::{
     buffer::Buffer,
     layout::Rect,

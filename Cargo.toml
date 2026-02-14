@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "proto",
     "server",
+    "chess-client",
     "client-tui",
     "chess",
     "engine",

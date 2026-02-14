@@ -1,4 +1,3 @@
-mod client;
 mod state;
 mod timer;
 mod ui;

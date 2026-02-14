@@ -1,0 +1,47 @@
+syntax = "proto3";
+package chess;
+
+import "common.proto";
+import "session.proto";
+import "game.proto";
+import "engine.proto";
+import "events.proto";
+import "persistence.proto";
+import "positions.proto";
+
+// ============================================================================
+// Core chess service providing game management and engine control
+// ============================================================================
+
+service ChessService {
+  // Session management
+  rpc CreateSession(CreateSessionRequest) returns (SessionInfo);
+  rpc GetSession(GetSessionRequest) returns (SessionInfo);
+  rpc CloseSession(CloseSessionRequest) returns (Empty);
+
+  // Game actions
+  rpc MakeMove(MakeMoveRequest) returns (MakeMoveResponse);
+  rpc GetLegalMoves(GetLegalMovesRequest) returns (LegalMovesResponse);
+  rpc UndoMove(UndoMoveRequest) returns (SessionInfo);
+  rpc RedoMove(RedoMoveRequest) returns (SessionInfo);
+  rpc ResetGame(ResetGameRequest) returns (SessionInfo);
+
+  // Engine control
+  rpc SetEngine(SetEngineRequest) returns (Empty);
+  rpc TriggerEngineMove(TriggerEngineMoveRequest) returns (Empty);
+  rpc StopEngine(StopEngineRequest) returns (Empty);
+
+  // Session persistence
+  rpc SuspendSession(SuspendSessionRequest) returns (SuspendSessionResponse);
+  rpc ListSuspendedSessions(ListSuspendedSessionsRequest) returns (ListSuspendedSessionsResponse);
+  rpc ResumeSuspendedSession(ResumeSuspendedSessionRequest) returns (SessionInfo);
+  rpc DeleteSuspendedSession(DeleteSuspendedSessionRequest) returns (Empty);
+
+  // Saved positions
+  rpc SavePosition(SavePositionRequest) returns (SavePositionResponse);
+  rpc ListPositions(ListPositionsRequest) returns (ListPositionsResponse);
+  rpc DeletePosition(DeletePositionRequest) returns (Empty);
+
+  // Event streaming (server -> client push)
+  rpc StreamEvents(StreamEventsRequest) returns (stream GameEvent);
+}

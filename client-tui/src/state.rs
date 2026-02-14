@@ -1,9 +1,9 @@
-use crate::client::ChessClient;
+use chess_client::ChessClient;
 use crate::timer::ChessTimer;
 use crate::ui::context::FocusStack;
 use crate::ui::pane::PaneManager;
 use crate::ui::widgets::popup_menu::PopupMenuState;
-use chess_proto::*;
+use chess_client::*;
 use cozy_chess::{Board, Piece, Square};
 use std::collections::HashMap;
 use tonic::Streaming;

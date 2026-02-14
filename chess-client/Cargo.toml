@@ -1,0 +1,13 @@
+[package]
+name = "chess-client"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+chess-proto = { path = "../proto" }
+tonic = { workspace = true }
+tokio = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+tokio-test = "0.4"

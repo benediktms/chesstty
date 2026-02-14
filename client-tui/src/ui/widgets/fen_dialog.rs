@@ -35,13 +35,13 @@ impl FenDialogState {
 
 pub struct FenDialogWidget<'a> {
     pub dialog_state: &'a mut FenDialogState,
-    pub positions: &'a [chess_proto::SavedPosition],
+    pub positions: &'a [chess_client::SavedPosition],
 }
 
 impl<'a> FenDialogWidget<'a> {
     pub fn new(
         dialog_state: &'a mut FenDialogState,
-        positions: &'a [chess_proto::SavedPosition],
+        positions: &'a [chess_client::SavedPosition],
     ) -> Self {
         Self {
             dialog_state,
