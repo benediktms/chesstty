@@ -2,12 +2,11 @@ pub mod parser;
 
 pub use parser::{format_uci_move, parse_uci_message, parse_uci_move, UciMessage};
 
-use crate::{EngineCommand, EngineEvent, EngineInfo, Score};
+// UCI parsing utilities
 use std::path::Path;
 use std::process::Stdio;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, ChildStdout};
-use tokio::sync::mpsc;
 
 /// UCI chess engine wrapper
 pub struct UciEngine {

@@ -1,10 +1,10 @@
 use crate::uci::{format_uci_move, parse_uci_message, UciMessage};
-use crate::{EngineCommand, EngineEvent, GoParams, Score, UciMessageDirection};
+use crate::{EngineCommand, EngineEvent, GoParams, UciMessageDirection};
 use cozy_chess::Move;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::process::{Child, ChildStdin, ChildStdout};
+use tokio::process::Child;
 use tokio::sync::mpsc;
 
 pub struct StockfishEngine {

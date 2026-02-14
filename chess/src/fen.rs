@@ -1,4 +1,4 @@
-use cozy_chess::{Board, Color, File, Piece, Rank, Square};
+use cozy_chess::{Board, Color, Piece};
 
 /// Parse a FEN string into a Board
 pub fn parse_fen(fen: &str) -> Result<Board, FenError> {

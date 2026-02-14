@@ -1,4 +1,4 @@
-use cozy_chess::{Board, File, Move, Piece, Rank, Square};
+use cozy_chess::{Board, File, Move, Square};
 
 /// Parse Standard Algebraic Notation (SAN) move
 pub fn parse_san(board: &Board, san: &str) -> Result<Move, SanError> {

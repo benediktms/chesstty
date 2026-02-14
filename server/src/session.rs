@@ -1,8 +1,8 @@
 use crate::persistence::{self, PositionStore, SavedPositionData, SessionStore, SuspendedSessionData};
-use chess::{Game, GameError, HistoryEntry};
+use chess::{Game, HistoryEntry};
 use chess_common::uci::convert_uci_castling_to_cozy;
-use cozy_chess::{Color, GameStatus as CozyGameStatus, Move, Piece, Square};
-use engine::{EngineCommand, EngineEvent, EngineHandle, GoParams, StockfishConfig, StockfishEngine};
+use cozy_chess::{Color, GameStatus as CozyGameStatus, Move, Square};
+use engine::{EngineCommand, EngineEvent, GoParams, StockfishConfig, StockfishEngine};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc, RwLock};

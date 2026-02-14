@@ -12,12 +12,12 @@ pub mod uci_debug_panel;
 
 pub use board::BoardWidget;
 pub use engine_panel::EngineAnalysisPanel;
-pub use fen_dialog::{FenDialogFocus, FenDialogState, FenDialogWidget};
+pub use fen_dialog::{FenDialogState, FenDialogWidget};
 pub use game_info_panel::GameInfoPanel;
-pub use menu::{MenuItem, MenuState, MenuWidget};
+pub use menu::{MenuState, MenuWidget};
 pub use mini_board::MiniBoardWidget;
 pub use move_history_panel::MoveHistoryPanel;
-pub use popup_menu::{PopupMenuState, PopupMenuWidget};
+pub use popup_menu::PopupMenuWidget;
 pub use promotion_dialog::PromotionWidget;
-pub use selectable_table::{SelectableTableState, render_table_overlay};
+pub use selectable_table::render_table_overlay;
 pub use uci_debug_panel::UciDebugPanel;

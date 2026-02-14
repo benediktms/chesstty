@@ -1,6 +1,6 @@
 //! UCI (Universal Chess Interface) utilities
 
-use cozy_chess::{File, Move, Piece, Rank, Square};
+use cozy_chess::{File, Move, Rank, Square};
 
 use crate::converters::{format_piece, format_square};
 
@@ -56,6 +56,7 @@ pub fn format_uci_move(mv: Move) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use cozy_chess::Piece;
 
     #[test]
     fn test_format_uci_move() {

@@ -1,4 +1,4 @@
-use crate::session::{SessionEvent, SessionInfo, SessionManager};
+use crate::session::{SessionEvent, SessionManager};
 use ::chess::HistoryEntry;
 use chess_common::{
     format_color, format_piece, format_piece_upper, format_square, format_uci_move, parse_file,
@@ -10,7 +10,7 @@ use cozy_chess::{File as CozyFile, GameStatus as CozyGameStatus, Move, Piece, Ra
 use std::pin::Pin;
 use std::sync::Arc;
 use tokio::sync::broadcast;
-use tokio_stream::{wrappers::BroadcastStream, Stream, StreamExt};
+use tokio_stream::Stream;
 use tonic::{Request, Response, Status};
 
 /// Implementation of the ChessService gRPC service

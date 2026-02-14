@@ -2,7 +2,6 @@ mod client;
 mod state;
 mod timer;
 mod ui;
-mod util;
 
 // Re-export app types for compatibility
 pub mod app {
