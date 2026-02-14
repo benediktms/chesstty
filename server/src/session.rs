@@ -65,11 +65,12 @@ pub enum UciMessageDirection {
 }
 
 impl SessionManager {
-    pub fn new() -> Self {
+    /// Create a new SessionManager with configurable data and defaults directories.
+    pub fn new(data_dir: std::path::PathBuf, defaults_dir: Option<std::path::PathBuf>) -> Self {
         Self {
             sessions: Arc::new(RwLock::new(HashMap::new())),
-            store: SessionStore::new("data"),
-            position_store: PositionStore::new("data"),
+            store: SessionStore::new(data_dir.clone()),
+            position_store: PositionStore::new(data_dir, defaults_dir),
         }
     }
 
@@ -724,9 +725,14 @@ pub struct SessionInfo {
 mod tests {
     use super::*;
 
+    fn test_manager() -> SessionManager {
+        let temp_dir = std::env::temp_dir().join(format!("chesstty_test_{}", uuid::Uuid::new_v4()));
+        SessionManager::new(temp_dir, None)
+    }
+
     #[tokio::test]
     async fn test_create_session() {
-        let manager = SessionManager::new();
+        let manager = test_manager();
         let session_id = manager.create_session(None).await.unwrap();
         assert!(!session_id.is_empty());
 
@@ -737,7 +743,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_make_move() {
-        let manager = SessionManager::new();
+        let manager = test_manager();
         let session_id = manager.create_session(None).await.unwrap();
 
         // Make e2-e4
@@ -759,7 +765,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_undo_redo() {
-        let manager = SessionManager::new();
+        let manager = test_manager();
         let session_id = manager.create_session(None).await.unwrap();
 
         // Make a move
@@ -785,7 +791,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_close_session() {
-        let manager = SessionManager::new();
+        let manager = test_manager();
         let session_id = manager.create_session(None).await.unwrap();
 
         // Close session

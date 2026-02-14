@@ -21,8 +21,9 @@ pub struct SessionStore {
 }
 
 impl SessionStore {
-    pub fn new(data_dir: &str) -> Self {
-        let dir = PathBuf::from(data_dir).join("sessions");
+    /// Create a new SessionStore with the given data directory.
+    pub fn new(data_dir: PathBuf) -> Self {
+        let dir = data_dir.join("sessions");
         Self { dir }
     }
 
@@ -143,18 +144,22 @@ pub struct SavedPositionData {
 /// Persistence layer for saved positions. Uses JSON files in a directory.
 pub struct PositionStore {
     dir: PathBuf,
+    defaults_dir: Option<PathBuf>,
 }
 
 impl PositionStore {
-    pub fn new(data_dir: &str) -> Self {
-        let dir = PathBuf::from(data_dir).join("positions");
-        let store = Self { dir };
+    /// Create a new PositionStore with runtime data directory and optional defaults directory.
+    ///
+    /// If defaults_dir is provided, default positions will be copied from there on initialization.
+    pub fn new(data_dir: PathBuf, defaults_dir: Option<PathBuf>) -> Self {
+        let dir = data_dir.join("positions");
+        let store = Self { dir, defaults_dir };
         store.seed_defaults();
         store
     }
 
     fn new_in(dir: PathBuf) -> Self {
-        Self { dir }
+        Self { dir, defaults_dir: None }
     }
 
     fn ensure_dir(&self) -> Result<(), String> {
@@ -167,6 +172,9 @@ impl PositionStore {
     }
 
     /// Seed default positions if none exist.
+    ///
+    /// If a defaults_dir is configured, copies default position files from there.
+    /// Otherwise, creates a minimal set of hardcoded defaults as fallback.
     fn seed_defaults(&self) {
         if let Ok(existing) = self.list() {
             if existing.iter().any(|p| p.is_default) {
@@ -174,21 +182,54 @@ impl PositionStore {
             }
         }
 
+        // Try to copy from defaults directory first
+        if let Some(ref defaults_dir) = self.defaults_dir {
+            let defaults_positions_dir = defaults_dir.join("positions");
+            if defaults_positions_dir.exists() {
+                if let Err(e) = self.copy_defaults_from(&defaults_positions_dir) {
+                    tracing::warn!("Failed to copy defaults from {:?}: {}", defaults_positions_dir, e);
+                    self.create_fallback_defaults();
+                }
+                return;
+            }
+        }
+
+        // Fallback: create minimal hardcoded defaults
+        self.create_fallback_defaults();
+    }
+
+    /// Copy default position files from a directory.
+    fn copy_defaults_from(&self, source_dir: &PathBuf) -> Result<(), String> {
+        self.ensure_dir()?;
+
+        let entries = std::fs::read_dir(source_dir)
+            .map_err(|e| format!("Failed to read defaults directory: {}", e))?;
+
+        for entry in entries {
+            let entry = entry.map_err(|e| format!("Failed to read entry: {}", e))?;
+            let path = entry.path();
+
+            if path.extension().and_then(|e| e.to_str()) == Some("json") {
+                if let Some(filename) = path.file_name() {
+                    let dest = self.dir.join(filename);
+                    std::fs::copy(&path, &dest)
+                        .map_err(|e| format!("Failed to copy {:?}: {}", filename, e))?;
+                }
+            }
+        }
+
+        tracing::info!("Copied default positions from {:?}", source_dir);
+        Ok(())
+    }
+
+    /// Create minimal hardcoded defaults as fallback.
+    fn create_fallback_defaults(&self) {
         let defaults = vec![
             ("Standard Starting Position", "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"),
-            ("Sicilian Defense", "rnbqkbnr/pp1ppppp/8/2p5/4P3/8/PPPP1PPP/RNBQKBNR w KQkq c6 0 2"),
-            ("Queen's Gambit", "rnbqkbnr/ppp1pppp/8/3p4/2PP4/8/PP2PPPP/RNBQKBNR b KQkq c3 0 2"),
-            ("Italian Game", "r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 3 3"),
-            ("French Defense", "rnbqkbnr/pppp1ppp/4p3/8/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2"),
-            ("Ruy Lopez", "r1bqkbnr/pppp1ppp/2n5/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 3 3"),
-            ("King's Indian Defense", "rnbqkb1r/pppppp1p/5np1/8/2PP4/8/PP2PPPP/RNBQKBNR w KQkq - 0 3"),
-            ("Philidor's Legacy (Mate in 3)", "6k1/5ppp/8/8/8/8/2r2PPP/1q2R1K1 w - - 0 1"),
-            ("Lucena Position", "1K1k4/1P6/8/8/8/8/r7/2R5 w - - 0 1"),
-            ("Scholar's Mate Setup", "r1bqkb1r/pppp1ppp/2n2n2/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR w KQkq - 4 4"),
         ];
 
         for (name, fen) in defaults {
-            let id = format!("default_{}", name.to_lowercase().replace(' ', "_").replace("'", "").replace("(", "").replace(")", ""));
+            let id = format!("default_{}", name.to_lowercase().replace(' ', "_"));
             let data = SavedPositionData {
                 position_id: id,
                 name: name.to_string(),
@@ -198,6 +239,7 @@ impl PositionStore {
             };
             let _ = self.save(&data);
         }
+        tracing::info!("Created fallback default positions");
     }
 
     /// Save a position. Returns the position_id.
