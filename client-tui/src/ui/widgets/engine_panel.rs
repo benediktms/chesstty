@@ -10,29 +10,47 @@ use ratatui::{
 pub struct EngineAnalysisPanel<'a> {
     pub engine_info: Option<&'a EngineInfo>,
     pub is_thinking: bool,
+    pub scroll: u16,
+    pub is_selected: bool,
 }
 
 impl<'a> EngineAnalysisPanel<'a> {
-    pub fn new(engine_info: Option<&'a EngineInfo>, is_thinking: bool) -> Self {
+    pub fn new(engine_info: Option<&'a EngineInfo>, is_thinking: bool, scroll: u16, is_selected: bool) -> Self {
         Self {
             engine_info,
             is_thinking,
+            scroll,
+            is_selected,
         }
     }
 }
 
 impl Widget for EngineAnalysisPanel<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        let title = if self.is_thinking {
-            "⚙ Engine Analysis (Thinking...)"
+        let title = if self.is_selected {
+            if self.is_thinking {
+                "⚙ Engine Analysis (Thinking...) [SELECTED]"
+            } else {
+                "⚙ Engine Analysis [SELECTED]"
+            }
         } else {
-            "⚙ Engine Analysis"
+            if self.is_thinking {
+                "⚙ Engine Analysis (Thinking...)"
+            } else {
+                "⚙ Engine Analysis"
+            }
+        };
+
+        let border_style = if self.is_selected {
+            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(Color::Cyan)
         };
 
         let block = Block::default()
             .title(title)
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Cyan))
+            .border_style(border_style)
             .style(Style::default().bg(Color::Black));
 
         let inner = block.inner(area);
@@ -120,7 +138,7 @@ impl Widget for EngineAnalysisPanel<'_> {
                 }
             }
 
-            let paragraph = Paragraph::new(lines);
+            let paragraph = Paragraph::new(lines).scroll((self.scroll, 0));
             paragraph.render(inner, buf);
         } else {
             // No engine info available

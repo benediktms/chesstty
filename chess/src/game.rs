@@ -89,8 +89,11 @@ impl Game {
         // Generate SAN notation before making the move
         let san = generate_san(&self.position, mv, piece);
 
-        // Play the move
-        self.position.play_unchecked(mv);
+        // Clone the board and play the move
+        // Note: cozy_chess uses immutable boards, so play() returns a new board
+        let mut new_position = self.position.clone();
+        new_position.play_unchecked(mv);
+        self.position = new_position;
 
         // Get FEN after the move
         let fen = self.to_fen();
@@ -165,7 +168,8 @@ impl Game {
         };
 
         for entry in &self.history {
-            board.play_unchecked(entry.mv);
+            board = board.try_play(entry.mv)
+                .map_err(|_| GameError::IllegalMove)?;
         }
 
         self.position = board;

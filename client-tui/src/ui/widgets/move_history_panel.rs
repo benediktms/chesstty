@@ -10,20 +10,31 @@ use ratatui::{
 pub struct MoveHistoryPanel<'a> {
     pub history: &'a [MoveRecord],
     pub scroll: u16,
+    pub is_selected: bool,
 }
 
 impl<'a> MoveHistoryPanel<'a> {
-    pub fn new(history: &'a [MoveRecord], scroll: u16) -> Self {
-        Self { history, scroll }
+    pub fn new(history: &'a [MoveRecord], scroll: u16, is_selected: bool) -> Self {
+        Self { history, scroll, is_selected }
     }
 }
 
 impl Widget for MoveHistoryPanel<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
+        let title = if self.is_selected {
+            "♔ Move History ♕ [SELECTED]"
+        } else {
+            "♔ Move History ♕"
+        };
+        let border_style = if self.is_selected {
+            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(Color::Cyan)
+        };
         let block = Block::default()
-            .title("♔ Move History ♕ (PgUp/PgDn to scroll)")
+            .title(title)
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Cyan));
+            .border_style(border_style);
 
         let inner = block.inner(area);
         block.render(area, buf);

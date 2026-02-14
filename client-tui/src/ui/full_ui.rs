@@ -1,6 +1,6 @@
 use crate::state::{ClientState, GameMode, InputPhase};
 use crate::ui::menu_app;
-use crate::ui::widgets::{BoardWidget, ControlsPanel, EngineAnalysisPanel, GameInfoPanel, MoveHistoryPanel, PromotionWidget, UciDebugPanel};
+use crate::ui::widgets::{BoardWidget, EngineAnalysisPanel, GameInfoPanel, MoveHistoryPanel, PromotionWidget, UciDebugPanel};
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyModifiers},
     execute,
@@ -9,6 +9,7 @@ use crossterm::{
 use ratatui::{
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout},
+    style::{Color, Modifier, Style},
     Terminal,
 };
 use std::io;
@@ -117,15 +118,40 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
 
         // Draw UI
         terminal.draw(|f| {
-            let chunks = Layout::default()
+            use crate::state::SelectedPanel;
+            use ratatui::text::{Line, Span};
+            use ratatui::widgets::Paragraph;
+
+            // Main vertical split: content area (top) and controls line (bottom)
+            let main_vertical = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([
+                    Constraint::Min(10),     // Content area
+                    Constraint::Length(1),   // Controls line at bottom
+                ])
+                .split(f.area());
+
+            // Content area vertical split: board/panels area and UCI panel (if shown)
+            let mut content_constraints = vec![Constraint::Min(20)]; // Board + panels area
+            if state.ui_state.show_debug_panel {
+                content_constraints.push(Constraint::Length(15)); // UCI panel
+            }
+
+            let content_chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints(content_constraints)
+                .split(main_vertical[0]);
+
+            // Split board/panels area horizontally: board (left) and info panels (right)
+            let board_area_chunks = Layout::default()
                 .direction(Direction::Horizontal)
                 .constraints([
                     Constraint::Min(50),     // Left: Board
                     Constraint::Length(40),  // Right: Info panels
                 ])
-                .split(f.area());
+                .split(content_chunks[0]);
 
-            // Dynamic constraints based on which panels are shown
+            // Dynamic constraints for right side panels
             let mut right_constraints = vec![Constraint::Length(10)]; // Game info
 
             // Add engine panel if shown
@@ -133,25 +159,13 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
                 right_constraints.push(Constraint::Length(12)); // Engine analysis
             }
 
-            // Add move history (takes remaining space if no debug panel)
-            if state.ui_state.show_debug_panel {
-                right_constraints.push(Constraint::Length(15)); // Move history (fixed)
-            } else {
-                right_constraints.push(Constraint::Min(15)); // Move history (flexible)
-            }
-
-            // Controls panel
-            right_constraints.push(Constraint::Length(12)); // Controls
-
-            // UCI debug panel if shown
-            if state.ui_state.show_debug_panel {
-                right_constraints.push(Constraint::Min(10)); // UCI debug panel
-            }
+            // Add move history (takes remaining space)
+            right_constraints.push(Constraint::Min(15)); // Move history
 
             let right_chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints(right_constraints)
-                .split(chunks[1]);
+                .split(board_area_chunks[1]);
 
             // Track which chunk index we're at (depends on visible panels)
             let mut chunk_idx = 0;
@@ -161,7 +175,7 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
                 client_state: state,
                 typeahead_squares: &typeahead_squares,
             };
-            f.render_widget(board_widget, chunks[0]);
+            f.render_widget(board_widget, board_area_chunks[0]);
 
             // Render game info panel
             let game_info = GameInfoPanel {
@@ -172,32 +186,72 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
 
             // Render engine analysis panel if enabled
             if state.ui_state.show_engine_panel {
+                let is_selected = state.ui_state.selected_panel == SelectedPanel::EngineAnalysis;
                 let engine_panel = EngineAnalysisPanel::new(
                     state.ui_state.engine_info.as_ref(),
                     state.ui_state.is_engine_thinking,
+                    state.ui_state.engine_analysis_scroll,
+                    is_selected,
                 );
                 f.render_widget(engine_panel, right_chunks[chunk_idx]);
                 chunk_idx += 1;
             }
 
             // Render move history panel
-            let history_widget = MoveHistoryPanel {
-                history: state.history(),
-                scroll: state.ui_state.move_history_scroll,
-            };
+            let is_selected = state.ui_state.selected_panel == SelectedPanel::MoveHistory;
+            let history_widget = MoveHistoryPanel::new(
+                state.history(),
+                state.ui_state.move_history_scroll,
+                is_selected,
+            );
             f.render_widget(history_widget, right_chunks[chunk_idx]);
-            chunk_idx += 1;
-
-            // Render controls panel with input buffer
-            let controls_panel = ControlsPanel::new(&input_buffer);
-            f.render_widget(controls_panel, right_chunks[chunk_idx]);
-            chunk_idx += 1;
 
             // Render UCI debug panel if enabled
             if state.ui_state.show_debug_panel {
-                let uci_panel = UciDebugPanel::new(&state.ui_state.uci_log, state.ui_state.uci_debug_scroll);
-                f.render_widget(uci_panel, right_chunks[chunk_idx]);
+                let is_selected = state.ui_state.selected_panel == SelectedPanel::UciDebug;
+                let uci_panel = UciDebugPanel::new(
+                    &state.ui_state.uci_log,
+                    state.ui_state.uci_debug_scroll,
+                    is_selected,
+                );
+                f.render_widget(uci_panel, content_chunks[1]);
             }
+
+            // Render controls as a single line at the bottom
+            let mut controls_spans = vec![];
+
+            if !input_buffer.is_empty() {
+                controls_spans.push(Span::styled(
+                    format!("Input: {} | ", input_buffer),
+                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                ));
+            }
+
+            // Game controls
+            if state.is_undo_allowed() {
+                controls_spans.push(Span::styled("u", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)));
+                controls_spans.push(Span::raw(" Undo | "));
+            }
+            controls_spans.push(Span::styled("r", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)));
+            controls_spans.push(Span::raw(" Reset | "));
+            controls_spans.push(Span::styled("Esc", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)));
+            controls_spans.push(Span::raw(" Clear | "));
+
+            // Panel controls
+            controls_spans.push(Span::styled("[ ]", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)));
+            controls_spans.push(Span::raw(" Select Panel | "));
+            controls_spans.push(Span::styled("PgUp/PgDn", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)));
+            controls_spans.push(Span::raw(" Scroll | "));
+            controls_spans.push(Span::styled("@", Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)));
+            controls_spans.push(Span::raw(" UCI | "));
+            controls_spans.push(Span::styled("#", Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)));
+            controls_spans.push(Span::raw(" Engine | "));
+            controls_spans.push(Span::styled("Ctrl+C", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)));
+            controls_spans.push(Span::raw(" Quit"));
+
+            let controls_line = Paragraph::new(Line::from(controls_spans))
+                .style(Style::default().bg(Color::Black));
+            f.render_widget(controls_line, main_vertical[1]);
 
             // Render promotion dialog if active
             if matches!(state.ui_state.input_phase, InputPhase::SelectPromotion { .. }) {
@@ -221,6 +275,12 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
                     KeyCode::Char('#') => {
                         state.toggle_engine_panel();
                     }
+                    KeyCode::Char('[') => {
+                        state.select_prev_panel();
+                    }
+                    KeyCode::Char(']') => {
+                        state.select_next_panel();
+                    }
                     KeyCode::Char(c) => {
                         input_buffer.push(c);
                     }
@@ -234,32 +294,65 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
                         }
                     }
                     KeyCode::Esc => {
-                        state.clear_selection();
+                        // Clear panel selection first, then clear game selection
+                        if state.ui_state.selected_panel != crate::state::SelectedPanel::None {
+                            state.clear_panel_selection();
+                        } else {
+                            state.clear_selection();
+                        }
                         input_buffer.clear();
                     }
                     KeyCode::PageUp => {
-                        // Scroll up in move history
-                        state.ui_state.move_history_scroll = state.ui_state.move_history_scroll.saturating_sub(5);
-                        if state.ui_state.show_debug_panel {
-                            state.ui_state.uci_debug_scroll = state.ui_state.uci_debug_scroll.saturating_sub(5);
+                        // Scroll up in selected panel only
+                        use crate::state::SelectedPanel;
+                        match state.ui_state.selected_panel {
+                            SelectedPanel::MoveHistory => {
+                                state.ui_state.move_history_scroll = state.ui_state.move_history_scroll.saturating_sub(5);
+                            }
+                            SelectedPanel::EngineAnalysis => {
+                                state.ui_state.engine_analysis_scroll = state.ui_state.engine_analysis_scroll.saturating_sub(5);
+                            }
+                            SelectedPanel::UciDebug => {
+                                state.ui_state.uci_debug_scroll = state.ui_state.uci_debug_scroll.saturating_sub(5);
+                            }
+                            SelectedPanel::None => {}
                         }
                     }
                     KeyCode::PageDown => {
-                        // Scroll down in move history
-                        state.ui_state.move_history_scroll = state.ui_state.move_history_scroll.saturating_add(5);
-                        if state.ui_state.show_debug_panel {
-                            state.ui_state.uci_debug_scroll = state.ui_state.uci_debug_scroll.saturating_add(5);
+                        // Scroll down in selected panel only
+                        use crate::state::SelectedPanel;
+                        match state.ui_state.selected_panel {
+                            SelectedPanel::MoveHistory => {
+                                state.ui_state.move_history_scroll = state.ui_state.move_history_scroll.saturating_add(5);
+                            }
+                            SelectedPanel::EngineAnalysis => {
+                                state.ui_state.engine_analysis_scroll = state.ui_state.engine_analysis_scroll.saturating_add(5);
+                            }
+                            SelectedPanel::UciDebug => {
+                                state.ui_state.uci_debug_scroll = state.ui_state.uci_debug_scroll.saturating_add(5);
+                            }
+                            SelectedPanel::None => {}
                         }
                     }
                     KeyCode::Home => {
-                        // Scroll to top
-                        state.ui_state.move_history_scroll = 0;
-                        state.ui_state.uci_debug_scroll = 0;
+                        // Scroll to top of selected panel
+                        use crate::state::SelectedPanel;
+                        match state.ui_state.selected_panel {
+                            SelectedPanel::MoveHistory => state.ui_state.move_history_scroll = 0,
+                            SelectedPanel::EngineAnalysis => state.ui_state.engine_analysis_scroll = 0,
+                            SelectedPanel::UciDebug => state.ui_state.uci_debug_scroll = 0,
+                            SelectedPanel::None => {}
+                        }
                     }
                     KeyCode::End => {
-                        // Scroll to bottom (set to large value, will be clamped by widget)
-                        state.ui_state.move_history_scroll = u16::MAX;
-                        state.ui_state.uci_debug_scroll = u16::MAX;
+                        // Scroll to bottom of selected panel
+                        use crate::state::SelectedPanel;
+                        match state.ui_state.selected_panel {
+                            SelectedPanel::MoveHistory => state.ui_state.move_history_scroll = u16::MAX,
+                            SelectedPanel::EngineAnalysis => state.ui_state.engine_analysis_scroll = u16::MAX,
+                            SelectedPanel::UciDebug => state.ui_state.uci_debug_scroll = u16::MAX,
+                            SelectedPanel::None => {}
+                        }
                     }
                     _ => {}
                 }
@@ -283,6 +376,10 @@ async fn handle_input(state: &mut ClientState, input: &str) {
     // Check for special commands
     match input.as_str() {
         "undo" | "u" => {
+            if !state.is_undo_allowed() {
+                state.ui_state.status_message = Some("Undo is only available in Human vs Engine mode with Beginner difficulty".to_string());
+                return;
+            }
             if let Err(e) = state.undo().await {
                 state.ui_state.status_message = Some(format!("Undo error: {}", e));
             }

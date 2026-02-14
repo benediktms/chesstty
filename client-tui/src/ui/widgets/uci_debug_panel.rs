@@ -10,20 +10,31 @@ use ratatui::{
 pub struct UciDebugPanel<'a> {
     pub uci_log: &'a [UciLogEntry],
     pub scroll: u16,
+    pub is_selected: bool,
 }
 
 impl<'a> UciDebugPanel<'a> {
-    pub fn new(uci_log: &'a [UciLogEntry], scroll: u16) -> Self {
-        Self { uci_log, scroll }
+    pub fn new(uci_log: &'a [UciLogEntry], scroll: u16, is_selected: bool) -> Self {
+        Self { uci_log, scroll, is_selected }
     }
 }
 
 impl Widget for UciDebugPanel<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
+        let title = if self.is_selected {
+            "🔧 UCI Debug Panel [SELECTED] 🔧"
+        } else {
+            "🔧 UCI Debug Panel (@ to toggle) 🔧"
+        };
+        let border_style = if self.is_selected {
+            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(Color::Magenta)
+        };
         let block = Block::default()
-            .title("🔧 UCI Debug Panel (@ toggle, PgUp/PgDn scroll) 🔧")
+            .title(title)
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Magenta));
+            .border_style(border_style);
 
         let inner = block.inner(area);
         block.render(area, buf);
@@ -35,6 +46,7 @@ impl Widget for UciDebugPanel<'_> {
         }
 
         let mut lines = vec![];
+        let max_width = (inner.width as usize).saturating_sub(2);
 
         // Show all messages and let scroll handle visibility
         for entry in self.uci_log.iter() {
@@ -57,10 +69,12 @@ impl Widget for UciDebugPanel<'_> {
             // Parse message for syntax highlighting
             let message_parts = parse_uci_message(&entry.message);
 
-            let mut spans = vec![ratatui::text::Span::styled(
+            // Build the full message with syntax highlighting
+            let mut current_line_spans = vec![ratatui::text::Span::styled(
                 prefix,
                 Style::default().fg(color).add_modifier(Modifier::BOLD),
             )];
+            let mut current_line_length = prefix.len();
 
             for (text, highlight) in message_parts {
                 let style = match highlight {
@@ -73,10 +87,26 @@ impl Widget for UciDebugPanel<'_> {
                         .add_modifier(Modifier::BOLD),
                     HighlightType::Normal => Style::default().fg(Color::Gray),
                 };
-                spans.push(ratatui::text::Span::styled(text, style));
+
+                // Check if adding this text would exceed max_width
+                if current_line_length + text.len() > max_width && !current_line_spans.is_empty() {
+                    // Push current line and start a new one
+                    lines.push(Line::from(current_line_spans));
+                    current_line_spans = vec![ratatui::text::Span::styled(
+                        "    ", // Indent wrapped lines
+                        Style::default(),
+                    )];
+                    current_line_length = 4;
+                }
+
+                current_line_length += text.len();
+                current_line_spans.push(ratatui::text::Span::styled(text, style));
             }
 
-            lines.push(Line::from(spans));
+            // Push the last line
+            if !current_line_spans.is_empty() {
+                lines.push(Line::from(current_line_spans));
+            }
         }
 
         let paragraph = Paragraph::new(lines).scroll((self.scroll, 0));

@@ -57,6 +57,8 @@ pub struct UiState {
     pub selected_promotion_piece: Piece,
     pub move_history_scroll: u16,
     pub uci_debug_scroll: u16,
+    pub engine_analysis_scroll: u16,
+    pub selected_panel: SelectedPanel,
 }
 
 #[derive(Debug, Clone)]
@@ -78,6 +80,14 @@ pub enum InputPhase {
     SelectPiece,
     SelectDestination,
     SelectPromotion { from: Square, to: Square },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SelectedPanel {
+    None,
+    MoveHistory,
+    EngineAnalysis,
+    UciDebug,
 }
 
 impl ClientState {
@@ -113,6 +123,8 @@ impl ClientState {
                 selected_promotion_piece: Piece::Queen,
                 move_history_scroll: 0,
                 uci_debug_scroll: 0,
+                engine_analysis_scroll: 0,
+                selected_panel: SelectedPanel::None,
             },
             cached_fen: session_info.fen.clone(),
             cached_board: board,
@@ -165,6 +177,11 @@ impl ClientState {
             GameMode::EngineVsEngine => true,
             _ => false,
         }
+    }
+
+    /// Check if undo is allowed (only in Human vs Engine with beginner difficulty)
+    pub fn is_undo_allowed(&self) -> bool {
+        matches!(self.mode, GameMode::HumanVsEngine { .. }) && self.skill_level <= 3
     }
 
     /// Make a move with the engine
@@ -445,6 +462,61 @@ impl ClientState {
     /// Toggle engine analysis panel visibility
     pub fn toggle_engine_panel(&mut self) {
         self.ui_state.show_engine_panel = !self.ui_state.show_engine_panel;
+    }
+
+    /// Cycle to the next panel
+    pub fn select_next_panel(&mut self) {
+        use SelectedPanel::*;
+        self.ui_state.selected_panel = match self.ui_state.selected_panel {
+            None => MoveHistory,
+            MoveHistory => {
+                if self.ui_state.show_engine_panel {
+                    EngineAnalysis
+                } else if self.ui_state.show_debug_panel {
+                    UciDebug
+                } else {
+                    None
+                }
+            }
+            EngineAnalysis => {
+                if self.ui_state.show_debug_panel {
+                    UciDebug
+                } else {
+                    None
+                }
+            }
+            UciDebug => None,
+        };
+    }
+
+    /// Cycle to the previous panel
+    pub fn select_prev_panel(&mut self) {
+        use SelectedPanel::*;
+        self.ui_state.selected_panel = match self.ui_state.selected_panel {
+            None => {
+                if self.ui_state.show_debug_panel {
+                    UciDebug
+                } else if self.ui_state.show_engine_panel {
+                    EngineAnalysis
+                } else {
+                    MoveHistory
+                }
+            }
+            MoveHistory => None,
+            EngineAnalysis => MoveHistory,
+            UciDebug => {
+                if self.ui_state.show_engine_panel {
+                    EngineAnalysis
+                } else {
+                    MoveHistory
+                }
+            }
+        };
+    }
+
+    /// Clear panel selection
+    pub fn clear_panel_selection(&mut self) {
+        self.ui_state.selected_panel = SelectedPanel::None;
     }
 
     /// Subscribe to event stream from server
