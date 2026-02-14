@@ -97,6 +97,65 @@ impl Widget for GameInfoPanel<'_> {
             ),
         ]));
 
+        // Timer display
+        if let Some(ref timer) = self.client_state.timer {
+            use crate::timer::ChessTimer;
+            use crate::state::PlayerColor;
+
+            let white_remaining = timer.remaining(PlayerColor::White);
+            let black_remaining = timer.remaining(PlayerColor::Black);
+            let active = timer.active_side();
+
+            let timer_color = |remaining: std::time::Duration, is_active: bool| -> Color {
+                if remaining.as_secs() < 10 {
+                    Color::Red
+                } else if remaining.as_secs() < 60 {
+                    Color::Yellow
+                } else if is_active {
+                    Color::Green
+                } else {
+                    Color::White
+                }
+            };
+
+            let white_active = active == Some(PlayerColor::White);
+            let black_active = active == Some(PlayerColor::Black);
+            let white_indicator = if white_active { "\u{25b6} " } else { "  " };
+            let black_indicator = if black_active { "\u{25b6} " } else { "  " };
+
+            lines.push(Line::from(vec![
+                ratatui::text::Span::styled(
+                    white_indicator,
+                    Style::default().fg(Color::White),
+                ),
+                ratatui::text::Span::styled(
+                    "\u{2654} ",
+                    Style::default().fg(Color::White),
+                ),
+                ratatui::text::Span::styled(
+                    ChessTimer::format_time(white_remaining),
+                    Style::default()
+                        .fg(timer_color(white_remaining, white_active))
+                        .add_modifier(Modifier::BOLD),
+                ),
+                ratatui::text::Span::raw("  "),
+                ratatui::text::Span::styled(
+                    black_indicator,
+                    Style::default().fg(Color::Gray),
+                ),
+                ratatui::text::Span::styled(
+                    "\u{265a} ",
+                    Style::default().fg(Color::Gray),
+                ),
+                ratatui::text::Span::styled(
+                    ChessTimer::format_time(black_remaining),
+                    Style::default()
+                        .fg(timer_color(black_remaining, black_active))
+                        .add_modifier(Modifier::BOLD),
+                ),
+            ]));
+        }
+
         // Add selection indicator
         if let Some(selected) = self.client_state.ui_state.selected_square {
             lines.push(Line::raw(""));

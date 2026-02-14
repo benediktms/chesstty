@@ -1,4 +1,8 @@
 use crate::client::ChessClient;
+use crate::timer::ChessTimer;
+use crate::ui::context::FocusStack;
+use crate::ui::pane::PaneManager;
+use crate::ui::widgets::popup_menu::PopupMenuState;
 use chess_proto::*;
 use cozy_chess::{Board, Piece, Square};
 use std::collections::HashMap;
@@ -10,6 +14,7 @@ pub struct ClientState {
     pub mode: GameMode,
     pub skill_level: u8,
     pub ui_state: UiState,
+    pub timer: Option<ChessTimer>,
 
     // Cached game state from server
     cached_fen: String,
@@ -49,16 +54,13 @@ pub struct UiState {
     pub is_engine_thinking: bool,
     pub engine_move_triggered: bool,  // Track if we've triggered engine for current turn
     pub needs_refresh: bool,  // Track if we need to refresh state from server
-    pub show_engine_panel: bool,
     pub status_message: Option<String>,
     pub input_phase: InputPhase,
-    pub show_debug_panel: bool,
     pub uci_log: Vec<UciLogEntry>,
     pub selected_promotion_piece: Piece,
-    pub move_history_scroll: u16,
-    pub uci_debug_scroll: u16,
-    pub engine_analysis_scroll: u16,
-    pub selected_panel: SelectedPanel,
+    pub pane_manager: PaneManager,
+    pub focus_stack: FocusStack,
+    pub popup_menu: Option<PopupMenuState>,
 }
 
 #[derive(Debug, Clone)]
@@ -80,14 +82,6 @@ pub enum InputPhase {
     SelectPiece,
     SelectDestination,
     SelectPromotion { from: Square, to: Square },
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum SelectedPanel {
-    None,
-    MoveHistory,
-    EngineAnalysis,
-    UciDebug,
 }
 
 impl ClientState {
@@ -115,17 +109,15 @@ impl ClientState {
                 is_engine_thinking: false,
                 engine_move_triggered: false,
                 needs_refresh: false,
-                show_engine_panel: true,  // Show by default when engine is active
                 status_message: None,
                 input_phase: InputPhase::SelectPiece,
-                show_debug_panel: false,
                 uci_log: Vec::new(),
                 selected_promotion_piece: Piece::Queen,
-                move_history_scroll: 0,
-                uci_debug_scroll: 0,
-                engine_analysis_scroll: 0,
-                selected_panel: SelectedPanel::None,
+                pane_manager: PaneManager::new(),
+                focus_stack: FocusStack::new(),
+                popup_menu: None,
             },
+            timer: None,
             cached_fen: session_info.fen.clone(),
             cached_board: board,
             cached_side_to_move: session_info.side_to_move.clone(),
@@ -454,71 +446,6 @@ impl ClientState {
         self.clear_selection();
     }
 
-    /// Toggle debug panel visibility
-    pub fn toggle_debug_panel(&mut self) {
-        self.ui_state.show_debug_panel = !self.ui_state.show_debug_panel;
-    }
-
-    /// Toggle engine analysis panel visibility
-    pub fn toggle_engine_panel(&mut self) {
-        self.ui_state.show_engine_panel = !self.ui_state.show_engine_panel;
-    }
-
-    /// Cycle to the next panel
-    pub fn select_next_panel(&mut self) {
-        use SelectedPanel::*;
-        self.ui_state.selected_panel = match self.ui_state.selected_panel {
-            None => MoveHistory,
-            MoveHistory => {
-                if self.ui_state.show_engine_panel {
-                    EngineAnalysis
-                } else if self.ui_state.show_debug_panel {
-                    UciDebug
-                } else {
-                    None
-                }
-            }
-            EngineAnalysis => {
-                if self.ui_state.show_debug_panel {
-                    UciDebug
-                } else {
-                    None
-                }
-            }
-            UciDebug => None,
-        };
-    }
-
-    /// Cycle to the previous panel
-    pub fn select_prev_panel(&mut self) {
-        use SelectedPanel::*;
-        self.ui_state.selected_panel = match self.ui_state.selected_panel {
-            None => {
-                if self.ui_state.show_debug_panel {
-                    UciDebug
-                } else if self.ui_state.show_engine_panel {
-                    EngineAnalysis
-                } else {
-                    MoveHistory
-                }
-            }
-            MoveHistory => None,
-            EngineAnalysis => MoveHistory,
-            UciDebug => {
-                if self.ui_state.show_engine_panel {
-                    EngineAnalysis
-                } else {
-                    MoveHistory
-                }
-            }
-        };
-    }
-
-    /// Clear panel selection
-    pub fn clear_panel_selection(&mut self) {
-        self.ui_state.selected_panel = SelectedPanel::None;
-    }
-
     /// Subscribe to event stream from server
     pub async fn start_event_stream(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         if self.event_stream.is_none() {
@@ -588,6 +515,30 @@ impl ClientState {
                     }
                     self.ui_state.is_engine_thinking = false;
                     self.ui_state.engine_move_triggered = false;
+
+                    // Switch timer to the side that now needs to move
+                    if let Some(ref mut timer) = self.timer {
+                        // After a move, it's the other side's turn
+                        let next_side = if self.cached_side_to_move == "white" {
+                            // Move was by black, now it's white's turn
+                            PlayerColor::White
+                        } else {
+                            PlayerColor::Black
+                        };
+                        // Note: cached_side_to_move hasn't been updated yet (needs_refresh),
+                        // so we switch based on who moved. Since the move just happened,
+                        // the refresh will update cached_side_to_move. We switch to
+                        // the opposite of the current side (the mover), which is the new side.
+                        // Actually, at this point cached_side_to_move is still the OLD value
+                        // (before refresh). The side that just moved IS cached_side_to_move.
+                        // So next side is the opposite.
+                        let switch_to = if self.cached_side_to_move == "white" {
+                            PlayerColor::Black
+                        } else {
+                            PlayerColor::White
+                        };
+                        timer.switch_to(switch_to);
+                    }
 
                     // Request refresh from server to get updated state
                     self.ui_state.needs_refresh = true;

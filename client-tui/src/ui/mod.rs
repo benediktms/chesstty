@@ -1,7 +1,10 @@
 // UI modules
+pub mod context;
 mod full_ui;
-mod simple_ui;
+mod input;
 mod menu_app;
+pub mod pane;
+mod simple_ui;
 pub mod widgets;
 
 // Main entry point - use full UI by default

@@ -1,5 +1,7 @@
 mod client;
+mod session_file;
 mod state;
+mod timer;
 mod ui;
 mod util;
 

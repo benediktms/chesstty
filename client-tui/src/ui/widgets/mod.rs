@@ -3,7 +3,9 @@ pub mod engine_panel;
 pub mod fen_dialog;
 pub mod game_info_panel;
 pub mod menu;
+pub mod mini_board;
 pub mod move_history_panel;
+pub mod popup_menu;
 pub mod promotion_dialog;
 pub mod uci_debug_panel;
 
@@ -12,6 +14,8 @@ pub use engine_panel::EngineAnalysisPanel;
 pub use fen_dialog::{FenDialogFocus, FenDialogState, FenDialogWidget};
 pub use game_info_panel::GameInfoPanel;
 pub use menu::{MenuItem, MenuState, MenuWidget};
+pub use mini_board::MiniBoardWidget;
 pub use move_history_panel::MoveHistoryPanel;
+pub use popup_menu::{PopupMenuState, PopupMenuWidget};
 pub use promotion_dialog::PromotionWidget;
 pub use uci_debug_panel::UciDebugPanel;

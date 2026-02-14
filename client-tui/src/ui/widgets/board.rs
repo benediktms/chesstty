@@ -76,6 +76,7 @@ impl BoardSize {
 pub struct BoardWidget<'a> {
     pub client_state: &'a ClientState,
     pub typeahead_squares: &'a [Square],
+    pub flipped: bool,
 }
 
 impl<'a> BoardWidget<'a> {
@@ -83,6 +84,7 @@ impl<'a> BoardWidget<'a> {
         Self {
             client_state,
             typeahead_squares,
+            flipped: false,
         }
     }
 
@@ -120,11 +122,12 @@ impl Widget for BoardWidget<'_> {
         let board_start_x = inner.x + offset_x + 3;
         let board_start_y = inner.y + offset_y;
 
-        // Draw rank labels (8-1) on the left
+        // Draw rank labels on the left
         for rank_idx in 0..8 {
             let y = board_start_y + (rank_idx as u16 * board_size.square_height) + 2;
             if y < inner.bottom() {
-                let rank_label = format!("{} ", 8 - rank_idx);
+                let rank_num = if self.flipped { rank_idx + 1 } else { 8 - rank_idx };
+                let rank_label = format!("{} ", rank_num);
                 buf.set_string(
                     board_start_x.saturating_sub(2),
                     y,
@@ -134,12 +137,17 @@ impl Widget for BoardWidget<'_> {
             }
         }
 
-        // Draw file labels (a-h) at the bottom
+        // Draw file labels at the bottom
         for file_idx in 0..8 {
             let x = board_start_x + (file_idx as u16 * board_size.square_width) + 2;
-            let y = board_start_y + (8 * board_size.square_height); // Right after the last rank
+            let y = board_start_y + (8 * board_size.square_height);
             if x < area.right() && y < area.bottom() {
-                let file_label = format!("{}", (b'a' + file_idx) as char);
+                let file_char = if self.flipped {
+                    (b'h' - file_idx as u8) as char
+                } else {
+                    (b'a' + file_idx as u8) as char
+                };
+                let file_label = format!("{}", file_char);
                 buf.set_string(x, y, &file_label, Style::default().fg(Color::Yellow));
             }
         }
@@ -147,8 +155,16 @@ impl Widget for BoardWidget<'_> {
         // Draw each square
         for rank_idx in 0..8 {
             for file_idx in 0..8 {
-                let file = File::index(file_idx);
-                let rank = Rank::index(7 - rank_idx); // Top rank is 8
+                let file = if self.flipped {
+                    File::index(7 - file_idx)
+                } else {
+                    File::index(file_idx)
+                };
+                let rank = if self.flipped {
+                    Rank::index(rank_idx) // Bottom rank (1) is at top when flipped
+                } else {
+                    Rank::index(7 - rank_idx) // Top rank is 8
+                };
                 let square = Square::new(file, rank);
 
                 let x = board_start_x + (file_idx as u16 * board_size.square_width);

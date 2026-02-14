@@ -10,9 +10,11 @@ use ratatui::{
 #[derive(Debug, Clone, PartialEq)]
 pub enum MenuItem {
     GameMode(GameModeOption),
+    PlayAs(PlayAsOption),
     Difficulty(DifficultyOption),
     TimeControl(TimeControlOption),
     StartPosition(StartPositionOption),
+    ResumeSession,
     StartGame,
     Quit,
 }
@@ -46,15 +48,23 @@ pub enum StartPositionOption {
     CustomFen,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum PlayAsOption {
+    White,
+    Black,
+}
+
 pub struct MenuState {
     pub selected_index: usize,
     pub game_mode: GameModeOption,
+    pub play_as: PlayAsOption,
     pub difficulty: DifficultyOption,
     pub time_control: TimeControlOption,
     pub start_position: StartPositionOption,
     pub fen_dialog_state: Option<FenDialogState>,
     pub fen_history: Vec<String>,
     pub selected_fen: Option<String>,
+    pub has_saved_session: bool,
 }
 
 impl Default for MenuState {
@@ -62,14 +72,16 @@ impl Default for MenuState {
         Self {
             selected_index: 0,
             game_mode: GameModeOption::HumanVsEngine,
+            play_as: PlayAsOption::White,
             difficulty: DifficultyOption::Intermediate,
             time_control: TimeControlOption::None,
             start_position: StartPositionOption::Standard,
             fen_dialog_state: None,
             fen_history: vec![
-                "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1".to_string(), // Standard position
+                "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1".to_string(),
             ],
             selected_fen: None,
+            has_saved_session: false,
         }
     }
 }
@@ -88,14 +100,32 @@ impl MenuState {
     }
 
     pub fn items(&self) -> Vec<MenuItem> {
-        vec![
-            MenuItem::GameMode(self.game_mode.clone()),
-            MenuItem::Difficulty(self.difficulty),
-            MenuItem::TimeControl(self.time_control),
-            MenuItem::StartPosition(self.start_position),
-            MenuItem::StartGame,
-            MenuItem::Quit,
-        ]
+        let mut items = vec![MenuItem::GameMode(self.game_mode.clone())];
+
+        // Show Play As only for Human vs Engine
+        if self.game_mode == GameModeOption::HumanVsEngine {
+            items.push(MenuItem::PlayAs(self.play_as));
+        }
+
+        items.push(MenuItem::Difficulty(self.difficulty));
+        items.push(MenuItem::TimeControl(self.time_control));
+        items.push(MenuItem::StartPosition(self.start_position));
+
+        // Show Resume Session if a saved session exists
+        if self.has_saved_session {
+            items.push(MenuItem::ResumeSession);
+        }
+
+        items.push(MenuItem::StartGame);
+        items.push(MenuItem::Quit);
+        items
+    }
+
+    pub fn cycle_play_as(&mut self) {
+        self.play_as = match self.play_as {
+            PlayAsOption::White => PlayAsOption::Black,
+            PlayAsOption::Black => PlayAsOption::White,
+        };
     }
 
     pub fn cycle_start_position(&mut self) {
@@ -247,13 +277,29 @@ impl Widget for MenuWidget<'_> {
                         Span::styled(" [←/→]", Style::default().fg(Color::DarkGray)),
                     ])
                 }
+                MenuItem::PlayAs(play_as) => {
+                    let play_as_str = match play_as {
+                        PlayAsOption::White => "White",
+                        PlayAsOption::Black => "Black",
+                    };
+                    Line::from(vec![
+                        Span::styled(prefix, style),
+                        Span::styled("Play As: ", style),
+                        Span::styled(play_as_str, style.fg(Color::Yellow)),
+                        Span::styled(" [\u{2190}/\u{2192}]", Style::default().fg(Color::DarkGray)),
+                    ])
+                }
+                MenuItem::ResumeSession => Line::from(vec![
+                    Span::styled(prefix, style),
+                    Span::styled("\u{25b6} Resume Session", style.fg(Color::Cyan)),
+                ]),
                 MenuItem::StartGame => Line::from(vec![
                     Span::styled(prefix, style),
-                    Span::styled("▶ Start Game", style.fg(Color::Green)),
+                    Span::styled("\u{25b6} Start Game", style.fg(Color::Green)),
                 ]),
                 MenuItem::Quit => Line::from(vec![
                     Span::styled(prefix, style),
-                    Span::styled("✕ Quit", style.fg(Color::Red)),
+                    Span::styled("\u{2715} Quit", style.fg(Color::Red)),
                 ]),
             };
 

@@ -13,6 +13,8 @@ pub struct GameConfig {
     pub mode: GameMode,
     pub skill_level: u8,
     pub start_fen: Option<String>,
+    pub time_control_seconds: Option<u64>,
+    pub resume: bool,
 }
 
 /// Show menu and get game configuration
@@ -24,6 +26,11 @@ pub async fn show_menu() -> anyhow::Result<Option<GameConfig>> {
     let mut terminal = Terminal::new(backend)?;
 
     let mut menu_state = MenuState::default();
+    // Check for saved session
+    menu_state.has_saved_session = crate::session_file::load_session()
+        .ok()
+        .flatten()
+        .is_some();
     let result = loop {
         terminal.draw(|f| {
             let menu_widget = MenuWidget {
@@ -47,6 +54,11 @@ pub async fn show_menu() -> anyhow::Result<Option<GameConfig>> {
                 }
 
                 // Handle menu navigation
+                use crate::ui::widgets::menu::MenuItem;
+
+                let items = menu_state.items();
+                let selected_item = items.get(menu_state.selected_index).cloned();
+
                 match key.code {
                     KeyCode::Up => {
                         if menu_state.selected_index > 0 {
@@ -54,61 +66,49 @@ pub async fn show_menu() -> anyhow::Result<Option<GameConfig>> {
                         }
                     }
                     KeyCode::Down => {
-                        let max_index = 5; // 0-3: options, 4: Start Game, 5: Quit
+                        let max_index = items.len().saturating_sub(1);
                         if menu_state.selected_index < max_index {
                             menu_state.selected_index += 1;
                         }
                     }
                     KeyCode::Left => {
-                        cycle_option(&mut menu_state, -1);
+                        cycle_option(&mut menu_state, &selected_item, -1);
                     }
                     KeyCode::Right => {
-                        cycle_option(&mut menu_state, 1);
+                        cycle_option(&mut menu_state, &selected_item, 1);
                     }
                     KeyCode::Enter => {
-                        match menu_state.selected_index {
-                            4 => {
-                                // Start Game selected
-                                // Check if CustomFen is selected but no FEN provided
+                        match selected_item {
+                            Some(MenuItem::StartGame) => {
                                 use crate::ui::widgets::menu::StartPositionOption;
                                 if menu_state.start_position == StartPositionOption::CustomFen
                                     && menu_state.selected_fen.is_none()
                                 {
-                                    // Open FEN dialog
                                     menu_state.fen_dialog_state = Some(FenDialogState::new());
                                 } else {
-                                    // Start game with selected configuration
                                     let config = create_game_config(&menu_state);
                                     break Some(config);
                                 }
                             }
-                            5 => {
-                                // Quit selected
+                            Some(MenuItem::ResumeSession) => {
+                                let mut config = create_game_config(&menu_state);
+                                config.resume = true;
+                                break Some(config);
+                            }
+                            Some(MenuItem::Quit) => {
                                 break None;
                             }
-                            3 => {
-                                // Start Position - pressing Enter opens FEN dialog if CustomFen
+                            Some(MenuItem::StartPosition(_)) => {
                                 use crate::ui::widgets::menu::StartPositionOption;
                                 if menu_state.start_position == StartPositionOption::CustomFen {
                                     menu_state.fen_dialog_state = Some(FenDialogState::new());
                                 }
                             }
-                            _ => {
-                                // Other rows - Enter does nothing
-                            }
+                            _ => {}
                         }
                     }
                     KeyCode::Char('q') | KeyCode::Esc => {
                         break None;
-                    }
-                    KeyCode::Char(' ') => {
-                        // Space on Start Position row opens FEN dialog
-                        use crate::ui::widgets::menu::StartPositionOption;
-                        if menu_state.selected_index == 3
-                            && menu_state.start_position == StartPositionOption::CustomFen
-                        {
-                            menu_state.fen_dialog_state = Some(FenDialogState::new());
-                        }
                     }
                     _ => {}
                 }
@@ -123,104 +123,61 @@ pub async fn show_menu() -> anyhow::Result<Option<GameConfig>> {
     Ok(result)
 }
 
-fn cycle_option(menu_state: &mut MenuState, direction: i32) {
-    use crate::ui::widgets::menu::{DifficultyOption, GameModeOption, TimeControlOption, StartPositionOption};
+fn cycle_option(menu_state: &mut MenuState, selected_item: &Option<crate::ui::widgets::menu::MenuItem>, _direction: i32) {
+    use crate::ui::widgets::menu::{MenuItem, DifficultyOption, GameModeOption, TimeControlOption, StartPositionOption};
 
-    match menu_state.selected_index {
-        0 => {
-            // Game mode
+    let Some(item) = selected_item else { return };
+
+    match item {
+        MenuItem::GameMode(_) => {
             menu_state.game_mode = match menu_state.game_mode {
                 GameModeOption::HumanVsHuman => {
-                    if direction > 0 {
-                        GameModeOption::HumanVsEngine
-                    } else {
-                        GameModeOption::EngineVsEngine
-                    }
+                    if _direction > 0 { GameModeOption::HumanVsEngine } else { GameModeOption::EngineVsEngine }
                 }
                 GameModeOption::HumanVsEngine => {
-                    if direction > 0 {
-                        GameModeOption::EngineVsEngine
-                    } else {
-                        GameModeOption::HumanVsHuman
-                    }
+                    if _direction > 0 { GameModeOption::EngineVsEngine } else { GameModeOption::HumanVsHuman }
                 }
                 GameModeOption::EngineVsEngine => {
-                    if direction > 0 {
-                        GameModeOption::HumanVsHuman
-                    } else {
-                        GameModeOption::HumanVsEngine
-                    }
+                    if _direction > 0 { GameModeOption::HumanVsHuman } else { GameModeOption::HumanVsEngine }
                 }
             };
         }
-        1 => {
-            // Difficulty
+        MenuItem::PlayAs(_) => {
+            menu_state.cycle_play_as();
+        }
+        MenuItem::Difficulty(_) => {
             menu_state.difficulty = match menu_state.difficulty {
                 DifficultyOption::Beginner => {
-                    if direction > 0 {
-                        DifficultyOption::Intermediate
-                    } else {
-                        DifficultyOption::Master
-                    }
+                    if _direction > 0 { DifficultyOption::Intermediate } else { DifficultyOption::Master }
                 }
                 DifficultyOption::Intermediate => {
-                    if direction > 0 {
-                        DifficultyOption::Advanced
-                    } else {
-                        DifficultyOption::Beginner
-                    }
+                    if _direction > 0 { DifficultyOption::Advanced } else { DifficultyOption::Beginner }
                 }
                 DifficultyOption::Advanced => {
-                    if direction > 0 {
-                        DifficultyOption::Master
-                    } else {
-                        DifficultyOption::Intermediate
-                    }
+                    if _direction > 0 { DifficultyOption::Master } else { DifficultyOption::Intermediate }
                 }
                 DifficultyOption::Master => {
-                    if direction > 0 {
-                        DifficultyOption::Beginner
-                    } else {
-                        DifficultyOption::Advanced
-                    }
+                    if _direction > 0 { DifficultyOption::Beginner } else { DifficultyOption::Advanced }
                 }
             };
         }
-        2 => {
-            // Time control
+        MenuItem::TimeControl(_) => {
             menu_state.time_control = match menu_state.time_control {
                 TimeControlOption::None => {
-                    if direction > 0 {
-                        TimeControlOption::Blitz
-                    } else {
-                        TimeControlOption::Classical
-                    }
+                    if _direction > 0 { TimeControlOption::Blitz } else { TimeControlOption::Classical }
                 }
                 TimeControlOption::Blitz => {
-                    if direction > 0 {
-                        TimeControlOption::Rapid
-                    } else {
-                        TimeControlOption::None
-                    }
+                    if _direction > 0 { TimeControlOption::Rapid } else { TimeControlOption::None }
                 }
                 TimeControlOption::Rapid => {
-                    if direction > 0 {
-                        TimeControlOption::Classical
-                    } else {
-                        TimeControlOption::Blitz
-                    }
+                    if _direction > 0 { TimeControlOption::Classical } else { TimeControlOption::Blitz }
                 }
                 TimeControlOption::Classical => {
-                    if direction > 0 {
-                        TimeControlOption::None
-                    } else {
-                        TimeControlOption::Rapid
-                    }
+                    if _direction > 0 { TimeControlOption::None } else { TimeControlOption::Rapid }
                 }
             };
         }
-        3 => {
-            // Start position
+        MenuItem::StartPosition(_) => {
             menu_state.start_position = match menu_state.start_position {
                 StartPositionOption::Standard => StartPositionOption::CustomFen,
                 StartPositionOption::CustomFen => StartPositionOption::Standard,
@@ -335,13 +292,17 @@ fn validate_fen_basic(fen: &str) -> bool {
 }
 
 fn create_game_config(menu_state: &MenuState) -> GameConfig {
-    use crate::ui::widgets::menu::{DifficultyOption, GameModeOption};
+    use crate::ui::widgets::menu::{DifficultyOption, GameModeOption, PlayAsOption};
 
     let mode = match menu_state.game_mode {
         GameModeOption::HumanVsHuman => GameMode::HumanVsHuman,
-        GameModeOption::HumanVsEngine => GameMode::HumanVsEngine {
-            human_side: PlayerColor::White,
-        },
+        GameModeOption::HumanVsEngine => {
+            let human_side = match menu_state.play_as {
+                PlayAsOption::White => PlayerColor::White,
+                PlayAsOption::Black => PlayerColor::Black,
+            };
+            GameMode::HumanVsEngine { human_side }
+        }
         GameModeOption::EngineVsEngine => GameMode::EngineVsEngine,
     };
 
@@ -353,10 +314,13 @@ fn create_game_config(menu_state: &MenuState) -> GameConfig {
     };
 
     let start_fen = menu_state.selected_fen.clone();
+    let time_control_seconds = menu_state.time_control.seconds();
 
     GameConfig {
         mode,
         skill_level,
         start_fen,
+        time_control_seconds,
+        resume: false,
     }
 }
