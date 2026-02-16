@@ -3,7 +3,7 @@
 use crate::types::{PieceColor, PieceKind};
 
 /// An 8x8 board for display purposes only.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct DisplayBoard {
     squares: [[Option<(PieceKind, PieceColor)>; 8]; 8],
 }
@@ -52,14 +52,6 @@ impl DisplayBoard {
             return None;
         }
         self.squares[rank as usize][file as usize]
-    }
-}
-
-impl Default for DisplayBoard {
-    fn default() -> Self {
-        DisplayBoard {
-            squares: [[None; 8]; 8],
-        }
     }
 }
 

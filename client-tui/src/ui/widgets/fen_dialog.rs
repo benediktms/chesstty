@@ -15,6 +15,7 @@ pub enum FenDialogFocus {
 
 pub struct FenDialogState {
     pub input_buffer: String,
+    #[allow(dead_code)]
     pub name_buffer: String,
     pub focus: FenDialogFocus,
     pub position_table: SelectableTableState,

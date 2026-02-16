@@ -11,6 +11,7 @@ pub enum PaneId {
 }
 
 /// Static properties describing a pane's capabilities.
+#[allow(dead_code)]
 pub struct PaneProperties {
     pub id: PaneId,
     pub title: &'static str,
@@ -59,6 +60,7 @@ pub fn pane_properties(id: PaneId) -> PaneProperties {
 }
 
 /// Returns true if a scrollbar should be rendered for the given content/visible heights.
+#[allow(dead_code)]
 pub fn needs_scrollbar(content_height: u16, visible_height: u16) -> bool {
     content_height > visible_height
 }

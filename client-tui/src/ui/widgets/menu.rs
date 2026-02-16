@@ -31,6 +31,7 @@ pub enum ThreadsOption {
 }
 
 impl ThreadsOption {
+    #[allow(dead_code)]
     pub fn value(&self) -> Option<u32> {
         match self {
             ThreadsOption::Auto => None, // Will be resolved at engine init
@@ -151,12 +152,14 @@ impl Default for MenuState {
 }
 
 impl MenuState {
+    #[allow(dead_code)]
     pub fn move_up(&mut self) {
         if self.selected_index > 0 {
             self.selected_index -= 1;
         }
     }
 
+    #[allow(dead_code)]
     pub fn move_down(&mut self, max: usize) {
         if self.selected_index < max - 1 {
             self.selected_index += 1;
@@ -204,6 +207,7 @@ impl MenuState {
         };
     }
 
+    #[allow(dead_code)]
     pub fn cycle_start_position(&mut self) {
         self.start_position = match self.start_position {
             StartPositionOption::Standard => StartPositionOption::CustomFen,
@@ -211,6 +215,7 @@ impl MenuState {
         };
     }
 
+    #[allow(dead_code)]
     pub fn cycle_game_mode(&mut self) {
         self.game_mode = match self.game_mode {
             GameModeOption::HumanVsHuman => GameModeOption::HumanVsEngine,
@@ -219,6 +224,7 @@ impl MenuState {
         };
     }
 
+    #[allow(dead_code)]
     pub fn cycle_difficulty(&mut self) {
         self.difficulty = match self.difficulty {
             DifficultyOption::Beginner => DifficultyOption::Intermediate,
@@ -228,6 +234,7 @@ impl MenuState {
         };
     }
 
+    #[allow(dead_code)]
     pub fn cycle_time_control(&mut self) {
         self.time_control = match self.time_control {
             TimeControlOption::None => TimeControlOption::Blitz,
@@ -243,6 +250,7 @@ pub struct MenuWidget<'a> {
 }
 
 impl<'a> MenuWidget<'a> {
+    #[allow(dead_code)]
     pub fn new(menu_state: &'a MenuState) -> Self {
         Self { menu_state }
     }
@@ -424,6 +432,7 @@ impl Widget for MenuWidget<'_> {
 }
 
 impl DifficultyOption {
+    #[allow(dead_code)]
     pub fn skill_level(&self) -> u8 {
         match self {
             DifficultyOption::Beginner => 2,

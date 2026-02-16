@@ -27,13 +27,13 @@ impl GameEndpoints {
             .r#move
             .ok_or_else(|| Status::invalid_argument("Move is required"))?;
 
-        let mv = parse_move_repr(&mv_repr)?;
+        let mv = parse_move_repr(&mv_repr).map_err(|e| *e)?;
 
         let handle = self
             .session_manager
             .get_handle(&req.session_id)
             .await
-            .map_err(|e| Status::not_found(e))?;
+            .map_err(Status::not_found)?;
 
         let snapshot = handle
             .make_move(mv)
@@ -51,7 +51,7 @@ impl GameEndpoints {
         tracing::debug!(session_id = %req.session_id, from = ?req.from_square, "RPC get_legal_moves");
 
         let from_square = if let Some(ref sq_str) = req.from_square {
-            Some(parse_square_grpc(sq_str)?)
+            Some(parse_square_grpc(sq_str).map_err(|e| *e)?)
         } else {
             None
         };
@@ -60,7 +60,7 @@ impl GameEndpoints {
             .session_manager
             .get_handle(&req.session_id)
             .await
-            .map_err(|e| Status::not_found(e))?;
+            .map_err(Status::not_found)?;
 
         let moves = handle
             .get_legal_moves(from_square)
@@ -96,7 +96,7 @@ impl GameEndpoints {
             .session_manager
             .get_handle(&req.session_id)
             .await
-            .map_err(|e| Status::not_found(e))?;
+            .map_err(Status::not_found)?;
 
         let snapshot = handle
             .undo()
@@ -117,7 +117,7 @@ impl GameEndpoints {
             .session_manager
             .get_handle(&req.session_id)
             .await
-            .map_err(|e| Status::not_found(e))?;
+            .map_err(Status::not_found)?;
 
         let snapshot = handle
             .redo()
@@ -138,7 +138,7 @@ impl GameEndpoints {
             .session_manager
             .get_handle(&req.session_id)
             .await
-            .map_err(|e| Status::not_found(e))?;
+            .map_err(Status::not_found)?;
 
         let snapshot = handle
             .reset(req.fen)

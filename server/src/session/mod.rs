@@ -15,10 +15,9 @@ use crate::persistence::{
     self, PositionStore, SavedPositionData, SessionStore, SuspendedSessionData,
 };
 use actor::run_session_actor;
-pub use commands::{EngineConfig, LegalMove, SessionError};
-pub use events::{SessionEvent, UciDirection, UciLogEntry};
+pub use events::{SessionEvent, UciDirection};
 pub use handle::SessionHandle;
-pub use snapshot::{MoveRecord, SessionSnapshot, TimerSnapshot};
+pub use snapshot::{SessionSnapshot, TimerSnapshot};
 use state::SessionState;
 
 /// Manages all active sessions. Spawns an actor task per session.
@@ -59,7 +58,7 @@ impl SessionManager {
             run_session_actor(state, cmd_rx, event_tx_clone).await;
         });
 
-        let handle = SessionHandle::new(session_id.clone(), cmd_tx);
+        let handle = SessionHandle::new(cmd_tx);
         self.sessions.write().await.insert(session_id, handle);
 
         Ok(initial_snapshot)

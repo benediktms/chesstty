@@ -28,7 +28,7 @@ impl PersistenceEndpoints {
             .session_manager
             .suspend_session(&req.session_id)
             .await
-            .map_err(|e| Status::internal(e))?;
+            .map_err(Status::internal)?;
 
         Ok(Response::new(SuspendSessionResponse { suspended_id }))
     }
@@ -42,7 +42,7 @@ impl PersistenceEndpoints {
         let sessions = self
             .session_manager
             .list_suspended()
-            .map_err(|e| Status::internal(e))?;
+            .map_err(Status::internal)?;
 
         let proto_sessions: Vec<SuspendedSessionInfo> = sessions
             .into_iter()
@@ -76,7 +76,7 @@ impl PersistenceEndpoints {
             .session_manager
             .resume_suspended(&req.suspended_id)
             .await
-            .map_err(|e| Status::not_found(e))?;
+            .map_err(Status::not_found)?;
 
         Ok(Response::new(convert_snapshot_to_proto(snapshot)))
     }
@@ -90,7 +90,7 @@ impl PersistenceEndpoints {
 
         self.session_manager
             .delete_suspended(&req.suspended_id)
-            .map_err(|e| Status::not_found(e))?;
+            .map_err(Status::not_found)?;
 
         Ok(Response::new(Empty {}))
     }

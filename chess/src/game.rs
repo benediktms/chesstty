@@ -7,7 +7,9 @@ pub struct Game {
     position: Board,
     history: Vec<HistoryEntry>,
     redo_stack: Vec<HistoryEntry>, // Stack for redo operations
+    #[allow(dead_code)]
     pgn_tags: HashMap<String, String>,
+    #[allow(dead_code)]
     start_position: StartPosition,
 }
 

@@ -24,7 +24,7 @@ impl PositionsEndpoints {
         let position_id = self
             .session_manager
             .save_position(&req.name, &req.fen)
-            .map_err(|e| Status::invalid_argument(e))?;
+            .map_err(Status::invalid_argument)?;
 
         Ok(Response::new(SavePositionResponse { position_id }))
     }
@@ -38,7 +38,7 @@ impl PositionsEndpoints {
         let positions = self
             .session_manager
             .list_positions()
-            .map_err(|e| Status::internal(e))?;
+            .map_err(Status::internal)?;
 
         let proto_positions: Vec<SavedPosition> = positions
             .into_iter()
@@ -65,7 +65,7 @@ impl PositionsEndpoints {
 
         self.session_manager
             .delete_position(&req.position_id)
-            .map_err(|e| Status::invalid_argument(e))?;
+            .map_err(Status::invalid_argument)?;
 
         Ok(Response::new(Empty {}))
     }

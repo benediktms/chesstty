@@ -27,7 +27,7 @@ pub enum GameResult {
 }
 
 /// Parse a PGN string into a game
-pub fn parse_pgn(input: &str) -> Result<PgnGame, PgnError> {
+pub fn parse_pgn(_input: &str) -> Result<PgnGame, PgnError> {
     // FUTURE WORK: Implement PGN import - deferred as future enhancement
     todo!("PGN parser not yet implemented")
 }

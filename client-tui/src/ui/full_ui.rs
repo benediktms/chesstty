@@ -453,7 +453,10 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
             }
 
             // Pause indicator
-            if matches!(state.mode, GameMode::HumanVsEngine { .. } | GameMode::EngineVsEngine) {
+            if matches!(
+                state.mode,
+                GameMode::HumanVsEngine { .. } | GameMode::EngineVsEngine
+            ) {
                 if state.ui.paused {
                     controls_spans.push(Span::styled(
                         "PAUSED",

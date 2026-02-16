@@ -58,18 +58,28 @@ impl SelectableTableState {
     }
 }
 
+/// Parameters for rendering a selectable table overlay dialog.
+pub struct TableOverlayParams<'a> {
+    pub title: &'a str,
+    pub headers: &'a [&'a str],
+    pub rows: &'a [Vec<String>],
+    pub column_widths: &'a [Constraint],
+    pub state: &'a mut SelectableTableState,
+    pub width: u16,
+    pub height: u16,
+}
+
 /// Renders a selectable table as a centered overlay dialog.
-pub fn render_table_overlay(
-    area: Rect,
-    buf: &mut Buffer,
-    title: &str,
-    headers: &[&str],
-    rows: &[Vec<String>],
-    column_widths: &[Constraint],
-    state: &mut SelectableTableState,
-    width: u16,
-    height: u16,
-) {
+pub fn render_table_overlay(area: Rect, buf: &mut Buffer, params: TableOverlayParams<'_>) {
+    let TableOverlayParams {
+        title,
+        headers,
+        rows,
+        column_widths,
+        state,
+        width,
+        height,
+    } = params;
     let popup_area = centered_rect(width, height, area);
 
     // Clear background

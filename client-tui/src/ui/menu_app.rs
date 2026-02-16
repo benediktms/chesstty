@@ -2,6 +2,7 @@ use crate::state::{GameMode, PlayerColor};
 use crate::ui::widgets::selectable_table::SelectableTableState;
 use crate::ui::widgets::{
     render_table_overlay, FenDialogState, FenDialogWidget, MenuState, MenuWidget,
+    TableOverlayParams,
 };
 use crossterm::{
     event::{self, Event, KeyCode},
@@ -93,18 +94,20 @@ pub async fn show_menu(
                 render_table_overlay(
                     f.area(),
                     f.buffer_mut(),
-                    "Resume Session",
-                    &["Mode", "Moves", "Turn", "Position"],
-                    &rows,
-                    &[
-                        Constraint::Length(16),
-                        Constraint::Length(10),
-                        Constraint::Length(8),
-                        Constraint::Min(20),
-                    ],
-                    &mut ctx.table_state,
-                    70,
-                    (ctx.sessions.len() as u16 + 5).min(20),
+                    TableOverlayParams {
+                        title: "Resume Session",
+                        headers: &["Mode", "Moves", "Turn", "Position"],
+                        rows: &rows,
+                        column_widths: &[
+                            Constraint::Length(16),
+                            Constraint::Length(10),
+                            Constraint::Length(8),
+                            Constraint::Min(20),
+                        ],
+                        state: &mut ctx.table_state,
+                        width: 70,
+                        height: (ctx.sessions.len() as u16 + 5).min(20),
+                    },
                 );
             }
         })?;

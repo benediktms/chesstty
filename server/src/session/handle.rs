@@ -8,17 +8,12 @@ use super::snapshot::SessionSnapshot;
 /// Cheap, cloneable handle to a session actor.
 #[derive(Clone)]
 pub struct SessionHandle {
-    id: String,
     cmd_tx: mpsc::Sender<SessionCommand>,
 }
 
 impl SessionHandle {
-    pub(crate) fn new(id: String, cmd_tx: mpsc::Sender<SessionCommand>) -> Self {
-        Self { id, cmd_tx }
-    }
-
-    pub fn id(&self) -> &str {
-        &self.id
+    pub(crate) fn new(cmd_tx: mpsc::Sender<SessionCommand>) -> Self {
+        Self { cmd_tx }
     }
 
     pub async fn make_move(&self, mv: Move) -> Result<SessionSnapshot, SessionError> {

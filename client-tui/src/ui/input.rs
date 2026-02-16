@@ -89,7 +89,7 @@ async fn handle_board_context(
                 match state.client.resume().await {
                     Ok(()) => {
                         state.ui.paused = false;
-                        state.ui.status_message = Some("Resumed".to_string());
+                        state.ui.status_message = Some("Playing".to_string());
                     }
                     Err(e) => {
                         state.ui.status_message = Some(format!("Resume error: {}", e));

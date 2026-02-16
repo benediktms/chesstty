@@ -108,14 +108,12 @@ impl MoveHistoryPanel<'_> {
                         Style::default().fg(move_color).add_modifier(Modifier::BOLD),
                     ),
                 ]));
-            } else {
-                if let Some(last_line) = lines.last_mut() {
-                    last_line.spans.push(ratatui::text::Span::raw("  "));
-                    last_line.spans.push(ratatui::text::Span::styled(
-                        move_str,
-                        Style::default().fg(move_color).add_modifier(Modifier::BOLD),
-                    ));
-                }
+            } else if let Some(last_line) = lines.last_mut() {
+                last_line.spans.push(ratatui::text::Span::raw("  "));
+                last_line.spans.push(ratatui::text::Span::styled(
+                    move_str,
+                    Style::default().fg(move_color).add_modifier(Modifier::BOLD),
+                ));
             }
         }
 
@@ -184,12 +182,11 @@ pub fn describe_move(record: &MoveRecord, is_white: bool) -> String {
 
     // Detect en passant: pawn captures diagonally but captured piece info says pawn
     // and the from/to files differ (diagonal move)
-    if record.piece == "P" && captured.is_some() {
-        let from_file = from.chars().next().unwrap_or(' ');
-        let to_file = to.chars().next().unwrap_or(' ');
-        if from_file != to_file {
-            let captured_piece = captured.unwrap();
-            if captured_piece == "P" {
+    if record.piece == "P" {
+        if let Some(captured_piece) = captured {
+            let from_file = from.chars().next().unwrap_or(' ');
+            let to_file = to.chars().next().unwrap_or(' ');
+            if from_file != to_file && captured_piece == "P" {
                 // Check if it's en passant: pawn captures pawn but lands on a different rank
                 // than where the captured pawn was (the captured pawn was on the same rank as from)
                 let from_rank = from.chars().nth(1).unwrap_or(' ');

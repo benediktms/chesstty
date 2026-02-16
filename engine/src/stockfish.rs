@@ -9,7 +9,6 @@ use tokio::sync::mpsc;
 
 pub struct StockfishEngine {
     process: Child,
-    stdin: mpsc::Sender<String>,
     command_tx: mpsc::Sender<EngineCommand>,
     event_rx: mpsc::Receiver<EngineEvent>,
 }
@@ -25,15 +24,6 @@ pub struct EngineConfig {
 }
 
 impl StockfishEngine {
-    /// Spawn a new Stockfish instance with just skill level (backwards compatible).
-    pub async fn spawn(skill_level: Option<u8>) -> Result<Self, String> {
-        Self::spawn_with_config(EngineConfig {
-            skill_level,
-            ..Default::default()
-        })
-        .await
-    }
-
     /// Spawn a new Stockfish instance with full configuration.
     #[tracing::instrument(level = "info")]
     pub async fn spawn_with_config(config: EngineConfig) -> Result<Self, String> {
@@ -169,7 +159,7 @@ impl StockfishEngine {
                 return Err("Timeout waiting for engine to respond".to_string());
             }
         }
-        let mut event_rx = temp_rx;
+        let event_rx = temp_rx;
 
         // Set skill level if provided
         if let Some(level) = skill_level {
@@ -255,7 +245,7 @@ impl StockfishEngine {
 
         // Spawn command processor task
         tracing::debug!("Spawning command processor task");
-        let event_tx_for_commands = event_tx.clone();
+        let _event_tx_for_commands = event_tx.clone();
         let stdin_tx_for_commands = stdin_tx.clone();
         let cmd_span = tracing::info_span!("stockfish", session = %label);
         tokio::spawn(tracing::Instrument::instrument(
@@ -268,7 +258,7 @@ impl StockfishEngine {
                             if !moves.is_empty() {
                                 position_cmd.push_str(" moves");
                                 for mv in moves {
-                                    position_cmd.push_str(&format!(" {}", format_uci_move(&mv)));
+                                    position_cmd.push_str(&format!(" {}", format_uci_move(mv)));
                                 }
                             }
                             position_cmd.push('\n');
@@ -330,7 +320,6 @@ impl StockfishEngine {
         tracing::info!("Stockfish engine spawned and initialized successfully");
         Ok(Self {
             process,
-            stdin: stdin_tx,
             command_tx,
             event_rx,
         })
@@ -385,7 +374,11 @@ fn find_stockfish_path() -> Option<PathBuf> {
         let path = Path::new(path_str);
         if path.exists() || path_str == "stockfish" {
             // Try to verify it's actually stockfish
-            if let Ok(_) = std::process::Command::new(path_str).arg("--help").output() {
+            if std::process::Command::new(path_str)
+                .arg("--help")
+                .output()
+                .is_ok()
+            {
                 return Some(PathBuf::from(path_str));
             }
         }

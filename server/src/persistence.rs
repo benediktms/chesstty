@@ -27,10 +27,6 @@ impl SessionStore {
         Self { dir }
     }
 
-    fn new_in(dir: PathBuf) -> Self {
-        Self { dir }
-    }
-
     fn ensure_dir(&self) -> Result<(), String> {
         std::fs::create_dir_all(&self.dir)
             .map_err(|e| format!("Failed to create sessions directory: {}", e))
@@ -102,9 +98,15 @@ impl SessionStore {
         }
         Ok(())
     }
+}
 
-    /// Check if any suspended sessions exist.
-    pub fn has_any(&self) -> bool {
+#[cfg(test)]
+impl SessionStore {
+    fn new_in(dir: PathBuf) -> Self {
+        Self { dir }
+    }
+
+    fn has_any(&self) -> bool {
         self.list().map(|s| !s.is_empty()).unwrap_or(false)
     }
 }
@@ -155,13 +157,6 @@ impl PositionStore {
         let store = Self { dir, defaults_dir };
         store.seed_defaults();
         store
-    }
-
-    fn new_in(dir: PathBuf) -> Self {
-        Self {
-            dir,
-            defaults_dir: None,
-        }
     }
 
     fn ensure_dir(&self) -> Result<(), String> {
@@ -307,6 +302,16 @@ impl PositionStore {
                 .map_err(|e| format!("Failed to delete position file: {}", e))?;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+impl PositionStore {
+    fn new_in(dir: PathBuf) -> Self {
+        Self {
+            dir,
+            defaults_dir: None,
+        }
     }
 }
 

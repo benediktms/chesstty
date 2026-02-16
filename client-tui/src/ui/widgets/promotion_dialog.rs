@@ -12,6 +12,7 @@ pub struct PromotionWidget {
 }
 
 impl PromotionWidget {
+    #[allow(dead_code)]
     pub fn new(selected_piece: Piece) -> Self {
         Self { selected_piece }
     }

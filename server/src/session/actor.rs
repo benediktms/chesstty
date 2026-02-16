@@ -197,13 +197,13 @@ fn compute_legal_moves(state: &SessionState, from: Option<cozy_chess::Square>) -
     let legal = state.game.legal_moves();
     legal
         .into_iter()
-        .filter(|mv| from.map_or(true, |sq| mv.from == sq))
+        .filter(|mv| from.is_none_or(|sq| mv.from == sq))
         .map(|mv| {
             let is_capture = state.game.position().piece_on(mv.to).is_some();
-            let mut temp = state.game.position().clone();
-            temp.play(mv);
-            let is_check = temp.checkers().len() > 0;
-            let is_checkmate = is_check && temp.status() == cozy_chess::GameStatus::Won;
+            let mut board_position = state.game.position().clone();
+            board_position.play(mv);
+            let is_check = !board_position.checkers().is_empty();
+            let is_checkmate = is_check && board_position.status() == cozy_chess::GameStatus::Won;
 
             LegalMove {
                 from: chess::format_square(mv.from),
@@ -367,7 +367,7 @@ mod tests {
         let (event_tx, event_rx) = broadcast::channel(100);
         let state = SessionState::new("test".to_string(), Game::new(), GameMode::HumanVsHuman);
         tokio::spawn(run_session_actor(state, cmd_rx, event_tx));
-        let handle = super::super::handle::SessionHandle::new("test".to_string(), cmd_tx);
+        let handle = super::super::handle::SessionHandle::new(cmd_tx);
         (handle, event_rx)
     }
 

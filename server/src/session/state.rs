@@ -2,7 +2,7 @@ use chess::{
     format_color, format_piece_upper, format_square, EngineAnalysis, Game, GameMode, GamePhase,
     GameResult, HistoryEntry, PlayerSide,
 };
-use cozy_chess::{Color, Move};
+use cozy_chess::Move;
 use engine::{EngineCommand, EngineEvent, GoParams, StockfishEngine};
 use std::time::Instant;
 
@@ -151,7 +151,7 @@ impl SessionState {
     }
 
     pub fn timer_active(&self) -> bool {
-        self.timer.as_ref().map_or(false, |t| t.is_active())
+        self.timer.as_ref().is_some_and(|t| t.is_active())
     }
 
     pub fn apply_move(&mut self, mv: Move) -> Result<SessionSnapshot, SessionError> {
@@ -306,7 +306,6 @@ fn history_entry_to_record(entry: &HistoryEntry) -> MoveRecord {
         from: format_square(entry.from),
         to: format_square(entry.to),
         piece: format_piece_upper(entry.piece).to_string(),
-        piece_color: format_color(entry.piece_color),
         captured: entry.captured.map(|p| format_piece_upper(p).to_string()),
         promotion: entry.promotion.map(|p| format_piece_upper(p).to_string()),
         san: entry.san.clone(),

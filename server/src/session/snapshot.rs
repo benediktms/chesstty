@@ -1,4 +1,4 @@
-use chess::{EngineAnalysis, GameMode, GamePhase, PlayerSide};
+use chess::{EngineAnalysis, GameMode, GamePhase};
 
 use super::commands::EngineConfig;
 
@@ -27,7 +27,6 @@ pub struct MoveRecord {
     pub from: String,
     pub to: String,
     pub piece: String,
-    pub piece_color: String,
     pub captured: Option<String>,
     pub promotion: Option<String>,
     pub san: String,

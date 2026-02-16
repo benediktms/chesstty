@@ -32,7 +32,7 @@ impl EventsEndpoints {
             .session_manager
             .get_handle(&req.session_id)
             .await
-            .map_err(|e| Status::not_found(e))?;
+            .map_err(Status::not_found)?;
 
         // Subscribe returns the current snapshot plus a receiver for future events.
         // This makes the stream reconnection-safe: clients always get the full

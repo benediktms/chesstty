@@ -1,5 +1,4 @@
 mod state;
-mod timer;
 mod ui;
 
 // Re-export app types for compatibility

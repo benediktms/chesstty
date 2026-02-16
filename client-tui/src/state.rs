@@ -122,7 +122,7 @@ impl ClientState {
         let mode = snapshot
             .game_mode
             .as_ref()
-            .map(|gm| game_mode_from_proto(gm))
+            .map(game_mode_from_proto)
             .unwrap_or(GameMode::HumanVsHuman);
 
         let mut state = Self {
@@ -209,7 +209,7 @@ impl ClientState {
         for mv in moves {
             self.legal_moves_cache
                 .entry(mv.from.clone())
-                .or_insert_with(Vec::new)
+                .or_default()
                 .push(mv);
         }
 
@@ -335,42 +335,11 @@ impl ClientState {
         Ok(())
     }
 
-    pub fn cancel_promotion(&mut self) {
-        self.ui.selected_square = None;
-        self.ui.highlighted_squares.clear();
-        self.ui.input_phase = InputPhase::SelectPiece;
-        self.ui.status_message = Some("Promotion cancelled".to_string());
-    }
-
-    pub fn cycle_promotion_piece(&mut self, direction: i8) {
-        let pieces = [Piece::Queen, Piece::Rook, Piece::Bishop, Piece::Knight];
-        let current_idx = pieces
-            .iter()
-            .position(|&p| p == self.ui.selected_promotion_piece)
-            .unwrap_or(0);
-        let new_idx = if direction > 0 {
-            (current_idx + 1) % pieces.len()
-        } else if direction < 0 {
-            (current_idx + pieces.len() - 1) % pieces.len()
-        } else {
-            current_idx
-        };
-        self.ui.selected_promotion_piece = pieces[new_idx];
-    }
-
-    pub fn set_promotion_piece(&mut self, piece: Piece) {
-        self.ui.selected_promotion_piece = piece;
-    }
-
     pub fn clear_selection(&mut self) {
         self.ui.selected_square = None;
         self.ui.highlighted_squares.clear();
         self.ui.input_phase = InputPhase::SelectPiece;
         self.ui.status_message = None;
-    }
-
-    pub fn clear_all_highlights(&mut self) {
-        self.clear_selection();
     }
 
     // --- Event streaming ---
@@ -569,15 +538,6 @@ impl ClientState {
         );
 
         self.snapshot = snapshot;
-    }
-
-    pub async fn refresh(&mut self) -> Result<(), String> {
-        let snapshot = self.client.get_session().await.map_err(|e| e.to_string())?;
-        self.apply_snapshot(snapshot);
-        self.update_selectable_squares()
-            .await
-            .map_err(|e| e.to_string())?;
-        Ok(())
     }
 }
 

@@ -19,5 +19,5 @@ pub use mini_board::MiniBoardWidget;
 pub use move_history_panel::MoveHistoryPanel;
 pub use popup_menu::PopupMenuWidget;
 pub use promotion_dialog::PromotionWidget;
-pub use selectable_table::render_table_overlay;
+pub use selectable_table::{render_table_overlay, TableOverlayParams};
 pub use uci_debug_panel::UciDebugPanel;

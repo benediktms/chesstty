@@ -34,7 +34,7 @@ impl SessionEndpoints {
             .session_manager
             .create_session(req.fen, game_mode)
             .await
-            .map_err(|e| Status::invalid_argument(e))?;
+            .map_err(Status::invalid_argument)?;
 
         // If a timer was provided, configure it on the session
         if let Some(timer) = req.timer {
@@ -42,7 +42,7 @@ impl SessionEndpoints {
                 .session_manager
                 .get_handle(&snapshot.session_id)
                 .await
-                .map_err(|e| Status::internal(e))?;
+                .map_err(Status::internal)?;
 
             handle
                 .set_timer(timer.white_remaining_ms, timer.black_remaining_ms)
@@ -72,7 +72,7 @@ impl SessionEndpoints {
             .session_manager
             .get_handle(&req.session_id)
             .await
-            .map_err(|e| Status::not_found(e))?;
+            .map_err(Status::not_found)?;
 
         let snapshot = handle
             .get_snapshot()
@@ -92,7 +92,7 @@ impl SessionEndpoints {
         self.session_manager
             .close_session(&req.session_id)
             .await
-            .map_err(|e| Status::not_found(e))?;
+            .map_err(Status::not_found)?;
 
         Ok(Response::new(Empty {}))
     }

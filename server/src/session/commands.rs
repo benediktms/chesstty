@@ -1,4 +1,3 @@
-use chess::PlayerSide;
 use cozy_chess::{Move, Square};
 use tokio::sync::{broadcast, oneshot};
 
@@ -13,8 +12,6 @@ pub enum SessionError {
     InvalidFen(String),
     #[error("Engine not configured")]
     EngineNotConfigured,
-    #[error("Game is not ongoing")]
-    GameNotOngoing,
     #[error("Nothing to undo")]
     NothingToUndo,
     #[error("Nothing to redo")]

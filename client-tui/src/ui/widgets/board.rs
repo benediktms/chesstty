@@ -52,8 +52,8 @@ impl BoardSize {
         let medium_width = Self::MEDIUM.square_width * 8;
         let medium_height = Self::MEDIUM.square_height * 8;
 
-        let small_width = Self::SMALL.square_width * 8;
-        let small_height = Self::SMALL.square_height * 8;
+        let _small_width = Self::SMALL.square_width * 8;
+        let _small_height = Self::SMALL.square_height * 8;
 
         if available_width >= large_width && available_height >= large_height {
             Self::LARGE
@@ -65,6 +65,7 @@ impl BoardSize {
     }
 
     /// Get the minimum required dimensions for this board size
+    #[allow(dead_code)]
     pub fn min_dimensions(&self) -> (u16, u16) {
         (
             self.square_width * 8 + 8,  // 8 squares + borders + rank labels + padding
@@ -80,6 +81,7 @@ pub struct BoardWidget<'a> {
 }
 
 impl<'a> BoardWidget<'a> {
+    #[allow(dead_code)]
     pub fn new(client_state: &'a ClientState, typeahead_squares: &'a [Square]) -> Self {
         Self {
             client_state,
@@ -89,6 +91,7 @@ impl<'a> BoardWidget<'a> {
     }
 
     /// Get minimum board dimensions
+    #[allow(dead_code)]
     pub fn min_dimensions() -> (u16, u16) {
         BoardSize::SMALL.min_dimensions()
     }
@@ -224,7 +227,18 @@ impl Widget for BoardWidget<'_> {
 
                 // Draw piece
                 if let (Some(piece), Some(piece_color)) = (piece, piece_color) {
-                    render_piece(buf, x, y, piece, piece_color, bg_color, board_size, inner);
+                    render_piece(
+                        buf,
+                        &PieceRenderParams {
+                            x,
+                            y,
+                            piece,
+                            color: piece_color,
+                            bg_color,
+                            board_size,
+                            bounds: inner,
+                        },
+                    );
                 }
             }
         }
@@ -246,7 +260,7 @@ fn render_square(
             let px = x + dx;
             let py = y + dy;
             if px < bounds.right() && py < bounds.bottom() {
-                buf.get_mut(px, py).set_style(style);
+                buf[(px, py)].set_style(style);
             }
         }
     }
@@ -277,7 +291,7 @@ fn draw_square_outline(
             } else {
                 "━"
             };
-            buf.get_mut(px, y).set_symbol(symbol).set_style(style);
+            buf[(px, y)].set_symbol(symbol).set_style(style);
         }
     }
 
@@ -293,9 +307,7 @@ fn draw_square_outline(
             } else {
                 "━"
             };
-            buf.get_mut(px, bottom_y)
-                .set_symbol(symbol)
-                .set_style(style);
+            buf[(px, bottom_y)].set_symbol(symbol).set_style(style);
         }
     }
 
@@ -305,19 +317,18 @@ fn draw_square_outline(
         if py < bounds.bottom() {
             // Left border
             if x < bounds.right() {
-                buf.get_mut(x, py).set_symbol("┃").set_style(style);
+                buf[(x, py)].set_symbol("┃").set_style(style);
             }
             // Right border
             let right_x = x + board_size.square_width - 1;
             if right_x < bounds.right() {
-                buf.get_mut(right_x, py).set_symbol("┃").set_style(style);
+                buf[(right_x, py)].set_symbol("┃").set_style(style);
             }
         }
     }
 }
 
-fn render_piece(
-    buf: &mut Buffer,
+struct PieceRenderParams {
     x: u16,
     y: u16,
     piece: Piece,
@@ -325,29 +336,31 @@ fn render_piece(
     bg_color: Color,
     board_size: BoardSize,
     bounds: Rect,
-) {
-    // Get piece representation
-    let lines = piece_pixel_art(piece, board_size.variant);
+}
 
-    let fg_color = match color {
+fn render_piece(buf: &mut Buffer, params: &PieceRenderParams) {
+    // Get piece representation
+    let lines = piece_pixel_art(params.piece, params.board_size.variant);
+
+    let fg_color = match params.color {
         ChessColor::White => Color::White,
         ChessColor::Black => Color::Rgb(50, 50, 50), // Dark gray for black pieces
     };
 
     let style = Style::default()
-        .bg(bg_color)
+        .bg(params.bg_color)
         .fg(fg_color)
         .add_modifier(Modifier::BOLD);
 
     // Render each line of piece art, centered
     for (i, line) in lines.iter().enumerate() {
-        let py = y + i as u16;
-        if py < bounds.bottom() {
+        let py = params.y + i as u16;
+        if py < params.bounds.bottom() {
             // Center the text in the square
             let line_width = line.chars().count() as u16;
-            let offset = (board_size.square_width.saturating_sub(line_width)) / 2;
-            let px = x + offset;
-            if px < bounds.right() {
+            let offset = (params.board_size.square_width.saturating_sub(line_width)) / 2;
+            let px = params.x + offset;
+            if px < params.bounds.right() {
                 buf.set_string(px, py, line, style);
             }
         }

@@ -38,12 +38,10 @@ impl Widget for EngineAnalysisPanel<'_> {
             } else {
                 "⚙ Engine Analysis [SELECTED]"
             }
+        } else if self.is_thinking {
+            "⚙ Engine Analysis (Thinking...)"
         } else {
-            if self.is_thinking {
-                "⚙ Engine Analysis (Thinking...)"
-            } else {
-                "⚙ Engine Analysis"
-            }
+            "⚙ Engine Analysis"
         };
 
         let border_style = if self.is_selected {

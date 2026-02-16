@@ -4,6 +4,7 @@ use super::snapshot::SessionSnapshot;
 
 /// Events broadcast from the session actor to all subscribers.
 #[derive(Debug, Clone)]
+#[allow(clippy::large_enum_variant)]
 pub enum SessionEvent {
     /// Full state snapshot after any mutation.
     StateChanged(SessionSnapshot),

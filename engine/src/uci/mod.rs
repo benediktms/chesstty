@@ -10,7 +10,7 @@ use tokio::process::{Child, ChildStdin, ChildStdout};
 
 /// UCI chess engine wrapper
 pub struct UciEngine {
-    process: Child,
+    _process: Child,
     stdin: ChildStdin,
 }
 
@@ -26,7 +26,10 @@ impl UciEngine {
         let stdin = process.stdin.take().ok_or(UciError::NoStdin)?;
         let stdout = process.stdout.take().ok_or(UciError::NoStdout)?;
 
-        let mut engine = Self { process, stdin };
+        let mut engine = Self {
+            _process: process,
+            stdin,
+        };
 
         // Initialize UCI
         engine.send_command("uci").await?;

@@ -155,11 +155,10 @@ fn parse_uci_message(message: &str) -> Vec<(String, HighlightType)> {
             }
             _ => {
                 // Check if it's a number or move
-                if token.chars().all(|c| c.is_ascii_digit() || c == '-') {
-                    HighlightType::Value
-                } else if token.len() >= 4 && token.chars().take(2).all(|c| c.is_ascii_lowercase())
+                if token.chars().all(|c| c.is_ascii_digit() || c == '-')
+                    || (token.len() >= 4 && token.chars().take(2).all(|c| c.is_ascii_lowercase()))
                 {
-                    HighlightType::Value // Likely a move like e2e4
+                    HighlightType::Value
                 } else {
                     HighlightType::Normal
                 }

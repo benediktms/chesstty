@@ -138,7 +138,7 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
 async fn handle_command(state: &mut ClientState, command: &str) {
     use chess::parse_square;
 
-    let parts: Vec<&str> = command.trim().split_whitespace().collect();
+    let parts: Vec<&str> = command.split_whitespace().collect();
 
     match parts.as_slice() {
         ["m", from, to] => {
