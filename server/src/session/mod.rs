@@ -185,3 +185,145 @@ impl SessionManager {
             .map_err(|e| e.to_string())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+
+    fn test_manager() -> SessionManager {
+        let dir = tempfile::tempdir().unwrap();
+        let store = SessionStore::new(dir.path().to_path_buf());
+        let position_store = PositionStore::new(dir.path().to_path_buf(), None);
+        // Leak the TempDir so it lives for the test duration.
+        // (Tests are short-lived so this is fine.)
+        std::mem::forget(dir);
+        SessionManager::new(store, position_store)
+    }
+
+    #[tokio::test]
+    async fn test_create_and_close_session() {
+        let mgr = test_manager();
+        let snap = mgr
+            .create_session(None, GameMode::HumanVsHuman)
+            .await
+            .unwrap();
+        let session_id = snap.session_id.clone();
+
+        // Session should be reachable
+        let handle = mgr.get_handle(&session_id).await.unwrap();
+        let snap = handle.get_snapshot().await.unwrap();
+        assert_eq!(snap.move_count, 0);
+
+        // Close session
+        mgr.close_session(&session_id).await.unwrap();
+
+        // Session should no longer be reachable
+        assert!(mgr.get_handle(&session_id).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_close_session_twice_returns_error() {
+        let mgr = test_manager();
+        let snap = mgr
+            .create_session(None, GameMode::HumanVsHuman)
+            .await
+            .unwrap();
+        let session_id = snap.session_id.clone();
+
+        mgr.close_session(&session_id).await.unwrap();
+
+        // Second close should fail
+        let result = mgr.close_session(&session_id).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("not found"));
+    }
+
+    #[tokio::test]
+    async fn test_close_session_shuts_down_actor() {
+        let mgr = test_manager();
+        let snap = mgr
+            .create_session(None, GameMode::HumanVsHuman)
+            .await
+            .unwrap();
+        let session_id = snap.session_id.clone();
+
+        // Get a handle before closing
+        let handle = mgr.get_handle(&session_id).await.unwrap();
+        mgr.close_session(&session_id).await.unwrap();
+
+        // Give the actor a moment to process the shutdown
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        // The handle's channel should be closed — commands should fail
+        let result = handle.get_snapshot().await;
+        assert!(result.is_err());
+    }
+
+    /// Test the cleanup guard pattern: dropping a session handle via close_session
+    /// from an Arc<SessionManager> (simulates what the CleanupGuard does).
+    #[tokio::test]
+    async fn test_cleanup_guard_pattern() {
+        let mgr = Arc::new(test_manager());
+        let snap = mgr
+            .create_session(None, GameMode::HumanVsHuman)
+            .await
+            .unwrap();
+        let session_id = snap.session_id.clone();
+
+        // Simulate what CleanupGuard::drop does
+        let mgr_clone = mgr.clone();
+        let id_clone = session_id.clone();
+        tokio::spawn(async move {
+            let _ = mgr_clone.close_session(&id_clone).await;
+        });
+
+        // Wait for the spawned task
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        // Session should be gone
+        assert!(mgr.get_handle(&session_id).await.is_err());
+    }
+
+    /// After fool's mate via SessionManager, the session should still be usable
+    /// for reads but the game should be in Ended phase.
+    #[tokio::test]
+    async fn test_game_completion_via_session_manager() {
+        let mgr = test_manager();
+        let snap = mgr
+            .create_session(None, GameMode::HumanVsHuman)
+            .await
+            .unwrap();
+        let session_id = snap.session_id.clone();
+        let handle = mgr.get_handle(&session_id).await.unwrap();
+
+        // Play fool's mate
+        let moves = [
+            (cozy_chess::File::F, cozy_chess::Rank::Second, cozy_chess::File::F, cozy_chess::Rank::Third),
+            (cozy_chess::File::E, cozy_chess::Rank::Seventh, cozy_chess::File::E, cozy_chess::Rank::Fifth),
+            (cozy_chess::File::G, cozy_chess::Rank::Second, cozy_chess::File::G, cozy_chess::Rank::Fourth),
+            (cozy_chess::File::D, cozy_chess::Rank::Eighth, cozy_chess::File::H, cozy_chess::Rank::Fourth),
+        ];
+        for (ff, fr, tf, tr) in moves {
+            handle
+                .make_move(cozy_chess::Move {
+                    from: cozy_chess::Square::new(ff, fr),
+                    to: cozy_chess::Square::new(tf, tr),
+                    promotion: None,
+                })
+                .await
+                .unwrap();
+        }
+
+        let snap = handle.get_snapshot().await.unwrap();
+        assert!(matches!(snap.phase, chess::GamePhase::Ended { .. }));
+        assert!(!snap.engine_thinking);
+
+        // Session should still be in the manager (game ended != session closed)
+        assert!(mgr.get_handle(&session_id).await.is_ok());
+
+        // Explicitly close the session
+        mgr.close_session(&session_id).await.unwrap();
+        assert!(mgr.get_handle(&session_id).await.is_err());
+    }
+}

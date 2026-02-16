@@ -552,8 +552,18 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
         if let Some(Event::Key(key)) = term_event {
             match input::handle_key(state, &mut input_buffer, key).await {
                 AppAction::Continue => {}
-                AppAction::Quit => return Ok(ExitReason::Quit),
-                AppAction::ReturnToMenu => return Ok(ExitReason::ReturnToMenu),
+                AppAction::Quit => {
+                    if let Err(e) = state.client.close_session().await {
+                        tracing::warn!("Failed to close session on quit: {}", e);
+                    }
+                    return Ok(ExitReason::Quit);
+                }
+                AppAction::ReturnToMenu => {
+                    if let Err(e) = state.client.close_session().await {
+                        tracing::warn!("Failed to close session on return to menu: {}", e);
+                    }
+                    return Ok(ExitReason::ReturnToMenu);
+                }
                 AppAction::SuspendAndReturnToMenu => {
                     // Suspend via server RPC (server stores all session metadata)
                     if let Err(e) = state.client.suspend_session().await {

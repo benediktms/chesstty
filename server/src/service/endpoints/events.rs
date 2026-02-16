@@ -9,6 +9,44 @@ use tokio::sync::broadcast;
 use tokio_stream::Stream;
 use tonic::{Request, Response, Status};
 
+/// Guard that cleans up a session when the event stream is dropped.
+///
+/// When a client disconnects (network failure, crash, or explicit drop),
+/// tonic drops the stream future, which drops this guard, which spawns a
+/// task to close the session and shut down the engine process.
+struct CleanupGuard {
+    session_manager: Arc<SessionManager>,
+    session_id: String,
+}
+
+impl Drop for CleanupGuard {
+    fn drop(&mut self) {
+        let session_manager = self.session_manager.clone();
+        let session_id = std::mem::take(&mut self.session_id);
+        tracing::info!(
+            session_id = %session_id,
+            "Event stream dropped, scheduling session cleanup"
+        );
+        tokio::spawn(async move {
+            match session_manager.close_session(&session_id).await {
+                Ok(()) => {
+                    tracing::info!(
+                        session_id = %session_id,
+                        "Session cleaned up after client disconnect"
+                    );
+                }
+                Err(e) => {
+                    tracing::debug!(
+                        session_id = %session_id,
+                        error = %e,
+                        "Session already closed"
+                    );
+                }
+            }
+        });
+    }
+}
+
 pub struct EventsEndpoints {
     session_manager: Arc<SessionManager>,
 }
@@ -43,7 +81,16 @@ impl EventsEndpoints {
             .map_err(|e| Status::internal(e.to_string()))?;
 
         let session_id = req.session_id.clone();
+        let session_manager = self.session_manager.clone();
         let stream = async_stream::stream! {
+            // The cleanup guard lives as long as the stream. When the client
+            // disconnects, tonic drops the stream, which drops the guard,
+            // which spawns a task to close the session and shut down the engine.
+            let _guard = CleanupGuard {
+                session_manager,
+                session_id: session_id.clone(),
+            };
+
             // Emit the initial snapshot as the first event so the client
             // has a complete, consistent view of the session state.
             let initial_event = SessionStreamEvent {

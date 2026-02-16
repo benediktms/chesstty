@@ -51,18 +51,21 @@ async fn run_session_actor_inner(
                     }
                     Some(cmd) => {
                         handle_command(&mut state, cmd, &event_tx).await;
+                        state.shutdown_engine_if_ended().await;
                     }
                 }
             }
 
             Some(engine_event) = state.next_engine_event() => {
                 handle_engine_event(&mut state, engine_event, &event_tx).await;
+                state.shutdown_engine_if_ended().await;
             }
 
             _ = timer_interval.tick(), if state.timer_active() => {
                 if state.tick_timer() {
                     // Flag fell — broadcast state change
                     let _ = event_tx.send(SessionEvent::StateChanged(state.snapshot()));
+                    state.shutdown_engine_if_ended().await;
                 }
             }
         }
@@ -425,5 +428,160 @@ mod tests {
             promotion: None,
         };
         assert!(handle.make_move(mv).await.is_err());
+    }
+
+    /// Helper to create a Move from file/rank pairs.
+    fn mv(
+        from_file: cozy_chess::File,
+        from_rank: cozy_chess::Rank,
+        to_file: cozy_chess::File,
+        to_rank: cozy_chess::Rank,
+    ) -> cozy_chess::Move {
+        cozy_chess::Move {
+            from: cozy_chess::Square::new(from_file, from_rank),
+            to: cozy_chess::Square::new(to_file, to_rank),
+            promotion: None,
+        }
+    }
+
+    /// Spawn a test actor from a custom FEN and game mode.
+    async fn spawn_test_actor_with(
+        fen: &str,
+        game_mode: GameMode,
+    ) -> (
+        super::super::handle::SessionHandle,
+        broadcast::Receiver<SessionEvent>,
+    ) {
+        let (cmd_tx, cmd_rx) = mpsc::channel(32);
+        let (event_tx, event_rx) = broadcast::channel(100);
+        let game = Game::from_fen(fen).expect("invalid test FEN");
+        let state = SessionState::new("test".to_string(), game, game_mode);
+        tokio::spawn(run_session_actor(state, cmd_rx, event_tx));
+        let handle = super::super::handle::SessionHandle::new(cmd_tx);
+        (handle, event_rx)
+    }
+
+    /// Play fool's mate (1. f3 e5 2. g4 Qh4#) and verify the game ends.
+    #[tokio::test]
+    async fn test_fools_mate_ends_game() {
+        use cozy_chess::{File, Rank};
+        let (handle, _events) = spawn_test_actor().await;
+
+        // 1. f3
+        handle
+            .make_move(mv(File::F, Rank::Second, File::F, Rank::Third))
+            .await
+            .unwrap();
+        // 1... e5
+        handle
+            .make_move(mv(File::E, Rank::Seventh, File::E, Rank::Fifth))
+            .await
+            .unwrap();
+        // 2. g4
+        handle
+            .make_move(mv(File::G, Rank::Second, File::G, Rank::Fourth))
+            .await
+            .unwrap();
+        // 2... Qh4#
+        let snap = handle
+            .make_move(mv(File::D, Rank::Eighth, File::H, Rank::Fourth))
+            .await
+            .unwrap();
+
+        assert!(
+            matches!(snap.phase, chess::GamePhase::Ended { .. }),
+            "Expected game to be ended after fool's mate, got {:?}",
+            snap.phase
+        );
+        assert_eq!(snap.status, cozy_chess::GameStatus::Won);
+        assert!(!snap.engine_thinking);
+    }
+
+    /// After checkmate the actor should remain responsive for read operations.
+    #[tokio::test]
+    async fn test_actor_alive_after_checkmate() {
+        use cozy_chess::{File, Rank};
+        let (handle, _) = spawn_test_actor().await;
+
+        // Play fool's mate
+        handle
+            .make_move(mv(File::F, Rank::Second, File::F, Rank::Third))
+            .await
+            .unwrap();
+        handle
+            .make_move(mv(File::E, Rank::Seventh, File::E, Rank::Fifth))
+            .await
+            .unwrap();
+        handle
+            .make_move(mv(File::G, Rank::Second, File::G, Rank::Fourth))
+            .await
+            .unwrap();
+        handle
+            .make_move(mv(File::D, Rank::Eighth, File::H, Rank::Fourth))
+            .await
+            .unwrap();
+
+        // Actor should still be alive — snapshot should work
+        let snap = handle.get_snapshot().await.unwrap();
+        assert!(matches!(snap.phase, chess::GamePhase::Ended { .. }));
+
+        // Legal moves should return empty (game is over)
+        let moves = handle.get_legal_moves(None).await.unwrap();
+        assert!(moves.is_empty());
+    }
+
+    /// Use a FEN one move from checkmate in HumanVsEngine mode.
+    /// After the human plays the mating move, the engine should be shut down.
+    /// Requires Stockfish to be installed.
+    #[tokio::test]
+    #[ignore = "requires Stockfish"]
+    async fn test_engine_shutdown_on_checkmate() {
+        use cozy_chess::{File, Rank};
+
+        // Black king on h8, white queen can mate on g7.
+        // White: Kf6, Qf7  Black: Kh8
+        // 1. Qg7# is checkmate.
+        let fen = "7k/5Q2/5K2/8/8/8/8/8 w - - 0 1";
+        let (handle, mut events) = spawn_test_actor_with(
+            fen,
+            GameMode::HumanVsEngine {
+                human_side: chess::PlayerSide::White,
+            },
+        )
+        .await;
+
+        // Configure engine (spawns Stockfish process)
+        handle
+            .configure_engine(super::super::commands::EngineConfig {
+                enabled: true,
+                skill_level: 1,
+                threads: None,
+                hash_mb: None,
+            })
+            .await
+            .unwrap();
+
+        // Drain the StateChanged event from configure_engine
+        let _ = events.recv().await;
+
+        // Play the mating move: Qf7-g7#
+        let snap = handle
+            .make_move(mv(File::F, Rank::Seventh, File::G, Rank::Seventh))
+            .await
+            .unwrap();
+
+        assert!(
+            matches!(snap.phase, chess::GamePhase::Ended { .. }),
+            "Expected game ended, got {:?}",
+            snap.phase
+        );
+        assert!(!snap.engine_thinking, "Engine should not be thinking after checkmate");
+
+        // Give the actor a moment to process engine shutdown
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        // Actor should still be responsive
+        let snap = handle.get_snapshot().await.unwrap();
+        assert!(matches!(snap.phase, chess::GamePhase::Ended { .. }));
     }
 }

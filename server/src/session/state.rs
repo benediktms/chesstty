@@ -279,6 +279,17 @@ impl SessionState {
         Ok(())
     }
 
+    /// Shut down the engine process if the game has ended.
+    pub async fn shutdown_engine_if_ended(&mut self) {
+        if matches!(self.phase, GamePhase::Ended { .. }) {
+            if let Some(engine) = self.engine.take() {
+                tracing::info!("Game ended, shutting down engine");
+                let _ = engine.shutdown().await;
+            }
+            self.engine_thinking = false;
+        }
+    }
+
     /// Tick timer and return true if a flag fell (time expired).
     pub fn tick_timer(&mut self) -> bool {
         if let Some(ref mut timer) = self.timer {
