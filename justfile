@@ -1,3 +1,5 @@
+export CHESSTTY_DATA_DIR := "data"
+
 # Default recipe - show all available commands
 default:
     @just --list

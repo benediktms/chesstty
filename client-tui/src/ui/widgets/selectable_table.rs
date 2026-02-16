@@ -183,7 +183,7 @@ mod tests {
         let mut state = SelectableTableState::new(5);
         state.move_down(); // 0 -> 1
         state.move_down(); // 1 -> 2
-        state.move_up();   // 2 -> 1
+        state.move_up(); // 2 -> 1
         assert_eq!(state.selected_index(), Some(1));
     }
 

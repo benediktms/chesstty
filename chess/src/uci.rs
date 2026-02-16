@@ -21,11 +21,11 @@ pub fn convert_uci_castling_to_cozy(mv: Move, legal_moves: &[Move]) -> Move {
         // This looks like a castling move in UCI notation
         // Convert to cozy_chess notation
         let target_square = match (mv.from.rank(), mv.to.file()) {
-            (Rank::First, File::G) => Square::new(File::H, Rank::First),   // e1g1 → e1h1 (white kingside)
-            (Rank::First, File::C) => Square::new(File::A, Rank::First),   // e1c1 → e1a1 (white queenside)
+            (Rank::First, File::G) => Square::new(File::H, Rank::First), // e1g1 → e1h1 (white kingside)
+            (Rank::First, File::C) => Square::new(File::A, Rank::First), // e1c1 → e1a1 (white queenside)
             (Rank::Eighth, File::G) => Square::new(File::H, Rank::Eighth), // e8g8 → e8h8 (black kingside)
             (Rank::Eighth, File::C) => Square::new(File::A, Rank::Eighth), // e8c8 → e8a8 (black queenside)
-            _ => return mv, // Not a castling move
+            _ => return mv,                                                // Not a castling move
         };
 
         let converted = Move {

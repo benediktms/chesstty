@@ -1,4 +1,4 @@
-use cozy_chess::{Board, Color as ChessColor, Piece, Square, File, Rank};
+use cozy_chess::{Board, Color as ChessColor, File, Piece, Rank, Square};
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
@@ -53,25 +53,49 @@ impl Widget for MiniBoardWidget<'_> {
 
         let ranks: Vec<Rank> = if self.flipped {
             vec![
-                Rank::First, Rank::Second, Rank::Third, Rank::Fourth,
-                Rank::Fifth, Rank::Sixth, Rank::Seventh, Rank::Eighth,
+                Rank::First,
+                Rank::Second,
+                Rank::Third,
+                Rank::Fourth,
+                Rank::Fifth,
+                Rank::Sixth,
+                Rank::Seventh,
+                Rank::Eighth,
             ]
         } else {
             vec![
-                Rank::Eighth, Rank::Seventh, Rank::Sixth, Rank::Fifth,
-                Rank::Fourth, Rank::Third, Rank::Second, Rank::First,
+                Rank::Eighth,
+                Rank::Seventh,
+                Rank::Sixth,
+                Rank::Fifth,
+                Rank::Fourth,
+                Rank::Third,
+                Rank::Second,
+                Rank::First,
             ]
         };
 
         let files: Vec<File> = if self.flipped {
             vec![
-                File::H, File::G, File::F, File::E,
-                File::D, File::C, File::B, File::A,
+                File::H,
+                File::G,
+                File::F,
+                File::E,
+                File::D,
+                File::C,
+                File::B,
+                File::A,
             ]
         } else {
             vec![
-                File::A, File::B, File::C, File::D,
-                File::E, File::F, File::G, File::H,
+                File::A,
+                File::B,
+                File::C,
+                File::D,
+                File::E,
+                File::F,
+                File::G,
+                File::H,
             ]
         };
 
@@ -101,8 +125,12 @@ impl Widget for MiniBoardWidget<'_> {
                     let mut found = None;
                     for &color in &[ChessColor::White, ChessColor::Black] {
                         for &piece in &[
-                            Piece::King, Piece::Queen, Piece::Rook,
-                            Piece::Bishop, Piece::Knight, Piece::Pawn,
+                            Piece::King,
+                            Piece::Queen,
+                            Piece::Rook,
+                            Piece::Bishop,
+                            Piece::Knight,
+                            Piece::Pawn,
                         ] {
                             let bitboard = self.board.colored_pieces(color, piece);
                             if bitboard.has(sq) {
@@ -131,10 +159,7 @@ impl Widget for MiniBoardWidget<'_> {
         } else {
             vec!["a", "b", "c", "d", "e", "f", "g", "h"]
         };
-        let mut file_spans = vec![Span::styled(
-            "  ",
-            Style::default().bg(Color::White),
-        )];
+        let mut file_spans = vec![Span::styled("  ", Style::default().bg(Color::White))];
         for label in &file_labels {
             file_spans.push(Span::styled(
                 format!("{} ", label),
@@ -143,8 +168,7 @@ impl Widget for MiniBoardWidget<'_> {
         }
         lines.push(Line::from(file_spans));
 
-        let paragraph = Paragraph::new(lines)
-            .style(Style::default().bg(Color::White));
+        let paragraph = Paragraph::new(lines).style(Style::default().bg(Color::White));
         paragraph.render(inner, buf);
     }
 }
@@ -156,20 +180,38 @@ mod tests {
     #[test]
     fn test_white_pieces_to_unicode() {
         assert_eq!(piece_to_unicode(Piece::King, ChessColor::White), "\u{2654}");
-        assert_eq!(piece_to_unicode(Piece::Queen, ChessColor::White), "\u{2655}");
+        assert_eq!(
+            piece_to_unicode(Piece::Queen, ChessColor::White),
+            "\u{2655}"
+        );
         assert_eq!(piece_to_unicode(Piece::Rook, ChessColor::White), "\u{2656}");
-        assert_eq!(piece_to_unicode(Piece::Bishop, ChessColor::White), "\u{2657}");
-        assert_eq!(piece_to_unicode(Piece::Knight, ChessColor::White), "\u{2658}");
+        assert_eq!(
+            piece_to_unicode(Piece::Bishop, ChessColor::White),
+            "\u{2657}"
+        );
+        assert_eq!(
+            piece_to_unicode(Piece::Knight, ChessColor::White),
+            "\u{2658}"
+        );
         assert_eq!(piece_to_unicode(Piece::Pawn, ChessColor::White), "\u{2659}");
     }
 
     #[test]
     fn test_black_pieces_to_unicode() {
         assert_eq!(piece_to_unicode(Piece::King, ChessColor::Black), "\u{265a}");
-        assert_eq!(piece_to_unicode(Piece::Queen, ChessColor::Black), "\u{265b}");
+        assert_eq!(
+            piece_to_unicode(Piece::Queen, ChessColor::Black),
+            "\u{265b}"
+        );
         assert_eq!(piece_to_unicode(Piece::Rook, ChessColor::Black), "\u{265c}");
-        assert_eq!(piece_to_unicode(Piece::Bishop, ChessColor::Black), "\u{265d}");
-        assert_eq!(piece_to_unicode(Piece::Knight, ChessColor::Black), "\u{265e}");
+        assert_eq!(
+            piece_to_unicode(Piece::Bishop, ChessColor::Black),
+            "\u{265d}"
+        );
+        assert_eq!(
+            piece_to_unicode(Piece::Knight, ChessColor::Black),
+            "\u{265e}"
+        );
         assert_eq!(piece_to_unicode(Piece::Pawn, ChessColor::Black), "\u{265f}");
     }
 

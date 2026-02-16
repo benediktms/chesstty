@@ -2,7 +2,6 @@ syntax = "proto3";
 package chess;
 
 import "common.proto";
-import "session.proto";
 
 // ============================================================================
 // Game Action Messages
@@ -13,14 +12,9 @@ message MakeMoveRequest {
   MoveRepr move = 2;
 }
 
-message MakeMoveResponse {
-  SessionInfo session_info = 1;
-  MoveRecord move_record = 2;
-}
-
 message GetLegalMovesRequest {
   string session_id = 1;
-  optional string from_square = 2;  // null = all moves, otherwise filter by from square
+  optional string from_square = 2;
 }
 
 message LegalMovesResponse {
@@ -37,5 +31,5 @@ message RedoMoveRequest {
 
 message ResetGameRequest {
   string session_id = 1;
-  optional string fen = 2;  // null = standard starting position
+  optional string fen = 2;
 }

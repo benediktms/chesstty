@@ -22,7 +22,7 @@ pub async fn run_simple_app() -> anyhow::Result<()> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let mut state = match ClientState::new("http://[::1]:50051").await {
+    let mut state = match ClientState::new("http://[::1]:50051", None, None, None).await {
         Ok(state) => state,
         Err(e) => {
             disable_raw_mode()?;
@@ -93,7 +93,7 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
             f.render_widget(info, chunks[1]);
 
             let status_text = state
-                .ui_state
+                .ui
                 .status_message
                 .clone()
                 .unwrap_or_else(|| "Ready".to_string());
@@ -136,7 +136,7 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
 }
 
 async fn handle_command(state: &mut ClientState, command: &str) {
-    use chess_common::parse_square;
+    use chess::parse_square;
 
     let parts: Vec<&str> = command.trim().split_whitespace().collect();
 
@@ -145,24 +145,24 @@ async fn handle_command(state: &mut ClientState, command: &str) {
             if let (Some(from_sq), Some(to_sq)) = (parse_square(from), parse_square(to)) {
                 state.select_square(from_sq);
                 if let Err(e) = state.try_move_to(to_sq).await {
-                    state.ui_state.status_message = Some(format!("Move error: {}", e));
+                    state.ui.status_message = Some(format!("Move error: {}", e));
                 }
             } else {
-                state.ui_state.status_message = Some("Invalid square(s)".to_string());
+                state.ui.status_message = Some("Invalid square(s)".to_string());
             }
         }
         ["u"] => {
             if let Err(e) = state.undo().await {
-                state.ui_state.status_message = Some(format!("Undo error: {}", e));
+                state.ui.status_message = Some(format!("Undo error: {}", e));
             }
         }
         ["r"] => {
             if let Err(e) = state.reset(None).await {
-                state.ui_state.status_message = Some(format!("Reset error: {}", e));
+                state.ui.status_message = Some(format!("Reset error: {}", e));
             }
         }
         _ => {
-            state.ui_state.status_message = Some("Unknown command".to_string());
+            state.ui.status_message = Some("Unknown command".to_string());
         }
     }
 }

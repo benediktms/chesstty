@@ -2,6 +2,7 @@ syntax = "proto3";
 package chess;
 
 import "common.proto";
+import "session.proto";
 
 // ============================================================================
 // Event Streaming Messages
@@ -11,6 +12,18 @@ message StreamEventsRequest {
   string session_id = 1;
 }
 
+// Snapshot-based event stream
+message SessionStreamEvent {
+  string session_id = 1;
+  oneof event {
+    SessionSnapshot state_changed = 2;
+    EngineAnalysis engine_thinking = 3;
+    UciMessageEvent uci_message = 4;
+    string error = 5;
+  }
+}
+
+// Legacy event format — kept during migration
 message GameEvent {
   oneof event {
     MoveMadeEvent move_made = 1;
@@ -42,9 +55,9 @@ message EngineThinkingEvent {
 
 message GameEndedEvent {
   string session_id = 1;
-  string result = 2;  // "1-0", "0-1", "1/2-1/2"
+  string result = 2;
   string reason = 3;
-  string winner = 4;  // "white", "black", or "" for draw
+  string winner = 4;
 }
 
 message ErrorEvent {
@@ -56,7 +69,7 @@ message UciMessageEvent {
   string session_id = 1;
   UciDirection direction = 2;
   string message = 3;
-  optional string context = 4;  // Optional context (e.g., "After move e4")
+  optional string context = 4;
 }
 
 enum UciDirection {

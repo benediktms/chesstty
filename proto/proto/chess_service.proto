@@ -10,31 +10,35 @@ import "persistence.proto";
 import "positions.proto";
 
 // ============================================================================
-// Core chess service providing game management and engine control
+// Core chess service
 // ============================================================================
 
 service ChessService {
   // Session management
-  rpc CreateSession(CreateSessionRequest) returns (SessionInfo);
-  rpc GetSession(GetSessionRequest) returns (SessionInfo);
+  rpc CreateSession(CreateSessionRequest) returns (SessionSnapshot);
+  rpc GetSession(GetSessionRequest) returns (SessionSnapshot);
   rpc CloseSession(CloseSessionRequest) returns (Empty);
 
   // Game actions
-  rpc MakeMove(MakeMoveRequest) returns (MakeMoveResponse);
+  rpc MakeMove(MakeMoveRequest) returns (SessionSnapshot);
   rpc GetLegalMoves(GetLegalMovesRequest) returns (LegalMovesResponse);
-  rpc UndoMove(UndoMoveRequest) returns (SessionInfo);
-  rpc RedoMove(RedoMoveRequest) returns (SessionInfo);
-  rpc ResetGame(ResetGameRequest) returns (SessionInfo);
+  rpc UndoMove(UndoMoveRequest) returns (SessionSnapshot);
+  rpc RedoMove(RedoMoveRequest) returns (SessionSnapshot);
+  rpc ResetGame(ResetGameRequest) returns (SessionSnapshot);
 
   // Engine control
   rpc SetEngine(SetEngineRequest) returns (Empty);
-  rpc TriggerEngineMove(TriggerEngineMoveRequest) returns (Empty);
   rpc StopEngine(StopEngineRequest) returns (Empty);
+  // NOTE: No TriggerEngineMove — server auto-triggers
+
+  // Pause/Resume
+  rpc PauseSession(PauseSessionRequest) returns (Empty);
+  rpc ResumeSession(ResumeSessionRequest) returns (Empty);
 
   // Session persistence
   rpc SuspendSession(SuspendSessionRequest) returns (SuspendSessionResponse);
   rpc ListSuspendedSessions(ListSuspendedSessionsRequest) returns (ListSuspendedSessionsResponse);
-  rpc ResumeSuspendedSession(ResumeSuspendedSessionRequest) returns (SessionInfo);
+  rpc ResumeSuspendedSession(ResumeSuspendedSessionRequest) returns (SessionSnapshot);
   rpc DeleteSuspendedSession(DeleteSuspendedSessionRequest) returns (Empty);
 
   // Saved positions
@@ -42,6 +46,14 @@ service ChessService {
   rpc ListPositions(ListPositionsRequest) returns (ListPositionsResponse);
   rpc DeletePosition(DeletePositionRequest) returns (Empty);
 
-  // Event streaming (server -> client push)
-  rpc StreamEvents(StreamEventsRequest) returns (stream GameEvent);
+  // Event streaming — snapshot-based
+  rpc StreamEvents(StreamEventsRequest) returns (stream SessionStreamEvent);
+}
+
+message PauseSessionRequest {
+  string session_id = 1;
+}
+
+message ResumeSessionRequest {
+  string session_id = 1;
 }

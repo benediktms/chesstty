@@ -1,5 +1,6 @@
-//! Engine control endpoints
+//! Engine control and pause/resume endpoints
 
+use crate::session::commands::EngineConfig;
 use crate::session::SessionManager;
 use chess_proto::*;
 use std::sync::Arc;
@@ -19,31 +20,32 @@ impl EngineEndpoints {
         request: Request<SetEngineRequest>,
     ) -> Result<Response<Empty>, Status> {
         let req = request.into_inner();
-        tracing::info!(session_id = %req.session_id, enabled = req.enabled, skill = req.skill_level, threads = ?req.threads, hash = ?req.hash_mb, "RPC set_engine");
-        self.session_manager
-            .set_engine(
-                &req.session_id,
-                req.enabled,
-                req.skill_level as u8,
-                req.threads,
-                req.hash_mb,
-            )
-            .await
-            .map_err(|e| Status::invalid_argument(e))?;
+        tracing::info!(
+            session_id = %req.session_id,
+            enabled = req.enabled,
+            skill = req.skill_level,
+            threads = ?req.threads,
+            hash = ?req.hash_mb,
+            "RPC set_engine"
+        );
 
-        Ok(Response::new(Empty {}))
-    }
-
-    pub async fn trigger_engine_move(
-        &self,
-        request: Request<TriggerEngineMoveRequest>,
-    ) -> Result<Response<Empty>, Status> {
-        let req = request.into_inner();
-        tracing::info!(session_id = %req.session_id, movetime = ?req.movetime_ms, "RPC trigger_engine_move");
-        self.session_manager
-            .trigger_engine_move(&req.session_id, req.movetime_ms)
+        let handle = self
+            .session_manager
+            .get_handle(&req.session_id)
             .await
-            .map_err(|e| Status::invalid_argument(e))?;
+            .map_err(Status::not_found)?;
+
+        let config = EngineConfig {
+            enabled: req.enabled,
+            skill_level: req.skill_level as u8,
+            threads: req.threads,
+            hash_mb: req.hash_mb,
+        };
+
+        handle
+            .configure_engine(config)
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
 
         Ok(Response::new(Empty {}))
     }
@@ -54,40 +56,60 @@ impl EngineEndpoints {
     ) -> Result<Response<Empty>, Status> {
         let req = request.into_inner();
         tracing::info!(session_id = %req.session_id, "RPC stop_engine");
-        self.session_manager
-            .stop_engine(&req.session_id)
+
+        let handle = self
+            .session_manager
+            .get_handle(&req.session_id)
             .await
-            .map_err(|e| Status::not_found(e))?;
+            .map_err(Status::not_found)?;
+
+        handle
+            .stop_engine()
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
 
         Ok(Response::new(Empty {}))
     }
-}
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+    pub async fn pause_session(
+        &self,
+        request: Request<PauseSessionRequest>,
+    ) -> Result<Response<Empty>, Status> {
+        let req = request.into_inner();
+        tracing::info!(session_id = %req.session_id, "RPC pause_session");
 
-    fn test_manager() -> Arc<SessionManager> {
-        let temp_dir = std::env::temp_dir().join(format!("chesstty_test_{}", uuid::Uuid::new_v4()));
-        Arc::new(SessionManager::new(temp_dir, None))
+        let handle = self
+            .session_manager
+            .get_handle(&req.session_id)
+            .await
+            .map_err(Status::not_found)?;
+
+        handle
+            .pause()
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
+
+        Ok(Response::new(Empty {}))
     }
 
-    #[tokio::test]
-    async fn test_set_engine() {
-        let manager = test_manager();
-        let endpoints = EngineEndpoints::new(manager.clone());
+    pub async fn resume_session(
+        &self,
+        request: Request<ResumeSessionRequest>,
+    ) -> Result<Response<Empty>, Status> {
+        let req = request.into_inner();
+        tracing::info!(session_id = %req.session_id, "RPC resume_session");
 
-        let session_id = manager.create_session(None).await.unwrap();
+        let handle = self
+            .session_manager
+            .get_handle(&req.session_id)
+            .await
+            .map_err(Status::not_found)?;
 
-        let request = Request::new(SetEngineRequest {
-            session_id,
-            enabled: true,
-            skill_level: 10,
-            threads: Some(2),
-            hash_mb: Some(128),
-        });
+        handle
+            .resume()
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
 
-        let response = endpoints.set_engine(request).await;
-        assert!(response.is_ok());
+        Ok(Response::new(Empty {}))
     }
 }

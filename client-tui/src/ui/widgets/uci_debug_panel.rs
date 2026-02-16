@@ -1,4 +1,4 @@
-use crate::state::{UciLogEntry, UciDirection};
+use crate::state::{UciDirection, UciLogEntry};
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
@@ -15,7 +15,11 @@ pub struct UciDebugPanel<'a> {
 
 impl<'a> UciDebugPanel<'a> {
     pub fn new(uci_log: &'a [UciLogEntry], scroll: u16, is_selected: bool) -> Self {
-        Self { uci_log, scroll, is_selected }
+        Self {
+            uci_log,
+            scroll,
+            is_selected,
+        }
     }
 }
 
@@ -27,7 +31,9 @@ impl Widget for UciDebugPanel<'_> {
             "🔧 UCI Debug Panel (@ to toggle) 🔧"
         };
         let border_style = if self.is_selected {
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(Color::Magenta)
         };

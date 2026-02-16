@@ -11,8 +11,8 @@
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     let mut client = ChessClient::connect("http://localhost:50051").await?;
-//!     let info = client.create_session(None).await?;
-//!     println!("Created session: {}", info.session_id);
+//!     let snapshot = client.create_session(None, None, None).await?;
+//!     println!("Created session: {}", snapshot.session_id);
 //!     Ok(())
 //! }
 //! ```

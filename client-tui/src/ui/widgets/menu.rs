@@ -24,7 +24,7 @@ pub enum MenuItem {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ThreadsOption {
-    Auto,       // Auto-detect, capped at 4
+    Auto, // Auto-detect, capped at 4
     One,
     Two,
     Four,
@@ -56,9 +56,9 @@ impl ThreadsOption {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum HashOption {
-    Small,    // 32 MB
-    Medium,   // 128 MB
-    Large,    // 256 MB
+    Small,  // 32 MB
+    Medium, // 128 MB
+    Large,  // 256 MB
 }
 
 impl HashOption {

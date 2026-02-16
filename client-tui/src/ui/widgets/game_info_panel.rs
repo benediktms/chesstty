@@ -43,12 +43,12 @@ impl Widget for GameInfoPanel<'_> {
         lines.push(Line::raw(""));
 
         // Input phase
-        let phase_text = match self.client_state.ui_state.input_phase {
+        let phase_text = match self.client_state.ui.input_phase {
             crate::state::InputPhase::SelectPiece => "Select Piece",
             crate::state::InputPhase::SelectDestination => "Select Destination",
             crate::state::InputPhase::SelectPromotion { .. } => "Select Promotion (q/r/b/n)",
         };
-        let phase_color = match self.client_state.ui_state.input_phase {
+        let phase_color = match self.client_state.ui.input_phase {
             crate::state::InputPhase::SelectPiece => Color::Green,
             crate::state::InputPhase::SelectDestination => Color::Cyan,
             crate::state::InputPhase::SelectPromotion { .. } => Color::Magenta,
@@ -97,19 +97,17 @@ impl Widget for GameInfoPanel<'_> {
             ),
         ]));
 
-        // Timer display
-        if let Some(ref timer) = self.client_state.timer {
-            use crate::timer::ChessTimer;
-            use crate::state::PlayerColor;
+        // Timer display — read from server snapshot
+        if let Some(ref timer) = self.client_state.snapshot.timer {
+            let white_ms = timer.white_remaining_ms;
+            let black_ms = timer.black_remaining_ms;
+            let white_active = timer.active_side.as_deref() == Some("white");
+            let black_active = timer.active_side.as_deref() == Some("black");
 
-            let white_remaining = timer.remaining(PlayerColor::White);
-            let black_remaining = timer.remaining(PlayerColor::Black);
-            let active = timer.active_side();
-
-            let timer_color = |remaining: std::time::Duration, is_active: bool| -> Color {
-                if remaining.as_secs() < 10 {
+            let timer_color = |ms: u64, is_active: bool| -> Color {
+                if ms < 10_000 {
                     Color::Red
-                } else if remaining.as_secs() < 60 {
+                } else if ms < 60_000 {
                     Color::Yellow
                 } else if is_active {
                     Color::Green
@@ -118,46 +116,44 @@ impl Widget for GameInfoPanel<'_> {
                 }
             };
 
-            let white_active = active == Some(PlayerColor::White);
-            let black_active = active == Some(PlayerColor::Black);
+            let format_ms = |ms: u64| -> String {
+                let secs = ms / 1000;
+                let mins = secs / 60;
+                let rem_secs = secs % 60;
+                if secs < 10 {
+                    let tenths = (ms % 1000) / 100;
+                    format!("0:{:02}.{}", rem_secs, tenths)
+                } else {
+                    format!("{}:{:02}", mins, rem_secs)
+                }
+            };
+
             let white_indicator = if white_active { "\u{25b6} " } else { "  " };
             let black_indicator = if black_active { "\u{25b6} " } else { "  " };
 
             lines.push(Line::from(vec![
+                ratatui::text::Span::styled(white_indicator, Style::default().fg(Color::White)),
+                ratatui::text::Span::styled("\u{2654} ", Style::default().fg(Color::White)),
                 ratatui::text::Span::styled(
-                    white_indicator,
-                    Style::default().fg(Color::White),
-                ),
-                ratatui::text::Span::styled(
-                    "\u{2654} ",
-                    Style::default().fg(Color::White),
-                ),
-                ratatui::text::Span::styled(
-                    ChessTimer::format_time(white_remaining),
+                    format_ms(white_ms),
                     Style::default()
-                        .fg(timer_color(white_remaining, white_active))
+                        .fg(timer_color(white_ms, white_active))
                         .add_modifier(Modifier::BOLD),
                 ),
                 ratatui::text::Span::raw("  "),
+                ratatui::text::Span::styled(black_indicator, Style::default().fg(Color::Gray)),
+                ratatui::text::Span::styled("\u{265a} ", Style::default().fg(Color::Gray)),
                 ratatui::text::Span::styled(
-                    black_indicator,
-                    Style::default().fg(Color::Gray),
-                ),
-                ratatui::text::Span::styled(
-                    "\u{265a} ",
-                    Style::default().fg(Color::Gray),
-                ),
-                ratatui::text::Span::styled(
-                    ChessTimer::format_time(black_remaining),
+                    format_ms(black_ms),
                     Style::default()
-                        .fg(timer_color(black_remaining, black_active))
+                        .fg(timer_color(black_ms, black_active))
                         .add_modifier(Modifier::BOLD),
                 ),
             ]));
         }
 
         // Add selection indicator
-        if let Some(selected) = self.client_state.ui_state.selected_square {
+        if let Some(selected) = self.client_state.ui.selected_square {
             lines.push(Line::raw(""));
             lines.push(Line::from(vec![
                 ratatui::text::Span::styled(
@@ -175,7 +171,7 @@ impl Widget for GameInfoPanel<'_> {
             ]));
 
             // List legal move destinations
-            if !self.client_state.ui_state.highlighted_squares.is_empty() {
+            if !self.client_state.ui.highlighted_squares.is_empty() {
                 lines.push(Line::from(vec![ratatui::text::Span::styled(
                     "Legal: ",
                     Style::default()
@@ -186,7 +182,7 @@ impl Widget for GameInfoPanel<'_> {
                 // Format squares as comma-separated list
                 let moves_str: String = self
                     .client_state
-                    .ui_state
+                    .ui
                     .highlighted_squares
                     .iter()
                     .map(|&sq| format_square(sq))
@@ -201,7 +197,7 @@ impl Widget for GameInfoPanel<'_> {
         }
 
         // Add status message
-        if let Some(ref msg) = self.client_state.ui_state.status_message {
+        if let Some(ref msg) = self.client_state.ui.status_message {
             lines.push(Line::raw(""));
             lines.push(Line::from(vec![
                 ratatui::text::Span::styled(
@@ -216,7 +212,8 @@ impl Widget for GameInfoPanel<'_> {
 
         // Add game status
         let status = self.client_state.status();
-        if status != 0 { // 0 = Ongoing
+        if status != 0 {
+            // 0 = Ongoing
             lines.push(Line::raw(""));
             let status_text = match status {
                 1 => "Checkmate!",

@@ -78,7 +78,7 @@ impl Widget for FenDialogWidget<'_> {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(5),  // Input section
+                Constraint::Length(5), // Input section
                 Constraint::Min(10),   // Positions table
                 Constraint::Length(3), // Help text
             ])

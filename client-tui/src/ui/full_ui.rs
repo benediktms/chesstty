@@ -1,7 +1,11 @@
 use crate::state::{ClientState, GameMode, InputPhase, PlayerColor};
 use crate::ui::menu_app;
 use crate::ui::pane::PaneId;
-use crate::ui::widgets::{BoardWidget, EngineAnalysisPanel, GameInfoPanel, MiniBoardWidget, MoveHistoryPanel, PopupMenuWidget, PromotionWidget, UciDebugPanel};
+use crate::ui::widgets::{
+    BoardWidget, EngineAnalysisPanel, GameInfoPanel, MiniBoardWidget, MoveHistoryPanel,
+    PopupMenuWidget, PromotionWidget, UciDebugPanel,
+};
+use chess_client::{GameModeProto, GameModeType, PlayerSideProto};
 use crossterm::{
     event::{DisableMouseCapture, EnableMouseCapture, Event},
     execute,
@@ -16,6 +20,35 @@ use ratatui::{
 use std::io;
 use std::time::Duration;
 
+/// Convert client-side GameMode to proto representation.
+fn game_mode_to_proto(mode: &GameMode) -> GameModeProto {
+    match mode {
+        GameMode::HumanVsHuman => GameModeProto {
+            mode: GameModeType::HumanVsHuman as i32,
+            human_side: None,
+        },
+        GameMode::HumanVsEngine { human_side } => GameModeProto {
+            mode: GameModeType::HumanVsEngine as i32,
+            human_side: Some(match human_side {
+                PlayerColor::White => PlayerSideProto::White as i32,
+                PlayerColor::Black => PlayerSideProto::Black as i32,
+            }),
+        },
+        GameMode::EngineVsEngine => GameModeProto {
+            mode: GameModeType::EngineVsEngine as i32,
+            human_side: None,
+        },
+        GameMode::AnalysisMode => GameModeProto {
+            mode: GameModeType::Analysis as i32,
+            human_side: None,
+        },
+        GameMode::ReviewMode => GameModeProto {
+            mode: GameModeType::Review as i32,
+            human_side: None,
+        },
+    }
+}
+
 /// Why the game loop exited.
 enum ExitReason {
     Quit,
@@ -26,23 +59,24 @@ pub async fn run_app() -> anyhow::Result<()> {
     // Outer loop: menu → game → menu → game → ...
     loop {
         // Pre-fetch data from server for the menu
-        let (suspended, positions) = match chess_client::ChessClient::connect("http://[::1]:50051").await {
-            Ok(mut client) => {
-                let sessions = client.list_suspended_sessions().await.unwrap_or_else(|e| {
-                    tracing::warn!("Failed to list suspended sessions: {}", e);
-                    vec![]
-                });
-                let positions = client.list_positions().await.unwrap_or_else(|e| {
-                    tracing::warn!("Failed to list positions: {}", e);
-                    vec![]
-                });
-                (sessions, positions)
-            }
-            Err(e) => {
-                tracing::warn!("Failed to connect to server: {}", e);
-                (vec![], vec![])
-            }
-        };
+        let (suspended, positions) =
+            match chess_client::ChessClient::connect("http://[::1]:50051").await {
+                Ok(mut client) => {
+                    let sessions = client.list_suspended_sessions().await.unwrap_or_else(|e| {
+                        tracing::warn!("Failed to list suspended sessions: {}", e);
+                        vec![]
+                    });
+                    let positions = client.list_positions().await.unwrap_or_else(|e| {
+                        tracing::warn!("Failed to list positions: {}", e);
+                        vec![]
+                    });
+                    (sessions, positions)
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to connect to server: {}", e);
+                    (vec![], vec![])
+                }
+            };
 
         // Show menu and get game configuration
         let config = match menu_app::show_menu(suspended, positions).await? {
@@ -81,88 +115,109 @@ async fn run_game<B: ratatui::backend::Backend>(
     terminal: &mut Terminal<B>,
     config: menu_app::GameConfig,
 ) -> anyhow::Result<ExitReason> {
-    // Connect to server and create client state
-    let mut state = ClientState::new("http://[::1]:50051").await
-        .map_err(|e| anyhow::anyhow!("Failed to connect to server: {}", e))?;
+    // Convert game mode to proto for the server
+    let game_mode_proto = game_mode_to_proto(&config.mode);
+
+    // Convert timer config to proto (server owns all timer state)
+    let timer_proto = config.time_control_seconds.map(|seconds| {
+        let ms = seconds * 1000;
+        chess_client::TimerState {
+            white_remaining_ms: ms,
+            black_remaining_ms: ms,
+            active_side: None,
+        }
+    });
+
+    // Connect to server and create client state with game mode, FEN, and timer
+    let mut state = ClientState::new(
+        "http://[::1]:50051",
+        config.start_fen.clone(),
+        Some(game_mode_proto),
+        timer_proto,
+    )
+    .await
+    .map_err(|e| anyhow::anyhow!("Failed to connect to server: {}", e))?;
 
     // Handle resume vs new game
     if let Some(ref suspended_id) = config.resume_session_id {
         // Resume a suspended session from the server.
-        // This creates a new active session with the saved FEN.
+        // The server already knows the game mode and engine config.
         match state.client.resume_suspended_session(suspended_id).await {
-            Ok(_session_info) => {
-                // Refresh our cached state from the newly created server session
+            Ok(_snapshot) => {
                 if let Err(e) = state.refresh_from_server().await {
-                    state.ui_state.status_message = Some(format!("Failed to sync state: {}", e));
+                    state.ui.status_message = Some(format!("Failed to sync state: {}", e));
                 }
 
-                // Restore game mode from the config metadata
-                let game_mode_str = config.resume_game_mode.as_deref().unwrap_or("HumanVsHuman");
-                state.mode = match game_mode_str {
-                    "HumanVsHuman" => GameMode::HumanVsHuman,
-                    "HumanVsEngine" => {
-                        let side = match config.resume_human_side.as_deref() {
-                            Some("black") => PlayerColor::Black,
+                // Restore local game mode from config metadata (for UI rendering)
+                let game_mode_type = config
+                    .resume_game_mode
+                    .and_then(|v| GameModeType::try_from(v).ok())
+                    .unwrap_or(GameModeType::HumanVsHuman);
+                state.mode = match game_mode_type {
+                    GameModeType::HumanVsHuman => GameMode::HumanVsHuman,
+                    GameModeType::HumanVsEngine => {
+                        let side = match config
+                            .resume_human_side
+                            .and_then(|v| PlayerSideProto::try_from(v).ok())
+                        {
+                            Some(PlayerSideProto::Black) => PlayerColor::Black,
                             _ => PlayerColor::White,
                         };
                         GameMode::HumanVsEngine { human_side: side }
                     }
-                    "EngineVsEngine" => GameMode::EngineVsEngine,
-                    _ => GameMode::HumanVsHuman,
+                    GameModeType::EngineVsEngine => GameMode::EngineVsEngine,
+                    GameModeType::Analysis => GameMode::AnalysisMode,
+                    GameModeType::Review => GameMode::ReviewMode,
                 };
 
                 state.skill_level = config.resume_skill_level.unwrap_or(10);
 
                 // Re-enable engine if needed
-                let needs_engine = matches!(state.mode, GameMode::HumanVsEngine { .. } | GameMode::EngineVsEngine);
+                let needs_engine = matches!(
+                    state.mode,
+                    GameMode::HumanVsEngine { .. } | GameMode::EngineVsEngine
+                );
                 if needs_engine {
                     if let Err(e) = state.set_engine(true, state.skill_level).await {
-                        state.ui_state.status_message = Some(format!("Failed to enable engine: {}", e));
+                        state.ui.status_message = Some(format!("Failed to enable engine: {}", e));
                     }
                 }
 
-                state.ui_state.status_message = Some("Session resumed".to_string());
+                state.ui.status_message = Some("Session resumed".to_string());
             }
             Err(e) => {
-                state.ui_state.status_message = Some(format!("Failed to resume session: {}", e));
+                state.ui.status_message = Some(format!("Failed to resume session: {}", e));
             }
         }
     } else {
-        // New game setup
+        // New game setup — game mode already set on server via create_session
         state.skill_level = config.skill_level;
-
-        if let Some(fen) = config.start_fen {
-            if let Err(e) = state.reset(Some(fen)).await {
-                state.ui_state.status_message = Some(format!("Failed to set FEN: {}", e));
-            }
-        }
-
-        let needs_engine = matches!(config.mode, GameMode::HumanVsEngine { .. } | GameMode::EngineVsEngine);
         state.mode = config.mode;
 
+        let needs_engine = matches!(
+            state.mode,
+            GameMode::HumanVsEngine { .. } | GameMode::EngineVsEngine
+        );
         if needs_engine {
+            // Configuring the engine will trigger maybe_auto_trigger on the server,
+            // which will auto-start engine moves for EvE/HvE modes.
             if let Err(e) = state
-                .set_engine_full(true, config.skill_level, config.engine_threads, config.engine_hash_mb)
+                .set_engine_full(
+                    true,
+                    config.skill_level,
+                    config.engine_threads,
+                    config.engine_hash_mb,
+                )
                 .await
             {
-                state.ui_state.status_message = Some(format!("Failed to enable engine: {}", e));
+                state.ui.status_message = Some(format!("Failed to enable engine: {}", e));
             }
-        }
-    }
-
-    // Initialize timer if time control is set
-    if let Some(seconds) = config.time_control_seconds {
-        use crate::timer::ChessTimer;
-        let timer = ChessTimer::new(std::time::Duration::from_secs(seconds));
-        state.timer = Some(timer);
-        if let Some(ref mut t) = state.timer {
-            t.switch_to(PlayerColor::White);
         }
     }
 
     // Start event stream to receive server events
     if let Err(e) = state.start_event_stream().await {
-        state.ui_state.status_message = Some(format!("Failed to start event stream: {}", e));
+        state.ui.status_message = Some(format!("Failed to start event stream: {}", e));
     }
 
     run_ui_loop(terminal, &mut state).await
@@ -216,53 +271,31 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
             }
         };
 
-        // Tick the timer
-        if let Some(ref mut timer) = state.timer {
-            timer.tick();
-            for &side in &[PlayerColor::White, PlayerColor::Black] {
-                if timer.is_flag_fallen(side) && timer.active_side() == Some(side) {
-                    let side_name = match side {
-                        PlayerColor::White => "White",
-                        PlayerColor::Black => "Black",
-                    };
-                    state.ui_state.status_message = Some(format!("{}'s time has expired!", side_name));
-                    timer.pause();
-                }
-            }
-        }
+        // Timer is server-owned — no client-side ticking needed.
+        // The server ticks the timer and sends updated snapshots.
 
         // Drain any additional buffered server events (non-blocking)
-        loop {
-            match state.poll_events().await {
-                Ok(true) => continue,
-                _ => break,
-            }
-        }
-
-        // Refresh state from server if needed (after MoveMadeEvent)
-        if state.ui_state.needs_refresh {
-            state.ui_state.needs_refresh = false;
-            if let Err(e) = state.refresh_from_server().await {
-                tracing::warn!("Error refreshing state: {}", e);
-            }
+        while let Ok(true) = state.poll_events().await {
+            continue;
         }
 
         // Calculate typeahead squares based on current input
         let typeahead_squares = if !input_buffer.is_empty()
-            && matches!(state.ui_state.input_phase, InputPhase::SelectPiece) {
+            && matches!(state.ui.input_phase, InputPhase::SelectPiece)
+        {
             state.filter_selectable_by_input(&input_buffer)
         } else {
             Vec::new()
         };
 
         // Snapshot pane state for rendering (avoids borrow conflicts)
-        let selected_panel = state.ui_state.focus_stack.selected_pane();
-        let expanded_panel = state.ui_state.focus_stack.expanded_pane();
-        let show_engine = state.ui_state.pane_manager.is_visible(PaneId::EngineAnalysis);
-        let show_debug = state.ui_state.pane_manager.is_visible(PaneId::UciDebug);
-        let engine_scroll = state.ui_state.pane_manager.scroll(PaneId::EngineAnalysis);
-        let history_scroll = state.ui_state.pane_manager.scroll(PaneId::MoveHistory);
-        let debug_scroll = state.ui_state.pane_manager.scroll(PaneId::UciDebug);
+        let selected_panel = state.ui.focus_stack.selected_pane();
+        let expanded_panel = state.ui.focus_stack.expanded_pane();
+        let show_engine = state.ui.pane_manager.is_visible(PaneId::EngineAnalysis);
+        let show_debug = state.ui.pane_manager.is_visible(PaneId::UciDebug);
+        let engine_scroll = state.ui.pane_manager.scroll(PaneId::EngineAnalysis);
+        let history_scroll = state.ui.pane_manager.scroll(PaneId::MoveHistory);
+        let debug_scroll = state.ui.pane_manager.scroll(PaneId::UciDebug);
 
         // Draw UI
         terminal.draw(|f| {
@@ -272,10 +305,7 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
 
             let main_vertical = Layout::default()
                 .direction(Direction::Vertical)
-                .constraints([
-                    Constraint::Min(10),
-                    Constraint::Length(1),
-                ])
+                .constraints([Constraint::Min(10), Constraint::Length(1)])
                 .split(f.area());
 
             let show_debug_panel = show_debug && expanded_panel != Some(PaneId::UciDebug);
@@ -291,17 +321,15 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
 
             let board_area_chunks = Layout::default()
                 .direction(Direction::Horizontal)
-                .constraints([
-                    Constraint::Min(50),
-                    Constraint::Length(40),
-                ])
+                .constraints([Constraint::Min(50), Constraint::Length(40)])
                 .split(content_chunks[0]);
 
             let left_area = board_area_chunks[0];
 
             let mut right_constraints = vec![Constraint::Length(10)];
 
-            let show_engine_in_right = show_engine && expanded_panel != Some(PaneId::EngineAnalysis);
+            let show_engine_in_right =
+                show_engine && expanded_panel != Some(PaneId::EngineAnalysis);
             if show_engine_in_right {
                 right_constraints.push(Constraint::Length(12));
             }
@@ -325,18 +353,19 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
                     }
                     PaneId::EngineAnalysis => {
                         let widget = EngineAnalysisPanel::new(
-                            state.ui_state.engine_info.as_ref(),
-                            state.ui_state.is_engine_thinking,
-                            engine_scroll, true,
+                            state.ui.engine_info.as_ref(),
+                            state.ui.is_engine_thinking,
+                            engine_scroll,
+                            true,
                         );
                         f.render_widget(widget, left_area);
                     }
                     PaneId::UciDebug => {
-                        let widget = UciDebugPanel::new(&state.ui_state.uci_log, debug_scroll, true);
+                        let widget = UciDebugPanel::new(&state.ui.uci_log, debug_scroll, true);
                         f.render_widget(widget, left_area);
                     }
                     PaneId::GameInfo => {
-                        let widget = GameInfoPanel { client_state: state };
+                        let widget = GameInfoPanel::new(state);
                         f.render_widget(widget, left_area);
                     }
                 }
@@ -350,12 +379,25 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
                         width: mini_width,
                         height: mini_height,
                     };
-                    let is_flipped = matches!(state.mode, GameMode::HumanVsEngine { human_side: PlayerColor::Black });
-                    let mini_board = MiniBoardWidget { board: state.board(), flipped: is_flipped };
+                    let is_flipped = matches!(
+                        state.mode,
+                        GameMode::HumanVsEngine {
+                            human_side: PlayerColor::Black
+                        }
+                    );
+                    let mini_board = MiniBoardWidget {
+                        board: state.board(),
+                        flipped: is_flipped,
+                    };
                     f.render_widget(mini_board, mini_area);
                 }
             } else {
-                let is_flipped = matches!(state.mode, GameMode::HumanVsEngine { human_side: PlayerColor::Black });
+                let is_flipped = matches!(
+                    state.mode,
+                    GameMode::HumanVsEngine {
+                        human_side: PlayerColor::Black
+                    }
+                );
                 let board_widget = BoardWidget {
                     client_state: state,
                     typeahead_squares: &typeahead_squares,
@@ -367,16 +409,19 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
             // === RIGHT PANELS ===
             let mut chunk_idx = 0;
 
-            let game_info = GameInfoPanel { client_state: state };
+            let game_info = GameInfoPanel {
+                client_state: state,
+            };
             f.render_widget(game_info, right_chunks[chunk_idx]);
             chunk_idx += 1;
 
             if show_engine_in_right {
                 let is_selected = selected_panel == Some(PaneId::EngineAnalysis);
                 let engine_panel = EngineAnalysisPanel::new(
-                    state.ui_state.engine_info.as_ref(),
-                    state.ui_state.is_engine_thinking,
-                    engine_scroll, is_selected,
+                    state.ui.engine_info.as_ref(),
+                    state.ui.is_engine_thinking,
+                    engine_scroll,
+                    is_selected,
                 );
                 f.render_widget(engine_panel, right_chunks[chunk_idx]);
                 chunk_idx += 1;
@@ -384,13 +429,14 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
 
             if show_history_in_right {
                 let is_selected = selected_panel == Some(PaneId::MoveHistory);
-                let history_widget = MoveHistoryPanel::new(state.history(), history_scroll, is_selected);
+                let history_widget =
+                    MoveHistoryPanel::new(state.history(), history_scroll, is_selected);
                 f.render_widget(history_widget, right_chunks[chunk_idx]);
             }
 
             if show_debug_panel {
                 let is_selected = selected_panel == Some(PaneId::UciDebug);
-                let uci_panel = UciDebugPanel::new(&state.ui_state.uci_log, debug_scroll, is_selected);
+                let uci_panel = UciDebugPanel::new(&state.ui.uci_log, debug_scroll, is_selected);
                 f.render_widget(uci_panel, content_chunks[1]);
             }
 
@@ -400,55 +446,100 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
             if !input_buffer.is_empty() {
                 controls_spans.push(Span::styled(
                     format!("Input: {} | ", input_buffer),
-                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
                 ));
             }
 
-            // Pause indicator for EvE mode
-            if matches!(state.mode, GameMode::EngineVsEngine) {
-                if state.ui_state.paused {
+            // Pause indicator
+            if matches!(state.mode, GameMode::HumanVsEngine { .. } | GameMode::EngineVsEngine) {
+                if state.ui.paused {
                     controls_spans.push(Span::styled(
                         "PAUSED",
                         Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
                     ));
                     controls_spans.push(Span::raw(" | "));
                 }
-                controls_spans.push(Span::styled("p", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)));
+                controls_spans.push(Span::styled(
+                    "p",
+                    Style::default()
+                        .fg(Color::Green)
+                        .add_modifier(Modifier::BOLD),
+                ));
                 controls_spans.push(Span::raw(" Pause | "));
             }
 
             if state.is_undo_allowed() {
-                controls_spans.push(Span::styled("u", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)));
+                controls_spans.push(Span::styled(
+                    "u",
+                    Style::default()
+                        .fg(Color::Green)
+                        .add_modifier(Modifier::BOLD),
+                ));
                 controls_spans.push(Span::raw(" Undo | "));
             }
-            controls_spans.push(Span::styled("Esc", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)));
+            controls_spans.push(Span::styled(
+                "Esc",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ));
             controls_spans.push(Span::raw(" Menu | "));
-            controls_spans.push(Span::styled("Tab", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)));
+            controls_spans.push(Span::styled(
+                "Tab",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ));
             controls_spans.push(Span::raw(" Panels | "));
-            controls_spans.push(Span::styled("\u{2190}\u{2192}", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)));
+            controls_spans.push(Span::styled(
+                "\u{2190}\u{2192}",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ));
             controls_spans.push(Span::raw(" Select | "));
-            controls_spans.push(Span::styled("\u{2191}\u{2193}", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)));
+            controls_spans.push(Span::styled(
+                "\u{2191}\u{2193}",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ));
             controls_spans.push(Span::raw(" Scroll | "));
-            controls_spans.push(Span::styled("@", Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)));
+            controls_spans.push(Span::styled(
+                "@",
+                Style::default()
+                    .fg(Color::Magenta)
+                    .add_modifier(Modifier::BOLD),
+            ));
             controls_spans.push(Span::raw(" UCI | "));
-            controls_spans.push(Span::styled("#", Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)));
+            controls_spans.push(Span::styled(
+                "#",
+                Style::default()
+                    .fg(Color::Magenta)
+                    .add_modifier(Modifier::BOLD),
+            ));
             controls_spans.push(Span::raw(" Engine | "));
-            controls_spans.push(Span::styled("Ctrl+C", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)));
+            controls_spans.push(Span::styled(
+                "Ctrl+C",
+                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+            ));
             controls_spans.push(Span::raw(" Quit"));
 
-            let controls_line = Paragraph::new(Line::from(controls_spans))
-                .style(Style::default().bg(Color::Black));
+            let controls_line =
+                Paragraph::new(Line::from(controls_spans)).style(Style::default().bg(Color::Black));
             f.render_widget(controls_line, main_vertical[1]);
 
             // Overlays
-            if matches!(state.ui_state.input_phase, InputPhase::SelectPromotion { .. }) {
+            if matches!(state.ui.input_phase, InputPhase::SelectPromotion { .. }) {
                 let promotion_widget = PromotionWidget {
-                    selected_piece: state.ui_state.selected_promotion_piece,
+                    selected_piece: state.ui.selected_promotion_piece,
                 };
                 f.render_widget(promotion_widget, f.area());
             }
 
-            if let Some(ref popup_state) = state.ui_state.popup_menu {
+            if let Some(ref popup_state) = state.ui.popup_menu {
                 let popup_widget = PopupMenuWidget { state: popup_state };
                 f.render_widget(popup_widget, f.area());
             }
@@ -461,35 +552,12 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
                 AppAction::Quit => return Ok(ExitReason::Quit),
                 AppAction::ReturnToMenu => return Ok(ExitReason::ReturnToMenu),
                 AppAction::SuspendAndReturnToMenu => {
-                    // Suspend via server RPC
-                    let game_mode_str = match &state.mode {
-                        GameMode::HumanVsHuman => "HumanVsHuman",
-                        GameMode::HumanVsEngine { .. } => "HumanVsEngine",
-                        GameMode::EngineVsEngine => "EngineVsEngine",
-                        GameMode::AnalysisMode => "AnalysisMode",
-                        GameMode::ReviewMode => "ReviewMode",
-                    };
-                    let human_side_str = match &state.mode {
-                        GameMode::HumanVsEngine { human_side: PlayerColor::Black } => Some("black"),
-                        GameMode::HumanVsEngine { human_side: PlayerColor::White } => Some("white"),
-                        _ => None,
-                    };
-                    if let Err(e) = state.client.suspend_session(
-                        game_mode_str,
-                        human_side_str,
-                        state.skill_level as u32,
-                    ).await {
+                    // Suspend via server RPC (server stores all session metadata)
+                    if let Err(e) = state.client.suspend_session().await {
                         tracing::error!("Failed to suspend session: {}", e);
                     }
                     return Ok(ExitReason::ReturnToMenu);
                 }
-            }
-        }
-
-        // Check for engine moves if it's engine's turn
-        if state.is_engine_turn() {
-            if let Err(e) = state.make_engine_move().await {
-                state.ui_state.status_message = Some(format!("Engine error: {}", e));
             }
         }
     }
@@ -502,11 +570,14 @@ pub(super) async fn handle_input(state: &mut ClientState, input: &str) {
     match input.as_str() {
         "undo" | "u" => {
             if !state.is_undo_allowed() {
-                state.ui_state.status_message = Some("Undo is only available in Human vs Engine mode with Beginner difficulty".to_string());
+                state.ui.status_message = Some(
+                    "Undo is only available in Human vs Engine mode with Beginner difficulty"
+                        .to_string(),
+                );
                 return;
             }
             if let Err(e) = state.undo().await {
-                state.ui_state.status_message = Some(format!("Undo error: {}", e));
+                state.ui.status_message = Some(format!("Undo error: {}", e));
             }
             return;
         }
@@ -515,29 +586,29 @@ pub(super) async fn handle_input(state: &mut ClientState, input: &str) {
 
     // Parse square notation (e.g., "e2", "e4")
     if input.len() == 2 {
-        use chess_common::parse_square;
+        use chess::parse_square;
         use cozy_chess::Piece;
 
-        match state.ui_state.input_phase {
+        match state.ui.input_phase {
             InputPhase::SelectPiece => {
                 if let Some(square) = parse_square(&input) {
-                    if state.ui_state.selectable_squares.contains(&square) {
+                    if state.ui.selectable_squares.contains(&square) {
                         state.select_square(square);
                     } else {
-                        state.ui_state.status_message =
+                        state.ui.status_message =
                             Some("No piece on that square or not your turn".to_string());
                     }
                 } else {
-                    state.ui_state.status_message = Some("Invalid square".to_string());
+                    state.ui.status_message = Some("Invalid square".to_string());
                 }
             }
             InputPhase::SelectDestination => {
                 if let Some(square) = parse_square(&input) {
                     if let Err(e) = state.try_move_to(square).await {
-                        state.ui_state.status_message = Some(format!("Move error: {}", e));
+                        state.ui.status_message = Some(format!("Move error: {}", e));
                     }
                 } else {
-                    state.ui_state.status_message = Some("Invalid square".to_string());
+                    state.ui.status_message = Some("Invalid square".to_string());
                 }
             }
             InputPhase::SelectPromotion { from, to } => {
@@ -547,7 +618,7 @@ pub(super) async fn handle_input(state: &mut ClientState, input: &str) {
                     "b" | "bishop" => Piece::Bishop,
                     "n" | "knight" => Piece::Knight,
                     _ => {
-                        state.ui_state.status_message = Some(
+                        state.ui.status_message = Some(
                             "Invalid promotion piece. Use q/r/b/n for queen/rook/bishop/knight"
                                 .to_string(),
                         );
@@ -556,13 +627,12 @@ pub(super) async fn handle_input(state: &mut ClientState, input: &str) {
                 };
 
                 if let Err(e) = state.execute_promotion(from, to, piece).await {
-                    state.ui_state.status_message = Some(format!("Promotion error: {}", e));
+                    state.ui.status_message = Some(format!("Promotion error: {}", e));
                 }
             }
         }
     } else {
-        state.ui_state.status_message = Some(
-            "Enter a square (e.g., 'e2'). Use 'undo' for special commands".to_string(),
-        );
+        state.ui.status_message =
+            Some("Enter a square (e.g., 'e2'). Use 'undo' for special commands".to_string());
     }
 }

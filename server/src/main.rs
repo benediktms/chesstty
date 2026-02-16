@@ -28,10 +28,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let defaults_dir = Some(config::get_defaults_dir());
 
     tracing::info!("Using data directory: {}", data_dir.display());
-    tracing::info!("Using defaults directory: {:?}", defaults_dir.as_ref().map(|d| d.display()));
+    tracing::info!(
+        "Using defaults directory: {:?}",
+        defaults_dir.as_ref().map(|d| d.display())
+    );
+
+    // Create persistence stores
+    let session_store = persistence::SessionStore::new(data_dir.join("sessions"));
+    let position_store = persistence::PositionStore::new(data_dir.join("positions"), defaults_dir);
 
     // Create session manager
-    let session_manager = Arc::new(SessionManager::new(data_dir, defaults_dir));
+    let session_manager = Arc::new(SessionManager::new(session_store, position_store));
 
     // Create service
     let service = ChessServiceImpl::new(session_manager.clone());

@@ -46,8 +46,7 @@ impl SessionStore {
         let path = self.file_path(&data.suspended_id);
         let json = serde_json::to_string_pretty(data)
             .map_err(|e| format!("Failed to serialize session: {}", e))?;
-        std::fs::write(&path, json)
-            .map_err(|e| format!("Failed to write session file: {}", e))?;
+        std::fs::write(&path, json).map_err(|e| format!("Failed to write session file: {}", e))?;
         Ok(data.suspended_id.clone())
     }
 
@@ -159,7 +158,10 @@ impl PositionStore {
     }
 
     fn new_in(dir: PathBuf) -> Self {
-        Self { dir, defaults_dir: None }
+        Self {
+            dir,
+            defaults_dir: None,
+        }
     }
 
     fn ensure_dir(&self) -> Result<(), String> {
@@ -187,7 +189,11 @@ impl PositionStore {
             let defaults_positions_dir = defaults_dir.join("positions");
             if defaults_positions_dir.exists() {
                 if let Err(e) = self.copy_defaults_from(&defaults_positions_dir) {
-                    tracing::warn!("Failed to copy defaults from {:?}: {}", defaults_positions_dir, e);
+                    tracing::warn!(
+                        "Failed to copy defaults from {:?}: {}",
+                        defaults_positions_dir,
+                        e
+                    );
                     self.create_fallback_defaults();
                 }
                 return;
@@ -224,9 +230,10 @@ impl PositionStore {
 
     /// Create minimal hardcoded defaults as fallback.
     fn create_fallback_defaults(&self) {
-        let defaults = vec![
-            ("Standard Starting Position", "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"),
-        ];
+        let defaults = vec![(
+            "Standard Starting Position",
+            "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+        )];
 
         for (name, fen) in defaults {
             let id = format!("default_{}", name.to_lowercase().replace(' ', "_"));
@@ -248,8 +255,7 @@ impl PositionStore {
         let path = self.file_path(&data.position_id);
         let json = serde_json::to_string_pretty(data)
             .map_err(|e| format!("Failed to serialize position: {}", e))?;
-        std::fs::write(&path, json)
-            .map_err(|e| format!("Failed to write position file: {}", e))?;
+        std::fs::write(&path, json).map_err(|e| format!("Failed to write position file: {}", e))?;
         Ok(data.position_id.clone())
     }
 
@@ -275,13 +281,11 @@ impl PositionStore {
         }
 
         // Sort: defaults first (by name), then user positions by created_at descending
-        positions.sort_by(|a, b| {
-            match (a.is_default, b.is_default) {
-                (true, false) => std::cmp::Ordering::Less,
-                (false, true) => std::cmp::Ordering::Greater,
-                (true, true) => a.name.cmp(&b.name),
-                (false, false) => b.created_at.cmp(&a.created_at),
-            }
+        positions.sort_by(|a, b| match (a.is_default, b.is_default) {
+            (true, false) => std::cmp::Ordering::Less,
+            (false, true) => std::cmp::Ordering::Greater,
+            (true, true) => a.name.cmp(&b.name),
+            (false, false) => b.created_at.cmp(&a.created_at),
         });
 
         Ok(positions)
@@ -408,7 +412,9 @@ mod tests {
     fn test_position_save_and_list() {
         let dir = tempfile::tempdir().unwrap();
         let store = PositionStore::new_in(dir.path().join("positions"));
-        store.save(&sample_position("p1", "My Opening", false)).unwrap();
+        store
+            .save(&sample_position("p1", "My Opening", false))
+            .unwrap();
         store.save(&sample_position("p2", "Default", true)).unwrap();
 
         let list = store.list().unwrap();
@@ -421,7 +427,9 @@ mod tests {
     fn test_position_delete_user() {
         let dir = tempfile::tempdir().unwrap();
         let store = PositionStore::new_in(dir.path().join("positions"));
-        store.save(&sample_position("user1", "My Pos", false)).unwrap();
+        store
+            .save(&sample_position("user1", "My Pos", false))
+            .unwrap();
         store.delete("user1").unwrap();
         assert!(store.list().unwrap().is_empty());
     }
@@ -430,7 +438,9 @@ mod tests {
     fn test_position_cannot_delete_default() {
         let dir = tempfile::tempdir().unwrap();
         let store = PositionStore::new_in(dir.path().join("positions"));
-        store.save(&sample_position("def1", "Default Pos", true)).unwrap();
+        store
+            .save(&sample_position("def1", "Default Pos", true))
+            .unwrap();
         let result = store.delete("def1");
         assert!(result.is_err());
     }

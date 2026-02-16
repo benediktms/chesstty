@@ -94,7 +94,11 @@ impl Widget for PopupMenuWidget<'_> {
         let block = Block::default()
             .title(" Menu ")
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
+            .border_style(
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            )
             .style(Style::default().bg(Color::Black));
 
         let inner = block.inner(popup_area);

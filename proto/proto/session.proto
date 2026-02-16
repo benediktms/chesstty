@@ -9,7 +9,9 @@ import "engine.proto";
 // ============================================================================
 
 message CreateSessionRequest {
-  optional string fen = 1;  // null = standard starting position
+  optional string fen = 1;
+  optional GameModeProto game_mode = 2;
+  optional TimerState timer = 3;
 }
 
 message GetSessionRequest {
@@ -20,10 +22,28 @@ message CloseSessionRequest {
   string session_id = 1;
 }
 
+// Full session state snapshot — the primary state carrier
+message SessionSnapshot {
+  string session_id = 1;
+  string fen = 2;
+  string side_to_move = 3;
+  GamePhase phase = 4;
+  GameStatus status = 5;
+  uint32 move_count = 6;
+  repeated MoveRecord history = 7;
+  optional LastMove last_move = 8;
+  optional EngineAnalysis analysis = 9;
+  optional EngineConfig engine_config = 10;
+  optional GameModeProto game_mode = 11;
+  bool engine_thinking = 12;
+  optional TimerState timer = 13;
+}
+
+// Kept for backward compat during migration
 message SessionInfo {
   string session_id = 1;
   string fen = 2;
-  string side_to_move = 3;  // "white" | "black"
+  string side_to_move = 3;
   GameStatus status = 4;
   uint32 move_count = 5;
   repeated MoveRecord history = 6;

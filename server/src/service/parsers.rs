@@ -1,6 +1,6 @@
 //! Parsing functions from protobuf types to domain types
 
-use chess_common::{format_square, parse_file, parse_piece, parse_rank, parse_square};
+use ::chess::{format_square, parse_file, parse_piece, parse_rank, parse_square};
 use chess_proto::*;
 use cozy_chess::{File as CozyFile, Move, Piece, Rank, Square};
 use tonic::Status;

@@ -9,7 +9,7 @@ path = "src/main.rs"
 
 [dependencies]
 chess-client = { path = "../chess-client" }
-chess-common = { path = "../chess-common" }
+chess = { path = "../chess" }
 
 tokio = { workspace = true }
 tonic = { workspace = true }

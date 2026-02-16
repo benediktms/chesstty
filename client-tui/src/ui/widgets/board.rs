@@ -126,7 +126,11 @@ impl Widget for BoardWidget<'_> {
         for rank_idx in 0..8 {
             let y = board_start_y + (rank_idx as u16 * board_size.square_height) + 2;
             if y < inner.bottom() {
-                let rank_num = if self.flipped { rank_idx + 1 } else { 8 - rank_idx };
+                let rank_num = if self.flipped {
+                    rank_idx + 1
+                } else {
+                    8 - rank_idx
+                };
                 let rank_label = format!("{} ", rank_num);
                 buf.set_string(
                     board_start_x.saturating_sub(2),
@@ -173,22 +177,18 @@ impl Widget for BoardWidget<'_> {
                 // Check if this square is selected
                 let is_selected = self
                     .client_state
-                    .ui_state
+                    .ui
                     .selected_square
                     .map(|s| s == square)
                     .unwrap_or(false);
 
                 // Check if this square is highlighted (legal move destination)
-                let is_highlighted = self
-                    .client_state
-                    .ui_state
-                    .highlighted_squares
-                    .contains(&square);
+                let is_highlighted = self.client_state.ui.highlighted_squares.contains(&square);
 
                 // Check if this is part of the last move
                 let is_last_move = self
                     .client_state
-                    .ui_state
+                    .ui
                     .last_move
                     .map(|(from, to)| from == square || to == square)
                     .unwrap_or(false);

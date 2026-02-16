@@ -28,18 +28,30 @@ impl ChessClient {
     }
 
     /// Create a new game session
-    pub async fn create_session(&mut self, fen: Option<String>) -> ClientResult<SessionInfo> {
-        let request = CreateSessionRequest { fen };
+    pub async fn create_session(
+        &mut self,
+        fen: Option<String>,
+        game_mode: Option<GameModeProto>,
+        timer: Option<TimerState>,
+    ) -> ClientResult<SessionSnapshot> {
+        let request = CreateSessionRequest {
+            fen,
+            game_mode,
+            timer,
+        };
         let response = self.client.create_session(request).await?;
-        let session_info = response.into_inner();
+        let snapshot = response.into_inner();
 
-        self.session_id = Some(session_info.session_id.clone());
-        Ok(session_info)
+        self.session_id = Some(snapshot.session_id.clone());
+        Ok(snapshot)
     }
 
-    /// Get current session info
-    pub async fn get_session(&mut self) -> ClientResult<SessionInfo> {
-        let session_id = self.session_id.as_ref().ok_or(ClientError::NoActiveSession)?;
+    /// Get current session snapshot
+    pub async fn get_session(&mut self) -> ClientResult<SessionSnapshot> {
+        let session_id = self
+            .session_id
+            .as_ref()
+            .ok_or(ClientError::NoActiveSession)?;
 
         let request = GetSessionRequest {
             session_id: session_id.clone(),
@@ -55,8 +67,11 @@ impl ChessClient {
         from: &str,
         to: &str,
         promotion: Option<String>,
-    ) -> ClientResult<MakeMoveResponse> {
-        let session_id = self.session_id.as_ref().ok_or(ClientError::NoActiveSession)?;
+    ) -> ClientResult<SessionSnapshot> {
+        let session_id = self
+            .session_id
+            .as_ref()
+            .ok_or(ClientError::NoActiveSession)?;
 
         let request = MakeMoveRequest {
             session_id: session_id.clone(),
@@ -76,7 +91,10 @@ impl ChessClient {
         &mut self,
         from_square: Option<String>,
     ) -> ClientResult<Vec<MoveDetail>> {
-        let session_id = self.session_id.as_ref().ok_or(ClientError::NoActiveSession)?;
+        let session_id = self
+            .session_id
+            .as_ref()
+            .ok_or(ClientError::NoActiveSession)?;
 
         let request = GetLegalMovesRequest {
             session_id: session_id.clone(),
@@ -88,8 +106,11 @@ impl ChessClient {
     }
 
     /// Undo the last move
-    pub async fn undo_move(&mut self) -> ClientResult<SessionInfo> {
-        let session_id = self.session_id.as_ref().ok_or(ClientError::NoActiveSession)?;
+    pub async fn undo_move(&mut self) -> ClientResult<SessionSnapshot> {
+        let session_id = self
+            .session_id
+            .as_ref()
+            .ok_or(ClientError::NoActiveSession)?;
 
         let request = UndoMoveRequest {
             session_id: session_id.clone(),
@@ -99,9 +120,27 @@ impl ChessClient {
         Ok(response.into_inner())
     }
 
+    /// Redo a previously undone move
+    pub async fn redo_move(&mut self) -> ClientResult<SessionSnapshot> {
+        let session_id = self
+            .session_id
+            .as_ref()
+            .ok_or(ClientError::NoActiveSession)?;
+
+        let request = RedoMoveRequest {
+            session_id: session_id.clone(),
+        };
+
+        let response = self.client.redo_move(request).await?;
+        Ok(response.into_inner())
+    }
+
     /// Reset the game
-    pub async fn reset_game(&mut self, fen: Option<String>) -> ClientResult<SessionInfo> {
-        let session_id = self.session_id.as_ref().ok_or(ClientError::NoActiveSession)?;
+    pub async fn reset_game(&mut self, fen: Option<String>) -> ClientResult<SessionSnapshot> {
+        let session_id = self
+            .session_id
+            .as_ref()
+            .ok_or(ClientError::NoActiveSession)?;
 
         let request = ResetGameRequest {
             session_id: session_id.clone(),
@@ -120,7 +159,10 @@ impl ChessClient {
         threads: Option<u32>,
         hash_mb: Option<u32>,
     ) -> ClientResult<()> {
-        let session_id = self.session_id.as_ref().ok_or(ClientError::NoActiveSession)?;
+        let session_id = self
+            .session_id
+            .as_ref()
+            .ok_or(ClientError::NoActiveSession)?;
 
         let request = SetEngineRequest {
             session_id: session_id.clone(),
@@ -134,22 +176,42 @@ impl ChessClient {
         Ok(())
     }
 
-    /// Trigger the engine to make a move
-    pub async fn trigger_engine_move(&mut self, movetime_ms: Option<u64>) -> ClientResult<()> {
-        let session_id = self.session_id.as_ref().ok_or(ClientError::NoActiveSession)?;
+    /// Pause the current session
+    pub async fn pause(&mut self) -> ClientResult<()> {
+        let session_id = self
+            .session_id
+            .as_ref()
+            .ok_or(ClientError::NoActiveSession)?;
 
-        let request = TriggerEngineMoveRequest {
+        let request = PauseSessionRequest {
             session_id: session_id.clone(),
-            movetime_ms,
         };
 
-        self.client.trigger_engine_move(request).await?;
+        self.client.pause_session(request).await?;
         Ok(())
     }
 
-    /// Subscribe to game events (streaming)
-    pub async fn stream_events(&mut self) -> ClientResult<tonic::Streaming<GameEvent>> {
-        let session_id = self.session_id.as_ref().ok_or(ClientError::NoActiveSession)?;
+    /// Resume the current session
+    pub async fn resume(&mut self) -> ClientResult<()> {
+        let session_id = self
+            .session_id
+            .as_ref()
+            .ok_or(ClientError::NoActiveSession)?;
+
+        let request = ResumeSessionRequest {
+            session_id: session_id.clone(),
+        };
+
+        self.client.resume_session(request).await?;
+        Ok(())
+    }
+
+    /// Subscribe to session events (streaming)
+    pub async fn stream_events(&mut self) -> ClientResult<tonic::Streaming<SessionStreamEvent>> {
+        let session_id = self
+            .session_id
+            .as_ref()
+            .ok_or(ClientError::NoActiveSession)?;
 
         let request = StreamEventsRequest {
             session_id: session_id.clone(),
@@ -169,19 +231,14 @@ impl ChessClient {
     }
 
     /// Suspend the current session
-    pub async fn suspend_session(
-        &mut self,
-        game_mode: &str,
-        human_side: Option<&str>,
-        skill_level: u32,
-    ) -> ClientResult<String> {
-        let session_id = self.session_id.as_ref().ok_or(ClientError::NoActiveSession)?;
+    pub async fn suspend_session(&mut self) -> ClientResult<String> {
+        let session_id = self
+            .session_id
+            .as_ref()
+            .ok_or(ClientError::NoActiveSession)?;
 
         let request = SuspendSessionRequest {
             session_id: session_id.clone(),
-            game_mode: game_mode.to_string(),
-            human_side: human_side.map(|s| s.to_string()),
-            skill_level,
         };
 
         let response = self.client.suspend_session(request).await?;
@@ -197,14 +254,17 @@ impl ChessClient {
     }
 
     /// Resume a suspended session
-    pub async fn resume_suspended_session(&mut self, suspended_id: &str) -> ClientResult<SessionInfo> {
+    pub async fn resume_suspended_session(
+        &mut self,
+        suspended_id: &str,
+    ) -> ClientResult<SessionSnapshot> {
         let request = ResumeSuspendedSessionRequest {
             suspended_id: suspended_id.to_string(),
         };
         let response = self.client.resume_suspended_session(request).await?;
-        let info = response.into_inner();
-        self.session_id = Some(info.session_id.clone());
-        Ok(info)
+        let snapshot = response.into_inner();
+        self.session_id = Some(snapshot.session_id.clone());
+        Ok(snapshot)
     }
 
     /// Delete a suspended session

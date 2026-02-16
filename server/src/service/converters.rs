@@ -1,48 +1,52 @@
 //! Conversion functions from domain types to protobuf types
 
-use crate::session::{SessionEvent, SessionInfo, UciMessageDirection};
-use ::chess::HistoryEntry;
-use chess_common::{format_color, format_piece, format_piece_upper, format_square, format_uci_move};
+use crate::session::commands::EngineConfig;
+use crate::session::snapshot::MoveRecord;
+use crate::session::{SessionEvent, SessionSnapshot, TimerSnapshot, UciDirection};
+use ::chess::{AnalysisScore, EngineAnalysis, GameMode, GamePhase, PlayerSide};
 use chess_proto::*;
 use cozy_chess::GameStatus as CozyGameStatus;
 
-pub fn convert_session_info_to_proto(info: SessionInfo) -> chess_proto::SessionInfo {
-    chess_proto::SessionInfo {
-        session_id: info.id,
-        fen: info.fen,
-        side_to_move: format_color(info.side_to_move),
-        status: convert_game_status(info.status) as i32,
-        move_count: info.move_count as u32,
-        history: info
+/// Convert a domain SessionSnapshot into the proto SessionSnapshot.
+pub fn convert_snapshot_to_proto(snap: SessionSnapshot) -> chess_proto::SessionSnapshot {
+    chess_proto::SessionSnapshot {
+        session_id: snap.session_id,
+        fen: snap.fen,
+        side_to_move: snap.side_to_move,
+        phase: convert_game_phase_to_proto(&snap.phase) as i32,
+        status: convert_game_status(snap.status) as i32,
+        move_count: snap.move_count as u32,
+        history: snap
             .history
             .iter()
-            .map(convert_history_entry_to_proto)
+            .map(convert_move_record_to_proto)
             .collect(),
-        engine_config: if info.engine_enabled {
-            Some(EngineConfig {
-                enabled: info.engine_enabled,
-                skill_level: info.skill_level as u32,
-                threads: 0,  // Not tracked per-session currently
-                hash_mb: 0,
-            })
-        } else {
-            None
-        },
+        last_move: snap.last_move.map(|(from, to)| LastMove { from, to }),
+        analysis: snap.analysis.as_ref().map(convert_engine_analysis_to_proto),
+        engine_config: snap
+            .engine_config
+            .as_ref()
+            .map(convert_engine_config_to_proto),
+        game_mode: Some(convert_game_mode_to_proto(&snap.game_mode)),
+        engine_thinking: snap.engine_thinking,
+        timer: snap.timer.as_ref().map(convert_timer_to_proto),
     }
 }
 
-pub fn convert_history_entry_to_proto(entry: &HistoryEntry) -> MoveRecord {
-    MoveRecord {
-        from: format_square(entry.from),
-        to: format_square(entry.to),
-        piece: format_piece_upper(entry.piece).to_string(),
-        captured: entry.captured.map(|p| format_piece_upper(p).to_string()),
-        san: entry.san.clone(),
-        fen_after: entry.fen.clone(),
-        promotion: entry.promotion.map(|p| format_piece(p).to_string()),
+/// Convert a domain MoveRecord to the proto MoveRecord.
+pub fn convert_move_record_to_proto(record: &MoveRecord) -> chess_proto::MoveRecord {
+    chess_proto::MoveRecord {
+        from: record.from.clone(),
+        to: record.to.clone(),
+        piece: record.piece.clone(),
+        captured: record.captured.clone(),
+        san: record.san.clone(),
+        fen_after: record.fen_after.clone(),
+        promotion: record.promotion.clone(),
     }
 }
 
+/// Convert a cozy_chess GameStatus to the proto GameStatus enum.
 pub fn convert_game_status(status: CozyGameStatus) -> GameStatus {
     match status {
         CozyGameStatus::Ongoing => GameStatus::Ongoing,
@@ -51,130 +55,223 @@ pub fn convert_game_status(status: CozyGameStatus) -> GameStatus {
     }
 }
 
-pub fn convert_session_event_to_proto(event: SessionEvent, session_id: &str) -> Option<GameEvent> {
-    match event {
-        SessionEvent::MoveMade {
-            from,
-            to,
-            san,
-            fen,
-            status,
-        } => Some(GameEvent {
-            event: Some(game_event::Event::MoveMade(MoveMadeEvent {
-                session_id: session_id.to_string(),
-                r#move: Some(MoveRecord {
-                    from: format_square(from),
-                    to: format_square(to),
-                    piece: String::new(), // Would need to track
-                    captured: None,
-                    san,
-                    fen_after: fen.clone(),
-                    promotion: None,
-                }),
-                new_fen: fen,
-                status: convert_game_status(status) as i32,
-            })),
-        }),
-        SessionEvent::EngineMoveReady {
-            best_move,
-            evaluation,
-        } => Some(GameEvent {
-            event: Some(game_event::Event::EngineMoveReady(EngineMoveReadyEvent {
-                session_id: session_id.to_string(),
-                r#move: Some(MoveRepr {
-                    from: format_square(best_move.from),
-                    to: format_square(best_move.to),
-                    promotion: best_move.promotion.map(|p| format_piece(p).to_string()),
-                }),
-                evaluation,
-            })),
-        }),
-        SessionEvent::EngineThinking { info } => Some(GameEvent {
-            event: Some(game_event::Event::EngineThinking(EngineThinkingEvent {
-                session_id: session_id.to_string(),
-                info: Some(EngineInfo {
-                    depth: info.depth.map(|d| d as u32),
-                    seldepth: info.seldepth.map(|d| d as u32),
-                    time_ms: info.time_ms,
-                    nodes: info.nodes,
-                    score: info.score.map(|s| format!("{:?}", s)),
-                    pv: info.pv.iter().map(|mv| format_uci_move(*mv)).collect(),
-                    nps: info.nps,
-                }),
-            })),
-        }),
-        SessionEvent::GameEnded { result, reason } => {
-            // Determine winner from result
-            let winner = if result == "1-0" {
-                "white".to_string()
-            } else if result == "0-1" {
-                "black".to_string()
-            } else {
-                String::new() // Draw
-            };
+/// Convert the domain GamePhase to the proto GamePhase enum.
+pub fn convert_game_phase_to_proto(phase: &GamePhase) -> chess_proto::GamePhase {
+    match phase {
+        GamePhase::Setup => chess_proto::GamePhase::Setup,
+        GamePhase::Playing { .. } => chess_proto::GamePhase::Playing,
+        GamePhase::Paused { .. } => chess_proto::GamePhase::Paused,
+        GamePhase::Ended { .. } => chess_proto::GamePhase::Ended,
+        GamePhase::Analyzing => chess_proto::GamePhase::Analyzing,
+    }
+}
 
-            Some(GameEvent {
-                event: Some(game_event::Event::GameEnded(GameEndedEvent {
-                    session_id: session_id.to_string(),
-                    result,
-                    reason,
-                    winner,
-                })),
-            })
-        }
-        SessionEvent::Error { message } => Some(GameEvent {
-            event: Some(game_event::Event::Error(ErrorEvent {
-                session_id: session_id.to_string(),
-                error_message: message,
-            })),
+/// Convert the domain GameMode to the proto GameModeProto message.
+pub fn convert_game_mode_to_proto(mode: &GameMode) -> GameModeProto {
+    match mode {
+        GameMode::HumanVsHuman => GameModeProto {
+            mode: GameModeType::HumanVsHuman as i32,
+            human_side: None,
+        },
+        GameMode::HumanVsEngine { human_side } => GameModeProto {
+            mode: GameModeType::HumanVsEngine as i32,
+            human_side: Some(match human_side {
+                PlayerSide::White => PlayerSideProto::White as i32,
+                PlayerSide::Black => PlayerSideProto::Black as i32,
+            }),
+        },
+        GameMode::EngineVsEngine => GameModeProto {
+            mode: GameModeType::EngineVsEngine as i32,
+            human_side: None,
+        },
+        GameMode::Analysis => GameModeProto {
+            mode: GameModeType::Analysis as i32,
+            human_side: None,
+        },
+        GameMode::Review => GameModeProto {
+            mode: GameModeType::Review as i32,
+            human_side: None,
+        },
+    }
+}
+
+/// Convert the domain EngineAnalysis to the proto EngineAnalysis message.
+pub fn convert_engine_analysis_to_proto(analysis: &EngineAnalysis) -> chess_proto::EngineAnalysis {
+    chess_proto::EngineAnalysis {
+        depth: analysis.depth,
+        seldepth: analysis.seldepth,
+        time_ms: analysis.time_ms,
+        nodes: analysis.nodes,
+        score: analysis.score.as_ref().map(|s| match s {
+            AnalysisScore::Centipawns(cp) => format!("cp {}", cp),
+            AnalysisScore::Mate(m) => format!("mate {}", m),
         }),
-        SessionEvent::UciMessage {
-            direction,
-            message,
-            context,
-        } => Some(GameEvent {
-            event: Some(game_event::Event::UciMessage(UciMessageEvent {
-                session_id: session_id.to_string(),
-                direction: match direction {
-                    UciMessageDirection::ToEngine => UciDirection::ToEngine as i32,
-                    UciMessageDirection::FromEngine => UciDirection::FromEngine as i32,
+        pv: analysis.pv.clone(),
+        nps: analysis.nps,
+    }
+}
+
+/// Convert the domain EngineConfig to the proto EngineConfig message.
+pub fn convert_engine_config_to_proto(config: &EngineConfig) -> chess_proto::EngineConfig {
+    chess_proto::EngineConfig {
+        enabled: config.enabled,
+        skill_level: config.skill_level as u32,
+        threads: config.threads.unwrap_or(0),
+        hash_mb: config.hash_mb.unwrap_or(0),
+    }
+}
+
+/// Convert the domain TimerSnapshot to the proto TimerState message.
+pub fn convert_timer_to_proto(timer: &TimerSnapshot) -> chess_proto::TimerState {
+    chess_proto::TimerState {
+        white_remaining_ms: timer.white_remaining_ms,
+        black_remaining_ms: timer.black_remaining_ms,
+        active_side: timer.active_side.clone(),
+    }
+}
+
+/// Convert a domain SessionEvent into a proto SessionStreamEvent.
+pub fn convert_session_event_to_proto(event: SessionEvent, session_id: &str) -> SessionStreamEvent {
+    let session_id = session_id.to_string();
+    match event {
+        SessionEvent::StateChanged(snapshot) => SessionStreamEvent {
+            session_id,
+            event: Some(session_stream_event::Event::StateChanged(
+                convert_snapshot_to_proto(snapshot),
+            )),
+        },
+        SessionEvent::EngineThinking(analysis) => SessionStreamEvent {
+            session_id,
+            event: Some(session_stream_event::Event::EngineThinking(
+                convert_engine_analysis_to_proto(&analysis),
+            )),
+        },
+        SessionEvent::UciMessage(entry) => SessionStreamEvent {
+            session_id,
+            event: Some(session_stream_event::Event::UciMessage(UciMessageEvent {
+                session_id: String::new(),
+                direction: match entry.direction {
+                    UciDirection::ToEngine => chess_proto::UciDirection::ToEngine as i32,
+                    UciDirection::FromEngine => chess_proto::UciDirection::FromEngine as i32,
                 },
-                message,
-                context,
+                message: entry.message,
+                context: entry.context,
             })),
-        }),
+        },
+        SessionEvent::Error(message) => SessionStreamEvent {
+            session_id,
+            event: Some(session_stream_event::Event::Error(message)),
+        },
+    }
+}
+
+/// Parse a proto GameModeProto into a domain GameMode.
+/// Defaults to HumanVsHuman when the mode value is unrecognized.
+pub fn parse_game_mode_from_proto(proto: &GameModeProto) -> GameMode {
+    match GameModeType::try_from(proto.mode) {
+        Ok(GameModeType::HumanVsEngine) => {
+            let human_side = match proto
+                .human_side
+                .and_then(|v| PlayerSideProto::try_from(v).ok())
+            {
+                Some(PlayerSideProto::Black) => PlayerSide::Black,
+                _ => PlayerSide::White,
+            };
+            GameMode::HumanVsEngine { human_side }
+        }
+        Ok(GameModeType::EngineVsEngine) => GameMode::EngineVsEngine,
+        Ok(GameModeType::Analysis) => GameMode::Analysis,
+        Ok(GameModeType::Review) => GameMode::Review,
+        Ok(GameModeType::HumanVsHuman) | Err(_) => GameMode::HumanVsHuman,
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cozy_chess::{Color, Square, File, Rank};
+    use ::chess::GamePhase;
 
     #[test]
     fn test_convert_game_status() {
-        assert_eq!(convert_game_status(CozyGameStatus::Ongoing), GameStatus::Ongoing);
+        assert_eq!(
+            convert_game_status(CozyGameStatus::Ongoing),
+            GameStatus::Ongoing
+        );
         assert_eq!(convert_game_status(CozyGameStatus::Won), GameStatus::Won);
-        assert_eq!(convert_game_status(CozyGameStatus::Drawn), GameStatus::Drawn);
+        assert_eq!(
+            convert_game_status(CozyGameStatus::Drawn),
+            GameStatus::Drawn
+        );
     }
 
     #[test]
-    fn test_convert_session_info_basic() {
-        let info = SessionInfo {
-            id: "test123".to_string(),
-            fen: "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1".to_string(),
-            side_to_move: Color::White,
-            status: CozyGameStatus::Ongoing,
-            move_count: 0,
-            history: vec![],
-            engine_enabled: false,
-            skill_level: 10,
-        };
+    fn test_convert_game_phase() {
+        assert_eq!(
+            convert_game_phase_to_proto(&GamePhase::Setup),
+            chess_proto::GamePhase::Setup
+        );
+        assert_eq!(
+            convert_game_phase_to_proto(&GamePhase::Playing {
+                turn: cozy_chess::Color::White
+            }),
+            chess_proto::GamePhase::Playing
+        );
+        assert_eq!(
+            convert_game_phase_to_proto(&GamePhase::Paused {
+                resume_turn: cozy_chess::Color::White
+            }),
+            chess_proto::GamePhase::Paused
+        );
+        assert_eq!(
+            convert_game_phase_to_proto(&GamePhase::Analyzing),
+            chess_proto::GamePhase::Analyzing
+        );
+    }
 
-        let proto = convert_session_info_to_proto(info);
-        assert_eq!(proto.session_id, "test123");
-        assert_eq!(proto.side_to_move, "white");
-        assert_eq!(proto.move_count, 0);
-        assert!(proto.engine_config.is_none());
+    #[test]
+    fn test_convert_game_mode_human_vs_human() {
+        let proto = convert_game_mode_to_proto(&GameMode::HumanVsHuman);
+        assert_eq!(proto.mode, GameModeType::HumanVsHuman as i32);
+        assert!(proto.human_side.is_none());
+    }
+
+    #[test]
+    fn test_convert_game_mode_human_vs_engine() {
+        let proto = convert_game_mode_to_proto(&GameMode::HumanVsEngine {
+            human_side: PlayerSide::Black,
+        });
+        assert_eq!(proto.mode, GameModeType::HumanVsEngine as i32);
+        assert_eq!(proto.human_side, Some(PlayerSideProto::Black as i32));
+    }
+
+    #[test]
+    fn test_parse_game_mode_roundtrip() {
+        let modes = vec![
+            GameMode::HumanVsHuman,
+            GameMode::HumanVsEngine {
+                human_side: PlayerSide::White,
+            },
+            GameMode::HumanVsEngine {
+                human_side: PlayerSide::Black,
+            },
+            GameMode::EngineVsEngine,
+            GameMode::Analysis,
+            GameMode::Review,
+        ];
+        for mode in modes {
+            let proto = convert_game_mode_to_proto(&mode);
+            let parsed = parse_game_mode_from_proto(&proto);
+            assert_eq!(format!("{:?}", mode), format!("{:?}", parsed));
+        }
+    }
+
+    #[test]
+    fn test_parse_game_mode_unknown_defaults() {
+        let proto = GameModeProto {
+            mode: 99, // unrecognized enum value
+            human_side: None,
+        };
+        let mode = parse_game_mode_from_proto(&proto);
+        assert!(matches!(mode, GameMode::HumanVsHuman));
     }
 }

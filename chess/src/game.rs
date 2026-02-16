@@ -6,7 +6,7 @@ use std::collections::HashMap;
 pub struct Game {
     position: Board,
     history: Vec<HistoryEntry>,
-    redo_stack: Vec<HistoryEntry>,  // Stack for redo operations
+    redo_stack: Vec<HistoryEntry>, // Stack for redo operations
     pgn_tags: HashMap<String, String>,
     start_position: StartPosition,
 }
@@ -26,7 +26,7 @@ pub struct HistoryEntry {
     pub castling_rights: u8,
     pub en_passant: Option<Square>,
     pub halfmove_clock: u8,
-    pub board_before: Board,      // Board state before this move (for O(1) undo)
+    pub board_before: Board, // Board state before this move (for O(1) undo)
 }
 
 /// Starting position of the game
@@ -34,6 +34,85 @@ pub struct HistoryEntry {
 pub enum StartPosition {
     Standard,
     Fen(String),
+}
+
+/// High-level game phase state machine.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GamePhase {
+    Setup,
+    Playing { turn: Color },
+    Paused { resume_turn: Color },
+    Ended { result: GameResult, reason: String },
+    Analyzing,
+}
+
+/// Outcome of a finished game.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GameResult {
+    WhiteWins,
+    BlackWins,
+    Draw,
+}
+
+impl GamePhase {
+    /// Derive the current phase from game state.
+    pub fn from_game(game: &Game) -> Self {
+        match game.status() {
+            GameStatus::Ongoing => GamePhase::Playing {
+                turn: game.side_to_move(),
+            },
+            GameStatus::Won => {
+                let result = if game.side_to_move() == Color::White {
+                    GameResult::BlackWins
+                } else {
+                    GameResult::WhiteWins
+                };
+                GamePhase::Ended {
+                    result,
+                    reason: "Checkmate".to_string(),
+                }
+            }
+            GameStatus::Drawn => GamePhase::Ended {
+                result: GameResult::Draw,
+                reason: "Draw".to_string(),
+            },
+        }
+    }
+}
+
+/// Determines who controls each side.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GameMode {
+    HumanVsHuman,
+    HumanVsEngine { human_side: PlayerSide },
+    EngineVsEngine,
+    Analysis,
+    Review,
+}
+
+/// Which side a player is on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlayerSide {
+    White,
+    Black,
+}
+
+impl From<Color> for PlayerSide {
+    fn from(c: Color) -> Self {
+        match c {
+            Color::White => PlayerSide::White,
+            Color::Black => PlayerSide::Black,
+        }
+    }
+}
+
+impl From<PlayerSide> for Color {
+    fn from(s: PlayerSide) -> Self {
+        match s {
+            PlayerSide::White => Color::White,
+            PlayerSide::Black => Color::Black,
+        }
+    }
 }
 
 impl Game {

@@ -20,6 +20,8 @@ pub struct EngineConfig {
     pub skill_level: Option<u8>,
     pub threads: Option<u32>,
     pub hash_mb: Option<u32>,
+    /// Label for tracing (e.g., session ID). Propagated to spawned tasks.
+    pub label: Option<String>,
 }
 
 impl StockfishEngine {
@@ -74,68 +76,73 @@ impl StockfishEngine {
         // Spawn output reader task
         tracing::debug!("Spawning output reader task");
         let event_tx_clone = event_tx.clone();
-        tokio::spawn(async move {
-            let mut reader = BufReader::new(stdout);
-            let mut line = String::new();
+        let label = config.label.clone().unwrap_or_default();
+        let reader_span = tracing::info_span!("stockfish", session = %label);
+        tokio::spawn(tracing::Instrument::instrument(
+            async move {
+                let mut reader = BufReader::new(stdout);
+                let mut line = String::new();
 
-            loop {
-                line.clear();
-                match reader.read_line(&mut line).await {
-                    Ok(0) => {
-                        tracing::warn!("Stockfish stdout EOF - engine closed");
-                        break;
-                    }
-                    Ok(_) => {
-                        let trimmed = line.trim();
-                        tracing::trace!("UCI << {}", trimmed);
+                loop {
+                    line.clear();
+                    match reader.read_line(&mut line).await {
+                        Ok(0) => {
+                            tracing::warn!("Stockfish stdout EOF - engine closed");
+                            break;
+                        }
+                        Ok(_) => {
+                            let trimmed = line.trim();
+                            tracing::trace!("UCI << {}", trimmed);
 
-                        // Emit raw UCI message event
-                        let _ = event_tx_clone
-                            .send(EngineEvent::RawUciMessage {
-                                direction: UciMessageDirection::FromEngine,
-                                message: trimmed.to_string(),
-                            })
-                            .await;
+                            // Emit raw UCI message event
+                            let _ = event_tx_clone
+                                .send(EngineEvent::RawUciMessage {
+                                    direction: UciMessageDirection::FromEngine,
+                                    message: trimmed.to_string(),
+                                })
+                                .await;
 
-                        if let Ok(msg) = parse_uci_message(trimmed) {
-                            let event = match msg {
-                                UciMessage::UciOk => {
-                                    tracing::debug!("Received uciok");
-                                    EngineEvent::Ready
-                                }
-                                UciMessage::ReadyOk => {
-                                    tracing::debug!("Received readyok");
-                                    EngineEvent::Ready
-                                }
-                                UciMessage::BestMove { mv, .. } => {
-                                    tracing::info!("Received bestmove: {:?}", mv);
-                                    EngineEvent::BestMove(mv)
-                                }
-                                UciMessage::Info(info) => {
-                                    tracing::trace!("Received info: {:?}", info);
-                                    EngineEvent::Info(info)
-                                }
-                                _ => {
-                                    tracing::trace!("Ignoring UCI message: {:?}", msg);
-                                    continue;
-                                }
-                            };
+                            if let Ok(msg) = parse_uci_message(trimmed) {
+                                let event = match msg {
+                                    UciMessage::UciOk => {
+                                        tracing::debug!("Received uciok");
+                                        EngineEvent::Ready
+                                    }
+                                    UciMessage::ReadyOk => {
+                                        tracing::debug!("Received readyok");
+                                        EngineEvent::Ready
+                                    }
+                                    UciMessage::BestMove { mv, .. } => {
+                                        tracing::info!("Received bestmove: {:?}", mv);
+                                        EngineEvent::BestMove(mv)
+                                    }
+                                    UciMessage::Info(info) => {
+                                        tracing::trace!("Received info: {:?}", info);
+                                        EngineEvent::Info(info)
+                                    }
+                                    _ => {
+                                        tracing::trace!("Ignoring UCI message: {:?}", msg);
+                                        continue;
+                                    }
+                                };
 
-                            if let Err(e) = event_tx_clone.send(event).await {
-                                tracing::error!("Failed to send event to channel: {}", e);
+                                if let Err(e) = event_tx_clone.send(event).await {
+                                    tracing::error!("Failed to send event to channel: {}", e);
+                                }
+                            } else {
+                                tracing::trace!("Failed to parse UCI message: {}", trimmed);
                             }
-                        } else {
-                            tracing::trace!("Failed to parse UCI message: {}", trimmed);
+                        }
+                        Err(e) => {
+                            tracing::error!("Error reading from Stockfish stdout: {}", e);
+                            break;
                         }
                     }
-                    Err(e) => {
-                        tracing::error!("Error reading from Stockfish stdout: {}", e);
-                        break;
-                    }
                 }
-            }
-            tracing::info!("Output reader task exiting");
-        });
+                tracing::info!("Output reader task exiting");
+            },
+            reader_span,
+        ));
 
         // Wait for uciok
         tracing::debug!("Waiting for uciok from engine");
@@ -189,7 +196,10 @@ impl StockfishEngine {
                 .write_all(format!("setoption name Threads value {}\n", threads).as_bytes())
                 .await
                 .map_err(|e| format!("Failed to set Threads: {}", e))?;
-            stdin.flush().await.map_err(|e| format!("Failed to flush: {}", e))?;
+            stdin
+                .flush()
+                .await
+                .map_err(|e| format!("Failed to flush: {}", e))?;
         }
 
         // Set Hash if provided
@@ -200,7 +210,10 @@ impl StockfishEngine {
                 .write_all(format!("setoption name Hash value {}\n", hash_mb).as_bytes())
                 .await
                 .map_err(|e| format!("Failed to set Hash: {}", e))?;
-            stdin.flush().await.map_err(|e| format!("Failed to flush: {}", e))?;
+            stdin
+                .flush()
+                .await
+                .map_err(|e| format!("Failed to flush: {}", e))?;
         }
 
         // Clone stdin for the command processor task
@@ -209,28 +222,32 @@ impl StockfishEngine {
         // Spawn stdin writer task
         tracing::debug!("Spawning stdin writer task");
         let event_tx_for_stdin = event_tx.clone();
-        tokio::spawn(async move {
-            while let Some(cmd) = stdin_rx.recv().await {
-                let trimmed = cmd.trim();
-                tracing::trace!("UCI >> {}", trimmed);
+        let writer_span = tracing::info_span!("stockfish", session = %label);
+        tokio::spawn(tracing::Instrument::instrument(
+            async move {
+                while let Some(cmd) = stdin_rx.recv().await {
+                    let trimmed = cmd.trim();
+                    tracing::trace!("UCI >> {}", trimmed);
 
-                // Emit raw UCI message event
-                let _ = event_tx_for_stdin
-                    .send(EngineEvent::RawUciMessage {
-                        direction: UciMessageDirection::ToEngine,
-                        message: trimmed.to_string(),
-                    })
-                    .await;
+                    // Emit raw UCI message event
+                    let _ = event_tx_for_stdin
+                        .send(EngineEvent::RawUciMessage {
+                            direction: UciMessageDirection::ToEngine,
+                            message: trimmed.to_string(),
+                        })
+                        .await;
 
-                if let Err(e) = stdin.write_all(cmd.as_bytes()).await {
-                    tracing::error!("Failed to write to stdin: {}", e);
+                    if let Err(e) = stdin.write_all(cmd.as_bytes()).await {
+                        tracing::error!("Failed to write to stdin: {}", e);
+                    }
+                    if let Err(e) = stdin.flush().await {
+                        tracing::error!("Failed to flush stdin: {}", e);
+                    }
                 }
-                if let Err(e) = stdin.flush().await {
-                    tracing::error!("Failed to flush stdin: {}", e);
-                }
-            }
-            tracing::info!("Stdin writer task exiting");
-        });
+                tracing::info!("Stdin writer task exiting");
+            },
+            writer_span,
+        ));
 
         // Send isready
         tracing::debug!("Sending 'isready' command");
@@ -240,71 +257,75 @@ impl StockfishEngine {
         tracing::debug!("Spawning command processor task");
         let event_tx_for_commands = event_tx.clone();
         let stdin_tx_for_commands = stdin_tx.clone();
-        tokio::spawn(async move {
-            while let Some(cmd) = command_rx.recv().await {
-                tracing::debug!("Processing engine command: {:?}", cmd);
-                let cmd_str = match cmd {
-                    EngineCommand::SetPosition { ref fen, ref moves } => {
-                        let mut position_cmd = format!("position fen {}", fen);
-                        if !moves.is_empty() {
-                            position_cmd.push_str(" moves");
-                            for mv in moves {
-                                position_cmd.push_str(&format!(" {}", format_uci_move(&mv)));
+        let cmd_span = tracing::info_span!("stockfish", session = %label);
+        tokio::spawn(tracing::Instrument::instrument(
+            async move {
+                while let Some(cmd) = command_rx.recv().await {
+                    tracing::debug!("Processing engine command: {:?}", cmd);
+                    let cmd_str = match cmd {
+                        EngineCommand::SetPosition { ref fen, ref moves } => {
+                            let mut position_cmd = format!("position fen {}", fen);
+                            if !moves.is_empty() {
+                                position_cmd.push_str(" moves");
+                                for mv in moves {
+                                    position_cmd.push_str(&format!(" {}", format_uci_move(&mv)));
+                                }
                             }
+                            position_cmd.push('\n');
+                            tracing::info!("Setting position: FEN={}, moves={}", fen, moves.len());
+                            position_cmd
                         }
-                        position_cmd.push('\n');
-                        tracing::info!("Setting position: FEN={}, moves={}", fen, moves.len());
-                        position_cmd
-                    }
-                    EngineCommand::SetOption { name, value } => {
-                        let cmd = if let Some(val) = value {
-                            format!("setoption name {} value {}\n", name, val)
-                        } else {
-                            format!("setoption name {}\n", name)
-                        };
-                        tracing::info!("Setting option: {}", cmd.trim());
-                        cmd
-                    }
-                    EngineCommand::Go(params) => {
-                        let mut go_cmd = "go".to_string();
-                        if let Some(movetime) = params.movetime {
-                            go_cmd.push_str(&format!(" movetime {}", movetime));
-                            tracing::info!(
-                                "Starting engine calculation with movetime={}ms",
-                                movetime
-                            );
-                        } else if let Some(depth) = params.depth {
-                            go_cmd.push_str(&format!(" depth {}", depth));
-                            tracing::info!("Starting engine calculation with depth={}", depth);
-                        } else if params.infinite {
-                            go_cmd.push_str(" infinite");
-                            tracing::info!("Starting engine calculation in infinite mode");
-                        } else {
-                            go_cmd.push_str(" movetime 1000"); // Default 1 second
-                            tracing::info!(
-                                "Starting engine calculation with default movetime=1000ms"
-                            );
+                        EngineCommand::SetOption { name, value } => {
+                            let cmd = if let Some(val) = value {
+                                format!("setoption name {} value {}\n", name, val)
+                            } else {
+                                format!("setoption name {}\n", name)
+                            };
+                            tracing::info!("Setting option: {}", cmd.trim());
+                            cmd
                         }
-                        go_cmd.push('\n');
-                        go_cmd
-                    }
-                    EngineCommand::Stop => {
-                        tracing::info!("Sending stop command to engine");
-                        "stop\n".to_string()
-                    }
-                    EngineCommand::Quit => {
-                        tracing::info!("Sending quit command to engine");
-                        let _ = stdin_tx_for_commands.send("quit\n".to_string()).await;
-                        break;
-                    }
-                };
+                        EngineCommand::Go(params) => {
+                            let mut go_cmd = "go".to_string();
+                            if let Some(movetime) = params.movetime {
+                                go_cmd.push_str(&format!(" movetime {}", movetime));
+                                tracing::info!(
+                                    "Starting engine calculation with movetime={}ms",
+                                    movetime
+                                );
+                            } else if let Some(depth) = params.depth {
+                                go_cmd.push_str(&format!(" depth {}", depth));
+                                tracing::info!("Starting engine calculation with depth={}", depth);
+                            } else if params.infinite {
+                                go_cmd.push_str(" infinite");
+                                tracing::info!("Starting engine calculation in infinite mode");
+                            } else {
+                                go_cmd.push_str(" movetime 1000"); // Default 1 second
+                                tracing::info!(
+                                    "Starting engine calculation with default movetime=1000ms"
+                                );
+                            }
+                            go_cmd.push('\n');
+                            go_cmd
+                        }
+                        EngineCommand::Stop => {
+                            tracing::info!("Sending stop command to engine");
+                            "stop\n".to_string()
+                        }
+                        EngineCommand::Quit => {
+                            tracing::info!("Sending quit command to engine");
+                            let _ = stdin_tx_for_commands.send("quit\n".to_string()).await;
+                            break;
+                        }
+                    };
 
-                if let Err(e) = stdin_tx_for_commands.send(cmd_str).await {
-                    tracing::error!("Failed to send command to stdin channel: {}", e);
+                    if let Err(e) = stdin_tx_for_commands.send(cmd_str).await {
+                        tracing::error!("Failed to send command to stdin channel: {}", e);
+                    }
                 }
-            }
-            tracing::info!("Command processor task exiting");
-        });
+                tracing::info!("Command processor task exiting");
+            },
+            cmd_span,
+        ));
 
         tracing::info!("Stockfish engine spawned and initialized successfully");
         Ok(Self {

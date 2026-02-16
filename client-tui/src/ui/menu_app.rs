@@ -1,6 +1,8 @@
 use crate::state::{GameMode, PlayerColor};
 use crate::ui::widgets::selectable_table::SelectableTableState;
-use crate::ui::widgets::{FenDialogState, FenDialogWidget, MenuState, MenuWidget, render_table_overlay};
+use crate::ui::widgets::{
+    render_table_overlay, FenDialogState, FenDialogWidget, MenuState, MenuWidget,
+};
 use crossterm::{
     event::{self, Event, KeyCode},
     execute,
@@ -20,8 +22,8 @@ pub struct GameConfig {
     /// If set, resume this suspended session by ID instead of starting a new game.
     pub resume_session_id: Option<String>,
     /// Metadata from the suspended session (game mode, skill level etc.)
-    pub resume_game_mode: Option<String>,
-    pub resume_human_side: Option<String>,
+    pub resume_game_mode: Option<i32>,
+    pub resume_human_side: Option<i32>,
     pub resume_skill_level: Option<u8>,
 }
 
@@ -37,10 +39,15 @@ pub async fn show_menu(
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let mut menu_state = MenuState::default();
-    menu_state.has_saved_session = !suspended_sessions.is_empty();
-    menu_state.suspended_sessions = suspended_sessions;
-    menu_state.saved_positions = saved_positions;
+    let has_saved_session = !suspended_sessions.is_empty();
+
+    let mut menu_state = MenuState {
+        suspended_sessions,
+        saved_positions,
+        has_saved_session,
+        ..Default::default()
+    };
+
     let result = loop {
         terminal.draw(|f| {
             let menu_widget = MenuWidget {
@@ -56,17 +63,32 @@ pub async fn show_menu(
 
             // Render session selection table if active
             if let Some(ref mut ctx) = menu_state.session_table {
-                let rows: Vec<Vec<String>> = ctx.sessions.iter().map(|s| {
-                    let mode = s.game_mode.as_str();
-                    let moves = format!("{} moves", s.move_count);
-                    let side = s.side_to_move.clone();
-                    let fen_preview = if s.fen.len() > 30 {
-                        format!("{}...", &s.fen[..27])
-                    } else {
-                        s.fen.clone()
-                    };
-                    vec![mode.to_string(), moves, side, fen_preview]
-                }).collect();
+                let rows: Vec<Vec<String>> = ctx
+                    .sessions
+                    .iter()
+                    .map(|s| {
+                        let mode = s
+                            .game_mode
+                            .as_ref()
+                            .and_then(|gm| chess_client::GameModeType::try_from(gm.mode).ok())
+                            .map(|t| match t {
+                                chess_client::GameModeType::HumanVsHuman => "HumanVsHuman",
+                                chess_client::GameModeType::HumanVsEngine => "HumanVsEngine",
+                                chess_client::GameModeType::EngineVsEngine => "EngineVsEngine",
+                                chess_client::GameModeType::Analysis => "Analysis",
+                                chess_client::GameModeType::Review => "Review",
+                            })
+                            .unwrap_or("Unknown");
+                        let moves = format!("{} moves", s.move_count);
+                        let side = s.side_to_move.clone();
+                        let fen_preview = if s.fen.len() > 30 {
+                            format!("{}...", &s.fen[..27])
+                        } else {
+                            s.fen.clone()
+                        };
+                        vec![mode.to_string(), moves, side, fen_preview]
+                    })
+                    .collect();
 
                 render_table_overlay(
                     f.area(),
@@ -74,7 +96,12 @@ pub async fn show_menu(
                     "Resume Session",
                     &["Mode", "Moves", "Turn", "Position"],
                     &rows,
-                    &[Constraint::Length(16), Constraint::Length(10), Constraint::Length(8), Constraint::Min(20)],
+                    &[
+                        Constraint::Length(16),
+                        Constraint::Length(10),
+                        Constraint::Length(8),
+                        Constraint::Min(20),
+                    ],
                     &mut ctx.table_state,
                     70,
                     (ctx.sessions.len() as u16 + 5).min(20),
@@ -123,42 +150,42 @@ pub async fn show_menu(
                     KeyCode::Right | KeyCode::Char('l') => {
                         cycle_option(&mut menu_state, &selected_item, 1);
                     }
-                    KeyCode::Enter => {
-                        match selected_item {
-                            Some(MenuItem::StartGame) => {
-                                use crate::ui::widgets::menu::StartPositionOption;
-                                if menu_state.start_position == StartPositionOption::CustomFen
-                                    && menu_state.selected_fen.is_none()
-                                {
-                                    menu_state.fen_dialog_state = Some(FenDialogState::new(menu_state.saved_positions.len()));
-                                } else {
-                                    let config = create_game_config(&menu_state);
-                                    break Some(config);
-                                }
+                    KeyCode::Enter => match selected_item {
+                        Some(MenuItem::StartGame) => {
+                            use crate::ui::widgets::menu::StartPositionOption;
+                            if menu_state.start_position == StartPositionOption::CustomFen
+                                && menu_state.selected_fen.is_none()
+                            {
+                                menu_state.fen_dialog_state =
+                                    Some(FenDialogState::new(menu_state.saved_positions.len()));
+                            } else {
+                                let config = create_game_config(&menu_state);
+                                break Some(config);
                             }
-                            Some(MenuItem::ResumeSession) => {
-                                let sessions = menu_state.suspended_sessions.clone();
-                                if !sessions.is_empty() {
-                                    use crate::ui::widgets::menu::SessionTableContext;
-                                    let count = sessions.len();
-                                    menu_state.session_table = Some(SessionTableContext {
-                                        table_state: SelectableTableState::new(count),
-                                        sessions,
-                                    });
-                                }
-                            }
-                            Some(MenuItem::Quit) => {
-                                break None;
-                            }
-                            Some(MenuItem::StartPosition(_)) => {
-                                use crate::ui::widgets::menu::StartPositionOption;
-                                if menu_state.start_position == StartPositionOption::CustomFen {
-                                    menu_state.fen_dialog_state = Some(FenDialogState::new(menu_state.saved_positions.len()));
-                                }
-                            }
-                            _ => {}
                         }
-                    }
+                        Some(MenuItem::ResumeSession) => {
+                            let sessions = menu_state.suspended_sessions.clone();
+                            if !sessions.is_empty() {
+                                use crate::ui::widgets::menu::SessionTableContext;
+                                let count = sessions.len();
+                                menu_state.session_table = Some(SessionTableContext {
+                                    table_state: SelectableTableState::new(count),
+                                    sessions,
+                                });
+                            }
+                        }
+                        Some(MenuItem::Quit) => {
+                            break None;
+                        }
+                        Some(MenuItem::StartPosition(_)) => {
+                            use crate::ui::widgets::menu::StartPositionOption;
+                            if menu_state.start_position == StartPositionOption::CustomFen {
+                                menu_state.fen_dialog_state =
+                                    Some(FenDialogState::new(menu_state.saved_positions.len()));
+                            }
+                        }
+                        _ => {}
+                    },
                     KeyCode::Char('q') | KeyCode::Esc => {
                         break None;
                     }
@@ -175,8 +202,14 @@ pub async fn show_menu(
     Ok(result)
 }
 
-fn cycle_option(menu_state: &mut MenuState, selected_item: &Option<crate::ui::widgets::menu::MenuItem>, _direction: i32) {
-    use crate::ui::widgets::menu::{MenuItem, DifficultyOption, GameModeOption, TimeControlOption, StartPositionOption};
+fn cycle_option(
+    menu_state: &mut MenuState,
+    selected_item: &Option<crate::ui::widgets::menu::MenuItem>,
+    _direction: i32,
+) {
+    use crate::ui::widgets::menu::{
+        DifficultyOption, GameModeOption, MenuItem, StartPositionOption, TimeControlOption,
+    };
 
     let Some(item) = selected_item else { return };
 
@@ -184,13 +217,25 @@ fn cycle_option(menu_state: &mut MenuState, selected_item: &Option<crate::ui::wi
         MenuItem::GameMode(_) => {
             menu_state.game_mode = match menu_state.game_mode {
                 GameModeOption::HumanVsHuman => {
-                    if _direction > 0 { GameModeOption::HumanVsEngine } else { GameModeOption::EngineVsEngine }
+                    if _direction > 0 {
+                        GameModeOption::HumanVsEngine
+                    } else {
+                        GameModeOption::EngineVsEngine
+                    }
                 }
                 GameModeOption::HumanVsEngine => {
-                    if _direction > 0 { GameModeOption::EngineVsEngine } else { GameModeOption::HumanVsHuman }
+                    if _direction > 0 {
+                        GameModeOption::EngineVsEngine
+                    } else {
+                        GameModeOption::HumanVsHuman
+                    }
                 }
                 GameModeOption::EngineVsEngine => {
-                    if _direction > 0 { GameModeOption::HumanVsHuman } else { GameModeOption::HumanVsEngine }
+                    if _direction > 0 {
+                        GameModeOption::HumanVsHuman
+                    } else {
+                        GameModeOption::HumanVsEngine
+                    }
                 }
             };
         }
@@ -200,32 +245,64 @@ fn cycle_option(menu_state: &mut MenuState, selected_item: &Option<crate::ui::wi
         MenuItem::Difficulty(_) => {
             menu_state.difficulty = match menu_state.difficulty {
                 DifficultyOption::Beginner => {
-                    if _direction > 0 { DifficultyOption::Intermediate } else { DifficultyOption::Master }
+                    if _direction > 0 {
+                        DifficultyOption::Intermediate
+                    } else {
+                        DifficultyOption::Master
+                    }
                 }
                 DifficultyOption::Intermediate => {
-                    if _direction > 0 { DifficultyOption::Advanced } else { DifficultyOption::Beginner }
+                    if _direction > 0 {
+                        DifficultyOption::Advanced
+                    } else {
+                        DifficultyOption::Beginner
+                    }
                 }
                 DifficultyOption::Advanced => {
-                    if _direction > 0 { DifficultyOption::Master } else { DifficultyOption::Intermediate }
+                    if _direction > 0 {
+                        DifficultyOption::Master
+                    } else {
+                        DifficultyOption::Intermediate
+                    }
                 }
                 DifficultyOption::Master => {
-                    if _direction > 0 { DifficultyOption::Beginner } else { DifficultyOption::Advanced }
+                    if _direction > 0 {
+                        DifficultyOption::Beginner
+                    } else {
+                        DifficultyOption::Advanced
+                    }
                 }
             };
         }
         MenuItem::TimeControl(_) => {
             menu_state.time_control = match menu_state.time_control {
                 TimeControlOption::None => {
-                    if _direction > 0 { TimeControlOption::Blitz } else { TimeControlOption::Classical }
+                    if _direction > 0 {
+                        TimeControlOption::Blitz
+                    } else {
+                        TimeControlOption::Classical
+                    }
                 }
                 TimeControlOption::Blitz => {
-                    if _direction > 0 { TimeControlOption::Rapid } else { TimeControlOption::None }
+                    if _direction > 0 {
+                        TimeControlOption::Rapid
+                    } else {
+                        TimeControlOption::None
+                    }
                 }
                 TimeControlOption::Rapid => {
-                    if _direction > 0 { TimeControlOption::Classical } else { TimeControlOption::Blitz }
+                    if _direction > 0 {
+                        TimeControlOption::Classical
+                    } else {
+                        TimeControlOption::Blitz
+                    }
                 }
                 TimeControlOption::Classical => {
-                    if _direction > 0 { TimeControlOption::None } else { TimeControlOption::Rapid }
+                    if _direction > 0 {
+                        TimeControlOption::None
+                    } else {
+                        TimeControlOption::Rapid
+                    }
                 }
             };
         }
@@ -233,16 +310,32 @@ fn cycle_option(menu_state: &mut MenuState, selected_item: &Option<crate::ui::wi
             use crate::ui::widgets::menu::ThreadsOption;
             menu_state.engine_threads = match menu_state.engine_threads {
                 ThreadsOption::Auto => {
-                    if _direction > 0 { ThreadsOption::One } else { ThreadsOption::Four }
+                    if _direction > 0 {
+                        ThreadsOption::One
+                    } else {
+                        ThreadsOption::Four
+                    }
                 }
                 ThreadsOption::One => {
-                    if _direction > 0 { ThreadsOption::Two } else { ThreadsOption::Auto }
+                    if _direction > 0 {
+                        ThreadsOption::Two
+                    } else {
+                        ThreadsOption::Auto
+                    }
                 }
                 ThreadsOption::Two => {
-                    if _direction > 0 { ThreadsOption::Four } else { ThreadsOption::One }
+                    if _direction > 0 {
+                        ThreadsOption::Four
+                    } else {
+                        ThreadsOption::One
+                    }
                 }
                 ThreadsOption::Four => {
-                    if _direction > 0 { ThreadsOption::Auto } else { ThreadsOption::Two }
+                    if _direction > 0 {
+                        ThreadsOption::Auto
+                    } else {
+                        ThreadsOption::Two
+                    }
                 }
             };
         }
@@ -250,13 +343,25 @@ fn cycle_option(menu_state: &mut MenuState, selected_item: &Option<crate::ui::wi
             use crate::ui::widgets::menu::HashOption;
             menu_state.engine_hash = match menu_state.engine_hash {
                 HashOption::Small => {
-                    if _direction > 0 { HashOption::Medium } else { HashOption::Large }
+                    if _direction > 0 {
+                        HashOption::Medium
+                    } else {
+                        HashOption::Large
+                    }
                 }
                 HashOption::Medium => {
-                    if _direction > 0 { HashOption::Large } else { HashOption::Small }
+                    if _direction > 0 {
+                        HashOption::Large
+                    } else {
+                        HashOption::Small
+                    }
                 }
                 HashOption::Large => {
-                    if _direction > 0 { HashOption::Small } else { HashOption::Medium }
+                    if _direction > 0 {
+                        HashOption::Small
+                    } else {
+                        HashOption::Medium
+                    }
                 }
             };
         }
@@ -331,9 +436,9 @@ fn handle_fen_dialog_input(menu_state: &mut MenuState, key_code: KeyCode) {
                             if let Some(pos) = menu_state.saved_positions.get(idx) {
                                 if !pos.is_default {
                                     menu_state.saved_positions.remove(idx);
-                                    dialog_state.position_table.update_row_count(
-                                        menu_state.saved_positions.len(),
-                                    );
+                                    dialog_state
+                                        .position_table
+                                        .update_row_count(menu_state.saved_positions.len());
                                     // Note: actual server deletion happens via RPC
                                     // (would need async; for now just remove from local list)
                                 } else {
@@ -461,9 +566,10 @@ fn handle_session_table_input(menu_state: &mut MenuState, key_code: KeyCode) -> 
                     menu_state.session_table = None;
                     let mut config = create_game_config(menu_state);
                     config.resume_session_id = Some(session.suspended_id);
-                    config.resume_game_mode = Some(session.game_mode);
-                    config.resume_human_side = session.human_side;
-                    config.resume_skill_level = Some(session.skill_level as u8);
+                    config.resume_game_mode = session.game_mode.as_ref().map(|gm| gm.mode);
+                    config.resume_human_side =
+                        session.game_mode.as_ref().and_then(|gm| gm.human_side);
+                    config.resume_skill_level = None;
                     return Some(config);
                 }
             }

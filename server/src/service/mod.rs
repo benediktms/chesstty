@@ -1,8 +1,8 @@
 //! gRPC service implementation with modular organization
 //!
 //! This module contains the ChessService gRPC implementation split into:
-//! - converters: Domain model → Proto conversions
-//! - parsers: Proto → Domain model parsing
+//! - converters: Domain model <-> Proto conversions
+//! - parsers: Proto -> Domain model parsing
 //! - endpoints: Individual endpoint handlers organized by domain
 
 mod converters;
@@ -52,14 +52,14 @@ impl ChessService for ChessServiceImpl {
     async fn create_session(
         &self,
         request: Request<CreateSessionRequest>,
-    ) -> Result<Response<chess_proto::SessionInfo>, Status> {
+    ) -> Result<Response<chess_proto::SessionSnapshot>, Status> {
         self.session_endpoints.create_session(request).await
     }
 
     async fn get_session(
         &self,
         request: Request<GetSessionRequest>,
-    ) -> Result<Response<chess_proto::SessionInfo>, Status> {
+    ) -> Result<Response<chess_proto::SessionSnapshot>, Status> {
         self.session_endpoints.get_session(request).await
     }
 
@@ -77,7 +77,7 @@ impl ChessService for ChessServiceImpl {
     async fn make_move(
         &self,
         request: Request<MakeMoveRequest>,
-    ) -> Result<Response<MakeMoveResponse>, Status> {
+    ) -> Result<Response<chess_proto::SessionSnapshot>, Status> {
         self.game_endpoints.make_move(request).await
     }
 
@@ -91,21 +91,21 @@ impl ChessService for ChessServiceImpl {
     async fn undo_move(
         &self,
         request: Request<UndoMoveRequest>,
-    ) -> Result<Response<chess_proto::SessionInfo>, Status> {
+    ) -> Result<Response<chess_proto::SessionSnapshot>, Status> {
         self.game_endpoints.undo_move(request).await
     }
 
     async fn redo_move(
         &self,
         request: Request<RedoMoveRequest>,
-    ) -> Result<Response<chess_proto::SessionInfo>, Status> {
+    ) -> Result<Response<chess_proto::SessionSnapshot>, Status> {
         self.game_endpoints.redo_move(request).await
     }
 
     async fn reset_game(
         &self,
         request: Request<ResetGameRequest>,
-    ) -> Result<Response<chess_proto::SessionInfo>, Status> {
+    ) -> Result<Response<chess_proto::SessionSnapshot>, Status> {
         self.game_endpoints.reset_game(request).await
     }
 
@@ -120,13 +120,6 @@ impl ChessService for ChessServiceImpl {
         self.engine_endpoints.set_engine(request).await
     }
 
-    async fn trigger_engine_move(
-        &self,
-        request: Request<TriggerEngineMoveRequest>,
-    ) -> Result<Response<Empty>, Status> {
-        self.engine_endpoints.trigger_engine_move(request).await
-    }
-
     async fn stop_engine(
         &self,
         request: Request<StopEngineRequest>,
@@ -135,10 +128,29 @@ impl ChessService for ChessServiceImpl {
     }
 
     // =========================================================================
+    // Pause / Resume
+    // =========================================================================
+
+    async fn pause_session(
+        &self,
+        request: Request<PauseSessionRequest>,
+    ) -> Result<Response<Empty>, Status> {
+        self.engine_endpoints.pause_session(request).await
+    }
+
+    async fn resume_session(
+        &self,
+        request: Request<ResumeSessionRequest>,
+    ) -> Result<Response<Empty>, Status> {
+        self.engine_endpoints.resume_session(request).await
+    }
+
+    // =========================================================================
     // Event Streaming Endpoint
     // =========================================================================
 
-    type StreamEventsStream = Pin<Box<dyn Stream<Item = Result<GameEvent, Status>> + Send>>;
+    type StreamEventsStream =
+        Pin<Box<dyn Stream<Item = Result<SessionStreamEvent, Status>> + Send>>;
 
     async fn stream_events(
         &self,
@@ -170,7 +182,7 @@ impl ChessService for ChessServiceImpl {
     async fn resume_suspended_session(
         &self,
         request: Request<ResumeSuspendedSessionRequest>,
-    ) -> Result<Response<chess_proto::SessionInfo>, Status> {
+    ) -> Result<Response<chess_proto::SessionSnapshot>, Status> {
         self.persistence_endpoints
             .resume_suspended_session(request)
             .await

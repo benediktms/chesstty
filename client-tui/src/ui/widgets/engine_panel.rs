@@ -15,7 +15,12 @@ pub struct EngineAnalysisPanel<'a> {
 }
 
 impl<'a> EngineAnalysisPanel<'a> {
-    pub fn new(engine_info: Option<&'a EngineInfo>, is_thinking: bool, scroll: u16, is_selected: bool) -> Self {
+    pub fn new(
+        engine_info: Option<&'a EngineInfo>,
+        is_thinking: bool,
+        scroll: u16,
+        is_selected: bool,
+    ) -> Self {
         Self {
             engine_info,
             is_thinking,
@@ -42,7 +47,9 @@ impl Widget for EngineAnalysisPanel<'_> {
         };
 
         let border_style = if self.is_selected {
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(Color::Cyan)
         };
@@ -109,10 +116,7 @@ impl Widget for EngineAnalysisPanel<'_> {
             if let Some(time_ms) = info.time_ms {
                 lines.push(Line::from(vec![
                     Span::styled("Time: ", Style::default().fg(Color::DarkGray)),
-                    Span::styled(
-                        format_time(time_ms),
-                        Style::default().fg(Color::White),
-                    ),
+                    Span::styled(format_time(time_ms), Style::default().fg(Color::White)),
                 ]));
             }
 

@@ -114,9 +114,7 @@ impl PaneManager {
     pub fn visible_selectable_panes(&self) -> Vec<PaneId> {
         self.pane_order
             .iter()
-            .filter(|id| {
-                self.is_visible(**id) && pane_properties(**id).is_selectable
-            })
+            .filter(|id| self.is_visible(**id) && pane_properties(**id).is_selectable)
             .copied()
             .collect()
     }
@@ -165,9 +163,7 @@ impl PaneManager {
         }
         let current_idx = selectable.iter().position(|&id| id == current);
         match current_idx {
-            Some(idx) => {
-                Some(selectable[(idx + selectable.len() - 1) % selectable.len()])
-            }
+            Some(idx) => Some(selectable[(idx + selectable.len() - 1) % selectable.len()]),
             None => Some(selectable[selectable.len() - 1]),
         }
     }
@@ -206,7 +202,10 @@ mod tests {
         let pm = PaneManager::new();
         let selectable = pm.visible_selectable_panes();
         // GameInfo is not selectable, UciDebug is hidden
-        assert_eq!(selectable, vec![PaneId::EngineAnalysis, PaneId::MoveHistory]);
+        assert_eq!(
+            selectable,
+            vec![PaneId::EngineAnalysis, PaneId::MoveHistory]
+        );
     }
 
     #[test]
@@ -248,7 +247,7 @@ mod tests {
     fn test_next_selectable_skips_hidden() {
         let mut pm = PaneManager::new();
         pm.toggle_visibility(PaneId::UciDebug); // Now visible + selectable
-        // Order: EngineAnalysis, MoveHistory, UciDebug
+                                                // Order: EngineAnalysis, MoveHistory, UciDebug
         assert_eq!(
             pm.next_selectable(PaneId::EngineAnalysis),
             Some(PaneId::MoveHistory)
@@ -279,7 +278,7 @@ mod tests {
         let mut pm = PaneManager::new();
         pm.toggle_visibility(PaneId::EngineAnalysis); // hide
         pm.toggle_visibility(PaneId::MoveHistory); // hide
-        // UciDebug is already hidden, GameInfo is not selectable
+                                                   // UciDebug is already hidden, GameInfo is not selectable
         assert_eq!(pm.next_selectable(PaneId::MoveHistory), None);
     }
 

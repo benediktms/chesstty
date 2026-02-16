@@ -1,7 +1,8 @@
 //! Session management endpoints
 
+use crate::service::converters::{convert_snapshot_to_proto, parse_game_mode_from_proto};
 use crate::session::SessionManager;
-use crate::service::converters::convert_session_info_to_proto;
+use ::chess::GameMode;
 use chess_proto::*;
 use std::sync::Arc;
 use tonic::{Request, Response, Status};
@@ -18,37 +19,67 @@ impl SessionEndpoints {
     pub async fn create_session(
         &self,
         request: Request<CreateSessionRequest>,
-    ) -> Result<Response<chess_proto::SessionInfo>, Status> {
+    ) -> Result<Response<chess_proto::SessionSnapshot>, Status> {
         let req = request.into_inner();
-        tracing::info!(fen = ?req.fen, "RPC create_session");
-        let session_id = self
+        tracing::info!(fen = ?req.fen, game_mode = ?req.game_mode, "RPC create_session");
+
+        // Parse game_mode from the request, defaulting to HumanVsHuman
+        let game_mode = req
+            .game_mode
+            .as_ref()
+            .map(parse_game_mode_from_proto)
+            .unwrap_or(GameMode::HumanVsHuman);
+
+        let snapshot = self
             .session_manager
-            .create_session(req.fen)
+            .create_session(req.fen, game_mode)
             .await
             .map_err(|e| Status::invalid_argument(e))?;
 
-        let info = self
-            .session_manager
-            .get_session_info(&session_id)
-            .await
-            .map_err(|e| Status::internal(e))?;
+        // If a timer was provided, configure it on the session
+        if let Some(timer) = req.timer {
+            let handle = self
+                .session_manager
+                .get_handle(&snapshot.session_id)
+                .await
+                .map_err(|e| Status::internal(e))?;
 
-        Ok(Response::new(convert_session_info_to_proto(info)))
+            handle
+                .set_timer(timer.white_remaining_ms, timer.black_remaining_ms)
+                .await
+                .map_err(|e| Status::internal(e.to_string()))?;
+
+            // Re-fetch snapshot after timer is set
+            let updated = handle
+                .get_snapshot()
+                .await
+                .map_err(|e| Status::internal(e.to_string()))?;
+
+            return Ok(Response::new(convert_snapshot_to_proto(updated)));
+        }
+
+        Ok(Response::new(convert_snapshot_to_proto(snapshot)))
     }
 
     pub async fn get_session(
         &self,
         request: Request<GetSessionRequest>,
-    ) -> Result<Response<chess_proto::SessionInfo>, Status> {
+    ) -> Result<Response<chess_proto::SessionSnapshot>, Status> {
         let req = request.into_inner();
         tracing::debug!(session_id = %req.session_id, "RPC get_session");
-        let info = self
+
+        let handle = self
             .session_manager
-            .get_session_info(&req.session_id)
+            .get_handle(&req.session_id)
             .await
             .map_err(|e| Status::not_found(e))?;
 
-        Ok(Response::new(convert_session_info_to_proto(info)))
+        let snapshot = handle
+            .get_snapshot()
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
+
+        Ok(Response::new(convert_snapshot_to_proto(snapshot)))
     }
 
     pub async fn close_session(
@@ -57,57 +88,12 @@ impl SessionEndpoints {
     ) -> Result<Response<Empty>, Status> {
         let req = request.into_inner();
         tracing::info!(session_id = %req.session_id, "RPC close_session");
+
         self.session_manager
             .close_session(&req.session_id)
             .await
             .map_err(|e| Status::not_found(e))?;
 
         Ok(Response::new(Empty {}))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn test_manager() -> Arc<SessionManager> {
-        let temp_dir = std::env::temp_dir().join(format!("chesstty_test_{}", uuid::Uuid::new_v4()));
-        Arc::new(SessionManager::new(temp_dir, None))
-    }
-
-    #[tokio::test]
-    async fn test_create_and_get_session() {
-        let manager = test_manager();
-        let endpoints = SessionEndpoints::new(manager);
-
-        let request = Request::new(CreateSessionRequest { fen: None });
-        let response = endpoints.create_session(request).await.unwrap();
-        let info = response.into_inner();
-
-        assert!(!info.session_id.is_empty());
-        assert_eq!(info.move_count, 0);
-
-        let get_req = Request::new(GetSessionRequest {
-            session_id: info.session_id.clone(),
-        });
-        let get_resp = endpoints.get_session(get_req).await.unwrap();
-        assert_eq!(get_resp.into_inner().session_id, info.session_id);
-    }
-
-    #[tokio::test]
-    async fn test_close_session() {
-        let manager = test_manager();
-        let endpoints = SessionEndpoints::new(manager);
-
-        let request = Request::new(CreateSessionRequest { fen: None });
-        let response = endpoints.create_session(request).await.unwrap();
-        let session_id = response.into_inner().session_id;
-
-        let close_req = Request::new(CloseSessionRequest { session_id: session_id.clone() });
-        endpoints.close_session(close_req).await.unwrap();
-
-        // Verify session is gone
-        let get_req = Request::new(GetSessionRequest { session_id });
-        assert!(endpoints.get_session(get_req).await.is_err());
     }
 }

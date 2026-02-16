@@ -4,7 +4,7 @@ mod ui;
 
 // Re-export app types for compatibility
 pub mod app {
-    pub use crate::state::{GameMode, InputPhase, PlayerColor, UiState, UciDirection, UciLogEntry};
+    pub use crate::state::{GameMode, InputPhase, PlayerColor, UciDirection, UciLogEntry, UiState};
 }
 
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};

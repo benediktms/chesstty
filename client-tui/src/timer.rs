@@ -96,8 +96,14 @@ mod tests {
     #[test]
     fn test_new_timer() {
         let timer = ChessTimer::new(Duration::from_secs(180));
-        assert_eq!(timer.remaining(PlayerColor::White), Duration::from_secs(180));
-        assert_eq!(timer.remaining(PlayerColor::Black), Duration::from_secs(180));
+        assert_eq!(
+            timer.remaining(PlayerColor::White),
+            Duration::from_secs(180)
+        );
+        assert_eq!(
+            timer.remaining(PlayerColor::Black),
+            Duration::from_secs(180)
+        );
     }
 
     #[test]
@@ -105,7 +111,10 @@ mod tests {
         let mut timer = ChessTimer::new(Duration::from_secs(180));
         timer.switch_to(PlayerColor::White);
         timer.tick_with_elapsed(Duration::from_secs(1));
-        assert_eq!(timer.remaining(PlayerColor::White), Duration::from_secs(179));
+        assert_eq!(
+            timer.remaining(PlayerColor::White),
+            Duration::from_secs(179)
+        );
     }
 
     #[test]
@@ -113,7 +122,10 @@ mod tests {
         let mut timer = ChessTimer::new(Duration::from_secs(180));
         timer.switch_to(PlayerColor::White);
         timer.tick_with_elapsed(Duration::from_secs(5));
-        assert_eq!(timer.remaining(PlayerColor::Black), Duration::from_secs(180));
+        assert_eq!(
+            timer.remaining(PlayerColor::Black),
+            Duration::from_secs(180)
+        );
     }
 
     #[test]
@@ -121,8 +133,14 @@ mod tests {
         let mut timer = ChessTimer::new(Duration::from_secs(180));
         // No active side by default
         timer.tick_with_elapsed(Duration::from_secs(10));
-        assert_eq!(timer.remaining(PlayerColor::White), Duration::from_secs(180));
-        assert_eq!(timer.remaining(PlayerColor::Black), Duration::from_secs(180));
+        assert_eq!(
+            timer.remaining(PlayerColor::White),
+            Duration::from_secs(180)
+        );
+        assert_eq!(
+            timer.remaining(PlayerColor::Black),
+            Duration::from_secs(180)
+        );
     }
 
     #[test]
@@ -156,8 +174,14 @@ mod tests {
         let mut timer = ChessTimer::new(Duration::from_secs(300));
         timer.switch_to(PlayerColor::White);
         timer.tick_with_elapsed(Duration::from_secs(30));
-        assert_eq!(timer.remaining(PlayerColor::White), Duration::from_secs(270));
-        assert_eq!(timer.remaining(PlayerColor::Black), Duration::from_secs(300));
+        assert_eq!(
+            timer.remaining(PlayerColor::White),
+            Duration::from_secs(270)
+        );
+        assert_eq!(
+            timer.remaining(PlayerColor::Black),
+            Duration::from_secs(300)
+        );
     }
 
     #[test]

@@ -16,11 +16,21 @@ pub struct MoveHistoryPanel<'a> {
 
 impl<'a> MoveHistoryPanel<'a> {
     pub fn new(history: &'a [MoveRecord], scroll: u16, is_selected: bool) -> Self {
-        Self { history, scroll, is_selected, expanded: false }
+        Self {
+            history,
+            scroll,
+            is_selected,
+            expanded: false,
+        }
     }
 
     pub fn expanded(history: &'a [MoveRecord], scroll: u16) -> Self {
-        Self { history, scroll, is_selected: true, expanded: true }
+        Self {
+            history,
+            scroll,
+            is_selected: true,
+            expanded: true,
+        }
     }
 }
 
@@ -34,7 +44,9 @@ impl Widget for MoveHistoryPanel<'_> {
             "\u{2654} Move History \u{2655}"
         };
         let border_style = if self.is_selected || self.expanded {
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(Color::Cyan)
         };
@@ -71,20 +83,17 @@ impl MoveHistoryPanel<'_> {
             let move_number = (i / 2) + 1;
             let is_white = i % 2 == 0;
 
-            let move_color = if is_white {
-                Color::White
-            } else {
-                Color::Gray
-            };
+            let move_color = if is_white { Color::White } else { Color::Gray };
 
             let move_str = if !record.san.is_empty() {
                 record.san.clone()
             } else {
-                let capture = if record.captured.is_some() && !record.captured.as_ref().unwrap().is_empty() {
-                    "x"
-                } else {
-                    ""
-                };
+                let capture =
+                    if record.captured.is_some() && !record.captured.as_ref().unwrap().is_empty() {
+                        "x"
+                    } else {
+                        ""
+                    };
                 format!("{}{}{}", record.from, capture, record.to)
             };
 
@@ -96,9 +105,7 @@ impl MoveHistoryPanel<'_> {
                     ),
                     ratatui::text::Span::styled(
                         move_str,
-                        Style::default()
-                            .fg(move_color)
-                            .add_modifier(Modifier::BOLD),
+                        Style::default().fg(move_color).add_modifier(Modifier::BOLD),
                     ),
                 ]));
             } else {
@@ -106,9 +113,7 @@ impl MoveHistoryPanel<'_> {
                     last_line.spans.push(ratatui::text::Span::raw("  "));
                     last_line.spans.push(ratatui::text::Span::styled(
                         move_str,
-                        Style::default()
-                            .fg(move_color)
-                            .add_modifier(Modifier::BOLD),
+                        Style::default().fg(move_color).add_modifier(Modifier::BOLD),
                     ));
                 }
             }
@@ -124,11 +129,7 @@ impl MoveHistoryPanel<'_> {
             let move_number = (i / 2) + 1;
             let is_white = i % 2 == 0;
 
-            let move_color = if is_white {
-                Color::White
-            } else {
-                Color::Gray
-            };
+            let move_color = if is_white { Color::White } else { Color::Gray };
 
             let san = if !record.san.is_empty() {
                 record.san.clone()
@@ -145,20 +146,12 @@ impl MoveHistoryPanel<'_> {
             };
 
             lines.push(Line::from(vec![
-                ratatui::text::Span::styled(
-                    prefix,
-                    Style::default().fg(Color::Yellow),
-                ),
+                ratatui::text::Span::styled(prefix, Style::default().fg(Color::Yellow)),
                 ratatui::text::Span::styled(
                     format!("{:<8}", san),
-                    Style::default()
-                        .fg(move_color)
-                        .add_modifier(Modifier::BOLD),
+                    Style::default().fg(move_color).add_modifier(Modifier::BOLD),
                 ),
-                ratatui::text::Span::styled(
-                    description,
-                    Style::default().fg(Color::DarkGray),
-                ),
+                ratatui::text::Span::styled(description, Style::default().fg(Color::DarkGray)),
             ]));
         }
 
@@ -173,15 +166,9 @@ pub fn describe_move(record: &MoveRecord, is_white: bool) -> String {
     let from = &record.from;
     let to = &record.to;
 
-    let captured = record
-        .captured
-        .as_ref()
-        .filter(|c| !c.is_empty());
+    let captured = record.captured.as_ref().filter(|c| !c.is_empty());
 
-    let promotion = record
-        .promotion
-        .as_ref()
-        .filter(|p| !p.is_empty());
+    let promotion = record.promotion.as_ref().filter(|p| !p.is_empty());
 
     // Detect castling: king moving from e1/e8 to g1/g8 or c1/c8
     if record.piece == "K" {
@@ -227,10 +214,7 @@ pub fn describe_move(record: &MoveRecord, is_white: bool) -> String {
                 color_name, cap_name, promo_name, to
             );
         }
-        return format!(
-            "{} pawn promotes to {} on {}",
-            color_name, promo_name, to
-        );
+        return format!("{} pawn promotes to {} on {}", color_name, promo_name, to);
     }
 
     // Handle regular capture
@@ -243,7 +227,10 @@ pub fn describe_move(record: &MoveRecord, is_white: bool) -> String {
     }
 
     // Regular move
-    format!("{} {} moved from {} to {}", color_name, piece_name, from, to)
+    format!(
+        "{} {} moved from {} to {}",
+        color_name, piece_name, from, to
+    )
 }
 
 fn piece_display_name(piece: &str) -> &str {
@@ -272,7 +259,14 @@ fn promotion_piece_name(promo: &str) -> &str {
 mod tests {
     use super::*;
 
-    fn make_record(piece: &str, from: &str, to: &str, captured: Option<&str>, san: &str, promotion: Option<&str>) -> MoveRecord {
+    fn make_record(
+        piece: &str,
+        from: &str,
+        to: &str,
+        captured: Option<&str>,
+        san: &str,
+        promotion: Option<&str>,
+    ) -> MoveRecord {
         MoveRecord {
             piece: piece.to_string(),
             from: from.to_string(),
@@ -287,7 +281,10 @@ mod tests {
     #[test]
     fn test_describe_simple_pawn_move() {
         let record = make_record("P", "e2", "e4", None, "e4", None);
-        assert_eq!(describe_move(&record, true), "White pawn moved from e2 to e4");
+        assert_eq!(
+            describe_move(&record, true),
+            "White pawn moved from e2 to e4"
+        );
     }
 
     #[test]

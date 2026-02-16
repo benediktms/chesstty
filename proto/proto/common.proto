@@ -2,23 +2,23 @@ syntax = "proto3";
 package chess;
 
 // ============================================================================
-// Core Data Types - Shared across all services
+// Core Data Types
 // ============================================================================
 
 message MoveRepr {
-  string from = 1;  // e.g., "e2"
-  string to = 2;    // e.g., "e4"
-  optional string promotion = 3;  // "q", "r", "b", "n"
+  string from = 1;
+  string to = 2;
+  optional string promotion = 3;
 }
 
 message MoveRecord {
   string from = 1;
   string to = 2;
-  string piece = 3;           // "P", "N", "B", "R", "Q", "K"
-  optional string captured = 4;  // "P", "N", "B", "R", "Q" (if capture)
-  string san = 5;             // Standard Algebraic Notation (e.g., "Nf3", "exd5")
-  string fen_after = 6;       // FEN position after this move
-  optional string promotion = 7;  // "q", "r", "b", "n" (if promotion)
+  string piece = 3;
+  optional string captured = 4;
+  string san = 5;
+  string fen_after = 6;
+  optional string promotion = 7;
 }
 
 message MoveDetail {
@@ -31,20 +31,68 @@ message MoveDetail {
   bool is_checkmate = 7;
 }
 
+message EngineAnalysis {
+  optional uint32 depth = 1;
+  optional uint32 seldepth = 2;
+  optional uint64 time_ms = 3;
+  optional uint64 nodes = 4;
+  optional string score = 5;
+  repeated string pv = 6;
+  optional uint64 nps = 7;
+}
+
+// Kept for backward compat with EngineThinkingEvent
 message EngineInfo {
   optional uint32 depth = 1;
   optional uint32 seldepth = 2;
   optional uint64 time_ms = 3;
   optional uint64 nodes = 4;
-  optional string score = 5;    // e.g., "cp 25" or "mate 5"
-  repeated string pv = 6;       // Principal variation (sequence of moves)
-  optional uint64 nps = 7;      // Nodes per second
+  optional string score = 5;
+  repeated string pv = 6;
+  optional uint64 nps = 7;
 }
 
 enum GameStatus {
   ONGOING = 0;
-  WON = 1;     // Renamed from CHECKMATE - aligns with cozy_chess::GameStatus::Won
-  DRAWN = 2;   // Merged STALEMATE + DRAW - aligns with cozy_chess::GameStatus::Drawn
+  WON = 1;
+  DRAWN = 2;
+}
+
+enum GamePhase {
+  GAME_PHASE_SETUP = 0;
+  GAME_PHASE_PLAYING = 1;
+  GAME_PHASE_PAUSED = 2;
+  GAME_PHASE_ENDED = 3;
+  GAME_PHASE_ANALYZING = 4;
+}
+
+message LastMove {
+  string from = 1;
+  string to = 2;
+}
+
+enum GameModeType {
+  HUMAN_VS_HUMAN = 0;
+  HUMAN_VS_ENGINE = 1;
+  ENGINE_VS_ENGINE = 2;
+  ANALYSIS = 3;
+  REVIEW = 4;
+}
+
+enum PlayerSideProto {
+  WHITE = 0;
+  BLACK = 1;
+}
+
+message GameModeProto {
+  GameModeType mode = 1;
+  optional PlayerSideProto human_side = 2;  // Only for HUMAN_VS_ENGINE
+}
+
+message TimerState {
+  uint64 white_remaining_ms = 1;
+  uint64 black_remaining_ms = 2;
+  optional string active_side = 3;
 }
 
 message Empty {}
