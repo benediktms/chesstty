@@ -267,6 +267,26 @@ impl ChessClient {
         Ok(snapshot)
     }
 
+    /// Save a snapshot directly as a suspended session (from review mode).
+    pub async fn save_snapshot(
+        &mut self,
+        fen: &str,
+        name: &str,
+        game_mode: Option<GameModeProto>,
+        move_count: u32,
+        skill_level: u8,
+    ) -> ClientResult<String> {
+        let request = SaveSnapshotRequest {
+            fen: fen.to_string(),
+            name: name.to_string(),
+            game_mode,
+            move_count,
+            skill_level: skill_level as u32,
+        };
+        let response = self.client.save_snapshot(request).await?;
+        Ok(response.into_inner().suspended_id)
+    }
+
     /// Delete a suspended session
     pub async fn delete_suspended_session(&mut self, suspended_id: &str) -> ClientResult<()> {
         let request = DeleteSuspendedSessionRequest {
@@ -299,6 +319,71 @@ impl ChessClient {
             position_id: position_id.to_string(),
         };
         self.client.delete_position(request).await?;
+        Ok(())
+    }
+
+    // ========================================================================
+    // Post-game review
+    // ========================================================================
+
+    /// List finished games eligible for review
+    pub async fn list_finished_games(&mut self) -> ClientResult<Vec<FinishedGameInfo>> {
+        let request = ListFinishedGamesRequest {};
+        let response = self.client.list_finished_games(request).await?;
+        Ok(response.into_inner().games)
+    }
+
+    /// Enqueue a game for review analysis
+    pub async fn enqueue_review(&mut self, game_id: &str) -> ClientResult<ReviewStatusInfo> {
+        let request = EnqueueReviewRequest {
+            game_id: game_id.to_string(),
+        };
+        let response = self.client.enqueue_review(request).await?;
+        response
+            .into_inner()
+            .status
+            .ok_or_else(|| ClientError::InvalidData("missing review status".into()))
+    }
+
+    /// Get review status for a game
+    pub async fn get_review_status(&mut self, game_id: &str) -> ClientResult<ReviewStatusInfo> {
+        let request = GetReviewStatusRequest {
+            game_id: game_id.to_string(),
+        };
+        let response = self.client.get_review_status(request).await?;
+        response
+            .into_inner()
+            .status
+            .ok_or_else(|| ClientError::InvalidData("missing review status".into()))
+    }
+
+    /// Get the full review for a game
+    pub async fn get_game_review(&mut self, game_id: &str) -> ClientResult<GameReviewProto> {
+        let request = GetGameReviewRequest {
+            game_id: game_id.to_string(),
+        };
+        let response = self.client.get_game_review(request).await?;
+        response
+            .into_inner()
+            .review
+            .ok_or_else(|| ClientError::InvalidData("missing game review".into()))
+    }
+
+    /// Export annotated PGN for a reviewed game
+    pub async fn export_review_pgn(&mut self, game_id: &str) -> ClientResult<String> {
+        let request = ExportReviewPgnRequest {
+            game_id: game_id.to_string(),
+        };
+        let response = self.client.export_review_pgn(request).await?;
+        Ok(response.into_inner().pgn)
+    }
+
+    /// Delete a finished game and its review
+    pub async fn delete_finished_game(&mut self, game_id: &str) -> ClientResult<()> {
+        let request = DeleteFinishedGameRequest {
+            game_id: game_id.to_string(),
+        };
+        self.client.delete_finished_game(request).await?;
         Ok(())
     }
 }

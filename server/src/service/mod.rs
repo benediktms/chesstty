@@ -9,6 +9,7 @@ mod converters;
 mod endpoints;
 mod parsers;
 
+use crate::review::ReviewManager;
 use crate::session::SessionManager;
 use chess_proto::chess_service_server::ChessService;
 use chess_proto::*;
@@ -22,23 +23,29 @@ use tonic::{Request, Response, Status};
 ///
 /// This service delegates to specialized endpoint handlers for better modularity and testability.
 pub struct ChessServiceImpl {
+    session_manager: Arc<SessionManager>,
+    review_manager: Arc<ReviewManager>,
     session_endpoints: SessionEndpoints,
     game_endpoints: GameEndpoints,
     engine_endpoints: EngineEndpoints,
     events_endpoints: EventsEndpoints,
     persistence_endpoints: PersistenceEndpoints,
     positions_endpoints: PositionsEndpoints,
+    review_endpoints: ReviewEndpoints,
 }
 
 impl ChessServiceImpl {
-    pub fn new(session_manager: Arc<SessionManager>) -> Self {
+    pub fn new(session_manager: Arc<SessionManager>, review_manager: Arc<ReviewManager>) -> Self {
         Self {
             session_endpoints: SessionEndpoints::new(session_manager.clone()),
             game_endpoints: GameEndpoints::new(session_manager.clone()),
             engine_endpoints: EngineEndpoints::new(session_manager.clone()),
             events_endpoints: EventsEndpoints::new(session_manager.clone()),
             persistence_endpoints: PersistenceEndpoints::new(session_manager.clone()),
-            positions_endpoints: PositionsEndpoints::new(session_manager),
+            positions_endpoints: PositionsEndpoints::new(session_manager.clone()),
+            review_endpoints: ReviewEndpoints::new(review_manager.clone()),
+            session_manager,
+            review_manager,
         }
     }
 }
@@ -67,7 +74,23 @@ impl ChessService for ChessServiceImpl {
         &self,
         request: Request<CloseSessionRequest>,
     ) -> Result<Response<Empty>, Status> {
-        self.session_endpoints.close_session(request).await
+        let session_id = &request.get_ref().session_id;
+        tracing::info!(session_id = %session_id, "RPC close_session");
+
+        let saved_game_id = self
+            .session_manager
+            .close_session(session_id)
+            .await
+            .map_err(Status::not_found)?;
+
+        // Auto-enqueue completed games for review analysis
+        if let Some(game_id) = saved_game_id {
+            if let Err(e) = self.review_manager.enqueue(&game_id).await {
+                tracing::warn!(game_id = %game_id, "Auto-enqueue for review failed: {}", e);
+            }
+        }
+
+        Ok(Response::new(Empty {}))
     }
 
     // =========================================================================
@@ -197,6 +220,13 @@ impl ChessService for ChessServiceImpl {
             .await
     }
 
+    async fn save_snapshot(
+        &self,
+        request: Request<SaveSnapshotRequest>,
+    ) -> Result<Response<SaveSnapshotResponse>, Status> {
+        self.persistence_endpoints.save_snapshot(request).await
+    }
+
     // =========================================================================
     // Saved Positions Endpoints
     // =========================================================================
@@ -220,5 +250,51 @@ impl ChessService for ChessServiceImpl {
         request: Request<DeletePositionRequest>,
     ) -> Result<Response<Empty>, Status> {
         self.positions_endpoints.delete_position(request).await
+    }
+
+    // =========================================================================
+    // Post-Game Review Endpoints
+    // =========================================================================
+
+    async fn list_finished_games(
+        &self,
+        request: Request<ListFinishedGamesRequest>,
+    ) -> Result<Response<ListFinishedGamesResponse>, Status> {
+        self.review_endpoints.list_finished_games(request).await
+    }
+
+    async fn enqueue_review(
+        &self,
+        request: Request<EnqueueReviewRequest>,
+    ) -> Result<Response<EnqueueReviewResponse>, Status> {
+        self.review_endpoints.enqueue_review(request).await
+    }
+
+    async fn get_review_status(
+        &self,
+        request: Request<GetReviewStatusRequest>,
+    ) -> Result<Response<GetReviewStatusResponse>, Status> {
+        self.review_endpoints.get_review_status(request).await
+    }
+
+    async fn get_game_review(
+        &self,
+        request: Request<GetGameReviewRequest>,
+    ) -> Result<Response<GetGameReviewResponse>, Status> {
+        self.review_endpoints.get_game_review(request).await
+    }
+
+    async fn export_review_pgn(
+        &self,
+        request: Request<ExportReviewPgnRequest>,
+    ) -> Result<Response<ExportReviewPgnResponse>, Status> {
+        self.review_endpoints.export_review_pgn(request).await
+    }
+
+    async fn delete_finished_game(
+        &self,
+        request: Request<DeleteFinishedGameRequest>,
+    ) -> Result<Response<Empty>, Status> {
+        self.review_endpoints.delete_finished_game(request).await
     }
 }

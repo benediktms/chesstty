@@ -1,0 +1,141 @@
+syntax = "proto3";
+package chess;
+
+import "common.proto";
+
+// ============================================================================
+// Review System Messages
+// ============================================================================
+
+// Move quality classification based on centipawn loss relative to engine's best.
+enum MoveClassification {
+  CLASSIFICATION_BEST = 0;
+  CLASSIFICATION_EXCELLENT = 1;
+  CLASSIFICATION_GOOD = 2;
+  CLASSIFICATION_INACCURACY = 3;
+  CLASSIFICATION_MISTAKE = 4;
+  CLASSIFICATION_BLUNDER = 5;
+  CLASSIFICATION_FORCED = 6;
+  CLASSIFICATION_BOOK = 7;
+  CLASSIFICATION_BRILLIANT = 8;
+}
+
+// Review job status.
+enum ReviewStatusType {
+  REVIEW_STATUS_QUEUED = 0;
+  REVIEW_STATUS_ANALYZING = 1;
+  REVIEW_STATUS_COMPLETE = 2;
+  REVIEW_STATUS_FAILED = 3;
+}
+
+// Engine evaluation score from the side-to-move's perspective.
+// Centipawns: positive = side-to-move is better.
+// Mate: positive N = side-to-move mates in N, negative N = side-to-move gets mated in N.
+message ReviewScore {
+  oneof score {
+    int32 centipawns = 1;
+    int32 mate = 2;
+  }
+}
+
+// Analysis result for a single position/ply.
+message PositionReview {
+  uint32 ply = 1;
+  string fen = 2;
+  string played_san = 3;
+  string best_move_san = 4;
+  string best_move_uci = 5;
+  ReviewScore eval_before = 6;
+  ReviewScore eval_after = 7;
+  ReviewScore eval_best = 8;
+  MoveClassification classification = 9;
+  int32 cp_loss = 10;
+  repeated string pv = 11;
+  uint32 depth = 12;
+  optional uint64 clock_ms = 13;
+}
+
+// Status of a review job.
+message ReviewStatusInfo {
+  ReviewStatusType status = 1;
+  optional uint32 current_ply = 2;    // Only for ANALYZING
+  optional uint32 total_plies = 3;    // Only for ANALYZING
+  optional string error = 4;          // Only for FAILED
+}
+
+// Full game review result.
+message GameReviewProto {
+  string game_id = 1;
+  ReviewStatusInfo status = 2;
+  repeated PositionReview positions = 3;
+  optional double white_accuracy = 4;
+  optional double black_accuracy = 5;
+  uint32 total_plies = 6;
+  uint32 analyzed_plies = 7;
+  uint32 analysis_depth = 8;
+  optional uint64 started_at = 9;
+  optional uint64 completed_at = 10;
+}
+
+// Info about a finished game eligible for review.
+message FinishedGameInfo {
+  string game_id = 1;
+  string result = 2;               // "WhiteWins", "BlackWins", "Draw"
+  string result_reason = 3;        // "Checkmate", "Time expired", etc.
+  optional GameModeProto game_mode = 4;
+  uint32 move_count = 5;
+  uint64 created_at = 6;
+  optional ReviewStatusType review_status = 7;  // null = not reviewed yet
+}
+
+// ============================================================================
+// Request / Response Messages
+// ============================================================================
+
+// List finished games eligible for review.
+message ListFinishedGamesRequest {}
+
+message ListFinishedGamesResponse {
+  repeated FinishedGameInfo games = 1;
+}
+
+// Enqueue a game for review analysis.
+message EnqueueReviewRequest {
+  string game_id = 1;
+}
+
+message EnqueueReviewResponse {
+  ReviewStatusInfo status = 1;
+}
+
+// Get review status.
+message GetReviewStatusRequest {
+  string game_id = 1;
+}
+
+message GetReviewStatusResponse {
+  ReviewStatusInfo status = 1;
+}
+
+// Get full game review.
+message GetGameReviewRequest {
+  string game_id = 1;
+}
+
+message GetGameReviewResponse {
+  GameReviewProto review = 1;
+}
+
+// Export annotated PGN.
+message ExportReviewPgnRequest {
+  string game_id = 1;
+}
+
+message ExportReviewPgnResponse {
+  string pgn = 1;
+}
+
+// Delete a finished game and its review.
+message DeleteFinishedGameRequest {
+  string game_id = 1;
+}

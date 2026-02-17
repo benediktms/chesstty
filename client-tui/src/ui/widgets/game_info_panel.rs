@@ -1,4 +1,5 @@
 use crate::state::ClientState;
+use chess_client::{review_score, MoveClassification, ReviewScore};
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
@@ -27,17 +28,155 @@ impl Widget for GameInfoPanel<'_> {
         let inner = block.inner(area);
         block.render(area, buf);
 
+        let lines = if self.client_state.review_state.is_some() {
+            self.build_review_lines()
+        } else {
+            self.build_game_lines()
+        };
+
+        let paragraph = Paragraph::new(lines);
+        paragraph.render(inner, buf);
+    }
+}
+
+impl GameInfoPanel<'_> {
+    fn build_review_lines(&self) -> Vec<Line<'static>> {
+        use ratatui::text::Span;
+
+        let mut lines = vec![];
+        let label_style = Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD);
+
+        // Mode
+        lines.push(Line::from(vec![
+            Span::styled("Mode: ", label_style),
+            Span::styled(
+                "Review",
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]));
+
+        if let Some(ref rs) = self.client_state.review_state {
+            // Ply X/Y + Turn
+            let turn_str = self.client_state.side_to_move();
+            let is_white_turn = turn_str == "white";
+            let turn_text = if is_white_turn { "White" } else { "Black" };
+            let turn_color = if is_white_turn {
+                Color::White
+            } else {
+                Color::Gray
+            };
+
+            lines.push(Line::from(vec![
+                Span::styled("Ply: ", label_style),
+                Span::styled(
+                    format!("{}/{}", rs.current_ply, rs.review.total_plies),
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::raw("  "),
+                Span::styled(
+                    turn_text.to_string(),
+                    Style::default().fg(turn_color).add_modifier(Modifier::BOLD),
+                ),
+            ]));
+
+            // Per-move analysis when current_ply > 0
+            if let Some(pos) = rs.current_position() {
+                lines.push(Line::raw(""));
+
+                // Classification
+                let class_name = classification_display_name(pos.classification);
+                let class_color = classification_color(pos.classification);
+                lines.push(Line::from(Span::styled(
+                    class_name.to_string(),
+                    Style::default()
+                        .fg(class_color)
+                        .add_modifier(Modifier::BOLD),
+                )));
+
+                // Played move
+                let played_marker = classification_marker_str(pos.classification);
+                lines.push(Line::from(vec![
+                    Span::styled("Played: ", Style::default().fg(Color::DarkGray)),
+                    Span::styled(
+                        format!("{}{}", pos.played_san, played_marker),
+                        Style::default()
+                            .fg(class_color)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                ]));
+
+                // Best move
+                if !pos.best_move_san.is_empty() {
+                    lines.push(Line::from(vec![
+                        Span::styled("Best:   ", Style::default().fg(Color::DarkGray)),
+                        Span::styled(
+                            pos.best_move_san.clone(),
+                            Style::default()
+                                .fg(Color::Green)
+                                .add_modifier(Modifier::BOLD),
+                        ),
+                    ]));
+                }
+
+                // Eval
+                if let Some(ref score) = pos.eval_before {
+                    let (text, color) = format_review_score(score);
+                    lines.push(Line::from(vec![
+                        Span::styled("Eval:   ", Style::default().fg(Color::DarkGray)),
+                        Span::styled(
+                            text,
+                            Style::default().fg(color).add_modifier(Modifier::BOLD),
+                        ),
+                    ]));
+                }
+
+                // CP Loss
+                if pos.cp_loss > 0 {
+                    lines.push(Line::from(vec![
+                        Span::styled("Loss:   ", Style::default().fg(Color::DarkGray)),
+                        Span::styled(
+                            format!("{}cp", pos.cp_loss),
+                            Style::default().fg(Color::Yellow),
+                        ),
+                    ]));
+                }
+            }
+
+            // Auto-play indicator
+            if rs.auto_play {
+                lines.push(Line::raw(""));
+                lines.push(Line::from(Span::styled(
+                    "AUTO-PLAY".to_string(),
+                    Style::default()
+                        .fg(Color::Green)
+                        .add_modifier(Modifier::BOLD),
+                )));
+            }
+        }
+
+        lines
+    }
+
+    fn build_game_lines(&self) -> Vec<Line<'static>> {
+        use ratatui::text::Span;
+
         let mut lines = vec![];
 
         // Game mode
         lines.push(Line::from(vec![
-            ratatui::text::Span::styled(
+            Span::styled(
                 "Mode: ",
                 Style::default()
                     .fg(Color::Cyan)
                     .add_modifier(Modifier::BOLD),
             ),
-            ratatui::text::Span::raw(format_game_mode(&self.client_state.mode)),
+            Span::raw(format_game_mode(&self.client_state.mode)),
         ]));
 
         lines.push(Line::raw(""));
@@ -54,13 +193,13 @@ impl Widget for GameInfoPanel<'_> {
             crate::state::InputPhase::SelectPromotion { .. } => Color::Magenta,
         };
         lines.push(Line::from(vec![
-            ratatui::text::Span::styled(
+            Span::styled(
                 "Phase: ",
                 Style::default()
                     .fg(Color::Yellow)
                     .add_modifier(Modifier::BOLD),
             ),
-            ratatui::text::Span::styled(
+            Span::styled(
                 phase_text,
                 Style::default()
                     .fg(phase_color)
@@ -79,13 +218,13 @@ impl Widget for GameInfoPanel<'_> {
             "Black to move"
         };
         lines.push(Line::from(vec![
-            ratatui::text::Span::styled(
+            Span::styled(
                 "Turn: ",
                 Style::default()
                     .fg(Color::Yellow)
                     .add_modifier(Modifier::BOLD),
             ),
-            ratatui::text::Span::styled(
+            Span::styled(
                 turn_text,
                 Style::default()
                     .fg(if is_white_turn {
@@ -132,18 +271,18 @@ impl Widget for GameInfoPanel<'_> {
             let black_indicator = if black_active { "\u{25b6} " } else { "  " };
 
             lines.push(Line::from(vec![
-                ratatui::text::Span::styled(white_indicator, Style::default().fg(Color::White)),
-                ratatui::text::Span::styled("\u{2654} ", Style::default().fg(Color::White)),
-                ratatui::text::Span::styled(
+                Span::styled(white_indicator, Style::default().fg(Color::White)),
+                Span::styled("\u{2654} ", Style::default().fg(Color::White)),
+                Span::styled(
                     format_ms(white_ms),
                     Style::default()
                         .fg(timer_color(white_ms, white_active))
                         .add_modifier(Modifier::BOLD),
                 ),
-                ratatui::text::Span::raw("  "),
-                ratatui::text::Span::styled(black_indicator, Style::default().fg(Color::Gray)),
-                ratatui::text::Span::styled("\u{265a} ", Style::default().fg(Color::Gray)),
-                ratatui::text::Span::styled(
+                Span::raw("  "),
+                Span::styled(black_indicator, Style::default().fg(Color::Gray)),
+                Span::styled("\u{265a} ", Style::default().fg(Color::Gray)),
+                Span::styled(
                     format_ms(black_ms),
                     Style::default()
                         .fg(timer_color(black_ms, black_active))
@@ -156,13 +295,13 @@ impl Widget for GameInfoPanel<'_> {
         if let Some(selected) = self.client_state.ui.selected_square {
             lines.push(Line::raw(""));
             lines.push(Line::from(vec![
-                ratatui::text::Span::styled(
+                Span::styled(
                     "Selected: ",
                     Style::default()
                         .fg(Color::Yellow)
                         .add_modifier(Modifier::BOLD),
                 ),
-                ratatui::text::Span::styled(
+                Span::styled(
                     format_square(selected),
                     Style::default()
                         .fg(Color::Yellow)
@@ -172,7 +311,7 @@ impl Widget for GameInfoPanel<'_> {
 
             // List legal move destinations
             if !self.client_state.ui.highlighted_squares.is_empty() {
-                lines.push(Line::from(vec![ratatui::text::Span::styled(
+                lines.push(Line::from(vec![Span::styled(
                     "Legal: ",
                     Style::default()
                         .fg(Color::Green)
@@ -189,7 +328,7 @@ impl Widget for GameInfoPanel<'_> {
                     .collect::<Vec<_>>()
                     .join(", ");
 
-                lines.push(Line::from(vec![ratatui::text::Span::styled(
+                lines.push(Line::from(vec![Span::styled(
                     moves_str,
                     Style::default().fg(Color::Green),
                 )]));
@@ -200,13 +339,13 @@ impl Widget for GameInfoPanel<'_> {
         if let Some(ref msg) = self.client_state.ui.status_message {
             lines.push(Line::raw(""));
             lines.push(Line::from(vec![
-                ratatui::text::Span::styled(
+                Span::styled(
                     "Status: ",
                     Style::default()
                         .fg(Color::Cyan)
                         .add_modifier(Modifier::BOLD),
                 ),
-                ratatui::text::Span::raw(msg),
+                Span::raw(msg.clone()),
             ]));
         }
 
@@ -222,29 +361,100 @@ impl Widget for GameInfoPanel<'_> {
                 _ => "Unknown",
             };
             lines.push(Line::from(vec![
-                ratatui::text::Span::styled(
+                Span::styled(
                     "Game: ",
                     Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
                 ),
-                ratatui::text::Span::styled(
+                Span::styled(
                     status_text,
                     Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
                 ),
             ]));
         }
 
-        let paragraph = Paragraph::new(lines);
-        paragraph.render(inner, buf);
+        lines
     }
 }
 
-fn format_game_mode(mode: &crate::state::GameMode) -> &str {
+fn format_game_mode(mode: &crate::state::GameMode) -> &'static str {
     match mode {
         crate::state::GameMode::HumanVsHuman => "Human vs Human",
         crate::state::GameMode::HumanVsEngine { .. } => "Human vs Engine",
         crate::state::GameMode::EngineVsEngine => "Engine vs Engine",
         crate::state::GameMode::AnalysisMode => "Analysis",
         crate::state::GameMode::ReviewMode => "Review",
+    }
+}
+
+/// Format a ReviewScore as a human-readable string with appropriate color.
+pub(crate) fn format_review_score(score: &ReviewScore) -> (String, Color) {
+    match score.score.as_ref() {
+        Some(review_score::Score::Centipawns(cp)) => {
+            let pawns = *cp as f32 / 100.0;
+            let color = if pawns > 0.5 {
+                Color::Green
+            } else if pawns < -0.5 {
+                Color::Red
+            } else {
+                Color::White
+            };
+            (format!("{:+.2}", pawns), color)
+        }
+        Some(review_score::Score::Mate(m)) => {
+            let color = if *m > 0 {
+                Color::LightGreen
+            } else {
+                Color::LightRed
+            };
+            let sign = if *m > 0 { "+" } else { "" };
+            (format!("{}M{}", sign, m.abs()), color)
+        }
+        None => ("N/A".to_string(), Color::DarkGray),
+    }
+}
+
+/// Get a display name for a classification value.
+fn classification_display_name(classification: i32) -> &'static str {
+    match MoveClassification::try_from(classification) {
+        Ok(MoveClassification::ClassificationBrilliant) => "BRILLIANT",
+        Ok(MoveClassification::ClassificationBest) => "BEST",
+        Ok(MoveClassification::ClassificationExcellent) => "EXCELLENT",
+        Ok(MoveClassification::ClassificationGood) => "GOOD",
+        Ok(MoveClassification::ClassificationInaccuracy) => "INACCURACY",
+        Ok(MoveClassification::ClassificationMistake) => "MISTAKE",
+        Ok(MoveClassification::ClassificationBlunder) => "BLUNDER",
+        Ok(MoveClassification::ClassificationForced) => "FORCED",
+        Ok(MoveClassification::ClassificationBook) => "BOOK",
+        _ => "UNKNOWN",
+    }
+}
+
+/// Get the color for a classification value.
+pub(crate) fn classification_color(classification: i32) -> Color {
+    match MoveClassification::try_from(classification) {
+        Ok(MoveClassification::ClassificationBrilliant) => Color::Cyan,
+        Ok(MoveClassification::ClassificationBest) => Color::LightGreen,
+        Ok(MoveClassification::ClassificationExcellent) => Color::Cyan,
+        Ok(MoveClassification::ClassificationGood) => Color::White,
+        Ok(MoveClassification::ClassificationInaccuracy) => Color::Yellow,
+        Ok(MoveClassification::ClassificationMistake) => Color::Magenta,
+        Ok(MoveClassification::ClassificationBlunder) => Color::Red,
+        Ok(MoveClassification::ClassificationForced) => Color::DarkGray,
+        Ok(MoveClassification::ClassificationBook) => Color::DarkGray,
+        _ => Color::White,
+    }
+}
+
+/// Get the annotation marker for a classification (e.g., "!!", "??").
+fn classification_marker_str(classification: i32) -> &'static str {
+    match MoveClassification::try_from(classification) {
+        Ok(MoveClassification::ClassificationBrilliant) => "!!",
+        Ok(MoveClassification::ClassificationExcellent) => "!",
+        Ok(MoveClassification::ClassificationInaccuracy) => "?!",
+        Ok(MoveClassification::ClassificationMistake) => "?",
+        Ok(MoveClassification::ClassificationBlunder) => "??",
+        Ok(MoveClassification::ClassificationForced) => "[]",
+        _ => "",
     }
 }
 

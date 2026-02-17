@@ -8,6 +8,7 @@ import "engine.proto";
 import "events.proto";
 import "persistence.proto";
 import "positions.proto";
+import "review.proto";
 
 // ============================================================================
 // Core chess service
@@ -40,6 +41,7 @@ service ChessService {
   rpc ListSuspendedSessions(ListSuspendedSessionsRequest) returns (ListSuspendedSessionsResponse);
   rpc ResumeSuspendedSession(ResumeSuspendedSessionRequest) returns (SessionSnapshot);
   rpc DeleteSuspendedSession(DeleteSuspendedSessionRequest) returns (Empty);
+  rpc SaveSnapshot(SaveSnapshotRequest) returns (SaveSnapshotResponse);
 
   // Saved positions
   rpc SavePosition(SavePositionRequest) returns (SavePositionResponse);
@@ -48,6 +50,14 @@ service ChessService {
 
   // Event streaming — snapshot-based
   rpc StreamEvents(StreamEventsRequest) returns (stream SessionStreamEvent);
+
+  // Post-game review
+  rpc ListFinishedGames(ListFinishedGamesRequest) returns (ListFinishedGamesResponse);
+  rpc EnqueueReview(EnqueueReviewRequest) returns (EnqueueReviewResponse);
+  rpc GetReviewStatus(GetReviewStatusRequest) returns (GetReviewStatusResponse);
+  rpc GetGameReview(GetGameReviewRequest) returns (GetGameReviewResponse);
+  rpc ExportReviewPgn(ExportReviewPgnRequest) returns (ExportReviewPgnResponse);
+  rpc DeleteFinishedGame(DeleteFinishedGameRequest) returns (Empty);
 }
 
 message PauseSessionRequest {

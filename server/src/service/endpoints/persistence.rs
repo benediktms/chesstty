@@ -81,6 +81,59 @@ impl PersistenceEndpoints {
         Ok(Response::new(convert_snapshot_to_proto(snapshot)))
     }
 
+    pub async fn save_snapshot(
+        &self,
+        request: Request<SaveSnapshotRequest>,
+    ) -> Result<Response<SaveSnapshotResponse>, Status> {
+        let req = request.into_inner();
+        tracing::info!(name = %req.name, fen = %req.fen, "RPC save_snapshot");
+
+        // Convert proto game mode to storage strings
+        let (game_mode_str, human_side) = if let Some(ref gm) = req.game_mode {
+            let mode = GameModeType::try_from(gm.mode).unwrap_or(GameModeType::HumanVsHuman);
+            match mode {
+                GameModeType::HumanVsEngine => {
+                    let side = gm
+                        .human_side
+                        .and_then(|v| PlayerSideProto::try_from(v).ok())
+                        .map(|s| match s {
+                            PlayerSideProto::Black => "black".to_string(),
+                            _ => "white".to_string(),
+                        });
+                    let mode_str = format!(
+                        "HumanVsEngine:{:?}",
+                        if side.as_deref() == Some("black") {
+                            "Black"
+                        } else {
+                            "White"
+                        }
+                    );
+                    (mode_str, side)
+                }
+                GameModeType::EngineVsEngine => ("EngineVsEngine".to_string(), None),
+                GameModeType::Analysis => ("Analysis".to_string(), None),
+                GameModeType::Review => ("Review".to_string(), None),
+                _ => ("HumanVsHuman".to_string(), None),
+            }
+        } else {
+            ("HumanVsHuman".to_string(), None)
+        };
+
+        let suspended_id = self
+            .session_manager
+            .save_snapshot(
+                &req.fen,
+                &req.name,
+                &game_mode_str,
+                human_side,
+                req.move_count,
+                req.skill_level as u8,
+            )
+            .map_err(Status::internal)?;
+
+        Ok(Response::new(SaveSnapshotResponse { suspended_id }))
+    }
+
     pub async fn delete_suspended_session(
         &self,
         request: Request<DeleteSuspendedSessionRequest>,

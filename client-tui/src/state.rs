@@ -1,6 +1,8 @@
+use crate::review_state::ReviewState;
 use crate::ui::context::FocusStack;
 use crate::ui::pane::PaneManager;
 use crate::ui::widgets::popup_menu::PopupMenuState;
+use crate::ui::widgets::snapshot_dialog::SnapshotDialogState;
 use chess_client::ChessClient;
 use chess_client::*;
 use cozy_chess::{Board, Piece, Square};
@@ -45,6 +47,13 @@ pub struct ClientState {
 
     /// Event streaming
     event_stream: Option<Streaming<SessionStreamEvent>>,
+
+    /// Review mode state (populated when viewing a post-game review).
+    pub review_state: Option<ReviewState>,
+
+    /// Pre-history moves from a snapshot (moves played before the snapshot position).
+    /// Displayed before the current game's move history in the move history panel.
+    pub pre_history: Vec<MoveRecord>,
 }
 
 /// Game mode determines how the app behaves
@@ -69,6 +78,7 @@ pub struct UiState {
     pub highlighted_squares: Vec<Square>,
     pub selectable_squares: Vec<Square>,
     pub last_move: Option<(Square, Square)>,
+    pub best_move_squares: Option<(Square, Square)>,
     pub engine_info: Option<EngineInfo>,
     pub is_engine_thinking: bool,
     pub status_message: Option<String>,
@@ -78,8 +88,10 @@ pub struct UiState {
     pub pane_manager: PaneManager,
     pub focus_stack: FocusStack,
     pub popup_menu: Option<PopupMenuState>,
+    pub snapshot_dialog: Option<SnapshotDialogState>,
     pub paused: bool,
     pub paused_before_menu: bool,
+    pub tab_input: TabInputState,
 }
 
 #[derive(Debug, Clone)]
@@ -101,6 +113,48 @@ pub enum InputPhase {
     SelectPiece,
     SelectDestination,
     SelectPromotion { from: Square, to: Square },
+}
+
+#[derive(Debug, Clone)]
+pub struct TabInputState {
+    pub active: bool,
+    pub current_tab: usize, // 0 = Select Piece, 1 = Select Destination
+    pub typeahead_buffer: String,
+    pub from_square: Option<Square>,
+}
+
+impl TabInputState {
+    pub fn new() -> Self {
+        Self {
+            active: false,
+            current_tab: 0,
+            typeahead_buffer: String::new(),
+            from_square: None,
+        }
+    }
+
+    pub fn activate(&mut self) {
+        self.active = true;
+        self.current_tab = 0;
+        self.typeahead_buffer.clear();
+        self.from_square = None;
+    }
+
+    pub fn deactivate(&mut self) {
+        *self = Self::new();
+    }
+
+    pub fn advance_to_destination(&mut self, from: Square) {
+        self.current_tab = 1;
+        self.from_square = Some(from);
+        self.typeahead_buffer.clear();
+    }
+}
+
+impl Default for TabInputState {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ClientState {
@@ -134,6 +188,7 @@ impl ClientState {
                 highlighted_squares: Vec::new(),
                 selectable_squares: Vec::new(),
                 last_move: None,
+                best_move_squares: None,
                 engine_info: None,
                 is_engine_thinking: false,
                 status_message: None,
@@ -143,31 +198,100 @@ impl ClientState {
                 pane_manager: PaneManager::new(),
                 focus_stack: FocusStack::new(),
                 popup_menu: None,
+                snapshot_dialog: None,
                 paused: false,
                 paused_before_menu: false,
+                tab_input: TabInputState::new(),
             },
             snapshot,
             board,
             legal_moves_cache: HashMap::new(),
             event_stream: None,
+            review_state: None,
+            pre_history: Vec::new(),
         };
 
         state.update_selectable_squares().await?;
         Ok(state)
     }
 
+    /// Create a client state for review mode (no server session created).
+    pub async fn new_review(
+        server_addr: &str,
+        review: GameReviewProto,
+        review_game_mode: Option<GameModeProto>,
+        review_skill_level: u8,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        let client = ChessClient::connect(server_addr).await?;
+
+        let board = Board::default();
+        let snapshot = SessionSnapshot::default();
+
+        let mut pane_manager = PaneManager::new();
+        // Show review-specific panes; keep EngineAnalysis visible (used for MoveAnalysisPanel)
+        pane_manager.toggle_visibility(crate::ui::pane::PaneId::ReviewSummary); // show
+
+        Ok(Self {
+            client,
+            mode: GameMode::ReviewMode,
+            skill_level: 0,
+            ui: UiState {
+                selected_square: None,
+                highlighted_squares: Vec::new(),
+                selectable_squares: Vec::new(),
+                last_move: None,
+                best_move_squares: None,
+                engine_info: None,
+                is_engine_thinking: false,
+                status_message: Some("Review mode - use arrow keys to navigate".to_string()),
+                input_phase: InputPhase::SelectPiece,
+                uci_log: Vec::new(),
+                selected_promotion_piece: Piece::Queen,
+                pane_manager,
+                focus_stack: FocusStack::new(),
+                popup_menu: None,
+                snapshot_dialog: None,
+                paused: false,
+                paused_before_menu: false,
+                tab_input: TabInputState::new(),
+            },
+            snapshot,
+            board,
+            legal_moves_cache: HashMap::new(),
+            event_stream: None,
+            review_state: Some(ReviewState::with_metadata(
+                review,
+                review_game_mode,
+                review_skill_level,
+            )),
+            pre_history: Vec::new(),
+        })
+    }
+
     // --- Accessors: read from snapshot ---
 
     pub fn fen(&self) -> &str {
-        &self.snapshot.fen
+        if let Some(ref rs) = self.review_state {
+            &rs.fen_at_ply
+        } else {
+            &self.snapshot.fen
+        }
     }
 
     pub fn board(&self) -> &Board {
-        &self.board
+        if let Some(ref rs) = self.review_state {
+            &rs.board_at_ply
+        } else {
+            &self.board
+        }
     }
 
     pub fn side_to_move(&self) -> &str {
-        &self.snapshot.side_to_move
+        if let Some(ref rs) = self.review_state {
+            rs.side_to_move()
+        } else {
+            &self.snapshot.side_to_move
+        }
     }
 
     pub fn status(&self) -> i32 {
@@ -175,7 +299,11 @@ impl ClientState {
     }
 
     pub fn history(&self) -> &[MoveRecord] {
-        &self.snapshot.history
+        if let Some(ref rs) = self.review_state {
+            &rs.move_history
+        } else {
+            &self.snapshot.history
+        }
     }
 
     pub fn is_undo_allowed(&self) -> bool {
@@ -227,6 +355,12 @@ impl ClientState {
             .filter(|sq| format_square(**sq).starts_with(input))
             .copied()
             .collect()
+    }
+
+    pub fn legal_moves_from(&self, from_square: Square) -> Option<Vec<MoveDetail>> {
+        use ::chess::format_square;
+        let from_str = format_square(from_square);
+        self.legal_moves_cache.get(&from_str).cloned()
     }
 
     pub fn select_square(&mut self, square: Square) {
@@ -358,7 +492,7 @@ impl ClientState {
         if let Some(stream) = &mut self.event_stream {
             match stream.next().await {
                 Some(Ok(event)) => {
-                    self.handle_event(event);
+                    self.handle_event(event).await;
                     Ok(())
                 }
                 Some(Err(e)) => {
@@ -384,7 +518,7 @@ impl ClientState {
             match futures::poll!(stream.next()) {
                 std::task::Poll::Ready(Some(result)) => match result {
                     Ok(event) => {
-                        self.handle_event(event);
+                        self.handle_event(event).await;
                         Ok(true)
                     }
                     Err(e) => {
@@ -404,7 +538,7 @@ impl ClientState {
         }
     }
 
-    fn handle_event(&mut self, event: SessionStreamEvent) {
+    async fn handle_event(&mut self, event: SessionStreamEvent) {
         if let Some(event_type) = event.event {
             match event_type {
                 session_stream_event::Event::StateChanged(snapshot) => {
@@ -421,6 +555,13 @@ impl ClientState {
 
                     self.ui.is_engine_thinking = snapshot.engine_thinking;
                     self.apply_snapshot(snapshot);
+
+                    if let Err(e) = self.update_selectable_squares().await {
+                        tracing::warn!(
+                            "Failed to update selectable squares after state change: {}",
+                            e
+                        );
+                    }
                 }
                 session_stream_event::Event::EngineThinking(analysis) => {
                     let info = EngineInfo {

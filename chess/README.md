@@ -13,8 +13,6 @@ pub struct Game {
     position: Board,                  // Current board position (cozy-chess)
     history: Vec<HistoryEntry>,       // Move history stack
     redo_stack: Vec<HistoryEntry>,    // Redo stack (cleared on new move)
-    pgn_tags: HashMap<String, String>,
-    start_position: StartPosition,    // Standard or FEN
 }
 ```
 
@@ -107,8 +105,7 @@ chess/src/
 ├── analysis.rs       # EngineAnalysis, AnalysisScore
 ├── board_display.rs  # DisplayBoard (8x8 grid for rendering)
 ├── converters.rs     # format_square, parse_square, format_piece, format_color
-├── uci.rs            # UCI castling conversion, format_uci_move
-└── pgn/              # PGN support (placeholder)
+└── uci.rs            # UCI castling conversion, format_uci_move
 ```
 
 ### Converter Functions

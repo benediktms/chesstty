@@ -81,19 +81,4 @@ impl SessionEndpoints {
 
         Ok(Response::new(convert_snapshot_to_proto(snapshot)))
     }
-
-    pub async fn close_session(
-        &self,
-        request: Request<CloseSessionRequest>,
-    ) -> Result<Response<Empty>, Status> {
-        let req = request.into_inner();
-        tracing::info!(session_id = %req.session_id, "RPC close_session");
-
-        self.session_manager
-            .close_session(&req.session_id)
-            .await
-            .map_err(Status::not_found)?;
-
-        Ok(Response::new(Empty {}))
-    }
 }

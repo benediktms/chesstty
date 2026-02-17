@@ -8,6 +8,7 @@ use super::commands::EngineConfig;
 pub struct SessionSnapshot {
     pub session_id: String,
     pub fen: String,
+    pub start_fen: String,
     pub side_to_move: String,
     pub phase: GamePhase,
     pub game_mode: GameMode,
@@ -31,6 +32,7 @@ pub struct MoveRecord {
     pub promotion: Option<String>,
     pub san: String,
     pub fen_after: String,
+    pub clock_ms: Option<u64>,
 }
 
 /// Timer state for the client to render.

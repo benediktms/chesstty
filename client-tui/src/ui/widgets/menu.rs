@@ -18,6 +18,7 @@ pub enum MenuItem {
     TimeControl(TimeControlOption),
     StartPosition(StartPositionOption),
     ResumeSession,
+    ReviewGame,
     StartGame,
     Quit,
 }
@@ -122,6 +123,15 @@ pub struct MenuState {
     pub has_saved_session: bool,
     pub suspended_sessions: Vec<chess_client::SuspendedSessionInfo>,
     pub session_table: Option<SessionTableContext>,
+    pub has_finished_games: bool,
+    pub finished_games: Vec<chess_client::FinishedGameInfo>,
+    pub review_table: Option<ReviewTableContext>,
+}
+
+/// Context for the review game selection table dialog.
+pub struct ReviewTableContext {
+    pub table_state: SelectableTableState,
+    pub games: Vec<chess_client::FinishedGameInfo>,
 }
 
 /// Context for the session selection table dialog.
@@ -147,6 +157,9 @@ impl Default for MenuState {
             has_saved_session: false,
             suspended_sessions: vec![],
             session_table: None,
+            has_finished_games: false,
+            finished_games: vec![],
+            review_table: None,
         }
     }
 }
@@ -193,6 +206,11 @@ impl MenuState {
         // Show Resume Session if a saved session exists
         if self.has_saved_session {
             items.push(MenuItem::ResumeSession);
+        }
+
+        // Show Review Game if finished games exist
+        if self.has_finished_games {
+            items.push(MenuItem::ReviewGame);
         }
 
         items.push(MenuItem::StartGame);
@@ -406,6 +424,10 @@ impl Widget for MenuWidget<'_> {
                 MenuItem::ResumeSession => Line::from(vec![
                     Span::styled(prefix, style),
                     Span::styled("\u{25b6} Resume Session", style.fg(Color::Cyan)),
+                ]),
+                MenuItem::ReviewGame => Line::from(vec![
+                    Span::styled(prefix, style),
+                    Span::styled("\u{25b6} Review Game", style.fg(Color::Green)),
                 ]),
                 MenuItem::StartGame => Line::from(vec![
                     Span::styled(prefix, style),

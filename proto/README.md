@@ -6,19 +6,20 @@ Protocol buffer definitions for the ChessTTY chess server. The protocol is organ
 
 ```
 proto/proto/
-├── chess_service.proto   # Main service definition (20 RPCs, imports all others)
+├── chess_service.proto   # Main service definition (25 RPCs, imports all others)
 ├── common.proto          # Shared types used across domains
 ├── session.proto         # Session lifecycle messages + SessionSnapshot
 ├── game.proto            # Game action messages (moves, undo, redo, reset)
 ├── engine.proto          # Engine configuration messages
 ├── events.proto          # Event streaming messages
 ├── persistence.proto     # Session suspend/resume messages
-└── positions.proto       # Saved position management messages
+├── positions.proto       # Saved position management messages
+└── review.proto          # Post-game review messages
 ```
 
 ## Service Definition
 
-`ChessService` provides 20 RPC endpoints:
+`ChessService` provides 25 RPC endpoints:
 
 | Domain | RPC | Request -> Response | Type |
 |--------|-----|-------------------|------|
@@ -41,6 +42,11 @@ proto/proto/
 | **Positions** | SavePosition | SavePositionRequest -> SavePositionResponse | Unary |
 | | ListPositions | ListPositionsRequest -> ListPositionsResponse | Unary |
 | | DeletePosition | DeletePositionRequest -> Empty | Unary |
+| **Review** | ListFinishedGames | ListFinishedGamesRequest -> ListFinishedGamesResponse | Unary |
+| | EnqueueReview | EnqueueReviewRequest -> EnqueueReviewResponse | Unary |
+| | GetReviewStatus | GetReviewStatusRequest -> GetReviewStatusResponse | Unary |
+| | GetGameReview | GetGameReviewRequest -> GetGameReviewResponse | Unary |
+| | ExportReviewPgn | ExportReviewPgnRequest -> ExportReviewPgnResponse | Unary |
 | **Events** | StreamEvents | StreamEventsRequest -> **stream** SessionStreamEvent | Server streaming |
 
 **Notable**: There is no `TriggerEngineMove` RPC. The server auto-triggers engine moves based on game mode.

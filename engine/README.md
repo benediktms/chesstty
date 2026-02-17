@@ -146,6 +146,6 @@ engine/src/
 ├── lib.rs          # Public types: EngineCommand, EngineEvent, EngineInfo, GoParams, Score
 ├── stockfish.rs    # StockfishEngine: spawn, send_command, recv_event, shutdown
 └── uci/
-    ├── mod.rs      # UciEngine trait, UciError, UciMessage enum
-    └── parser.rs   # parse_uci_message(), info line parsing
+    ├── mod.rs      # UciError, re-exports
+    └── parser.rs   # parse_uci_message(), UciMessage enum, info line parsing
 ```

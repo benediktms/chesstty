@@ -8,6 +8,7 @@ pub enum PaneId {
     MoveHistory,
     EngineAnalysis,
     UciDebug,
+    ReviewSummary,
 }
 
 /// Static properties describing a pane's capabilities.
@@ -56,6 +57,14 @@ pub fn pane_properties(id: PaneId) -> PaneProperties {
             border_color: Color::Magenta,
             preferred_height: 15,
         },
+        PaneId::ReviewSummary => PaneProperties {
+            id,
+            title: "Review Summary",
+            is_selectable: true,
+            is_expandable: true,
+            border_color: Color::Green,
+            preferred_height: 15,
+        },
     }
 }
 
@@ -82,6 +91,7 @@ impl PaneManager {
             PaneId::GameInfo,
             PaneId::EngineAnalysis,
             PaneId::MoveHistory,
+            PaneId::ReviewSummary,
             PaneId::UciDebug,
         ];
 
@@ -89,6 +99,7 @@ impl PaneManager {
         visibility.insert(PaneId::GameInfo, true);
         visibility.insert(PaneId::MoveHistory, true);
         visibility.insert(PaneId::EngineAnalysis, true);
+        visibility.insert(PaneId::ReviewSummary, false);
         visibility.insert(PaneId::UciDebug, false);
 
         let mut scroll_positions = HashMap::new();

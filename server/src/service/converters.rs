@@ -12,6 +12,7 @@ pub fn convert_snapshot_to_proto(snap: SessionSnapshot) -> chess_proto::SessionS
     chess_proto::SessionSnapshot {
         session_id: snap.session_id,
         fen: snap.fen,
+        start_fen: snap.start_fen,
         side_to_move: snap.side_to_move,
         phase: convert_game_phase_to_proto(&snap.phase) as i32,
         status: convert_game_status(snap.status) as i32,
@@ -43,6 +44,7 @@ pub fn convert_move_record_to_proto(record: &MoveRecord) -> chess_proto::MoveRec
         san: record.san.clone(),
         fen_after: record.fen_after.clone(),
         promotion: record.promotion.clone(),
+        clock_ms: record.clock_ms,
     }
 }
 

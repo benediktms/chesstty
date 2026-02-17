@@ -534,7 +534,6 @@ mod tests {
     /// After the human plays the mating move, the engine should be shut down.
     /// Requires Stockfish to be installed.
     #[tokio::test]
-    #[ignore = "requires Stockfish"]
     async fn test_engine_shutdown_on_checkmate() {
         use cozy_chess::{File, Rank};
 
@@ -575,7 +574,10 @@ mod tests {
             "Expected game ended, got {:?}",
             snap.phase
         );
-        assert!(!snap.engine_thinking, "Engine should not be thinking after checkmate");
+        assert!(
+            !snap.engine_thinking,
+            "Engine should not be thinking after checkmate"
+        );
 
         // Give the actor a moment to process engine shutdown
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;

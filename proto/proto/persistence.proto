@@ -38,3 +38,16 @@ message ResumeSuspendedSessionRequest {
 message DeleteSuspendedSessionRequest {
   string suspended_id = 1;
 }
+
+// Save a snapshot directly (from review mode, no active server session).
+message SaveSnapshotRequest {
+  string fen = 1;
+  string name = 2;
+  optional GameModeProto game_mode = 3;
+  uint32 move_count = 4;
+  uint32 skill_level = 5;
+}
+
+message SaveSnapshotResponse {
+  string suspended_id = 1;
+}

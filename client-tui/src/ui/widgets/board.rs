@@ -74,6 +74,34 @@ impl BoardSize {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SquareHighlight {
+    Selected,
+    LegalMove,
+    BestMove,
+    LastMove,
+    Typeahead,
+    None,
+}
+
+impl SquareHighlight {
+    fn bg_color(self, is_light_square: bool) -> Color {
+        let (light, dark) = match self {
+            Self::Selected => (Color::LightYellow, Color::Yellow),
+            Self::LegalMove => (Color::LightBlue, Color::Blue),
+            Self::BestMove => (Color::LightGreen, Color::Green),
+            Self::LastMove => (Color::LightYellow, Color::Yellow),
+            Self::Typeahead => (Color::LightCyan, Color::Cyan),
+            Self::None => (Color::Rgb(240, 217, 181), Color::Rgb(181, 136, 99)),
+        };
+        if is_light_square {
+            light
+        } else {
+            dark
+        }
+    }
+}
+
 pub struct BoardWidget<'a> {
     pub client_state: &'a ClientState,
     pub typeahead_squares: &'a [Square],
@@ -199,27 +227,34 @@ impl Widget for BoardWidget<'_> {
                 // Check if this square matches typeahead input
                 let is_typeahead = self.typeahead_squares.contains(&square);
 
-                let is_light = (file_idx + rank_idx) % 2 == 0;
+                // Check if this is a best move square (review mode)
+                let is_best_move = self
+                    .client_state
+                    .ui
+                    .best_move_squares
+                    .map(|(from, to)| from == square || to == square)
+                    .unwrap_or(false);
 
-                let bg_color = if is_light {
-                    Color::Rgb(240, 217, 181) // Light square
+                let is_light_square = (file_idx + rank_idx) % 2 == 0;
+
+                let highlight = if is_selected {
+                    SquareHighlight::Selected
+                } else if is_highlighted {
+                    SquareHighlight::LegalMove
+                } else if is_best_move {
+                    SquareHighlight::BestMove
+                } else if is_last_move {
+                    SquareHighlight::LastMove
+                } else if is_typeahead {
+                    SquareHighlight::Typeahead
                 } else {
-                    Color::Rgb(181, 136, 99) // Dark square
+                    SquareHighlight::None
                 };
 
-                // Draw the square background
-                render_square(buf, x, y, bg_color, board_size, inner);
+                let bg_color = highlight.bg_color(is_light_square);
 
-                // Draw borders/outlines for highlights
-                if is_selected {
-                    draw_square_outline(buf, x, y, Color::Yellow, bg_color, board_size, inner);
-                } else if is_highlighted {
-                    draw_square_outline(buf, x, y, Color::Green, bg_color, board_size, inner);
-                } else if is_last_move {
-                    draw_square_outline(buf, x, y, Color::Blue, bg_color, board_size, inner);
-                } else if is_typeahead {
-                    draw_square_outline(buf, x, y, Color::Cyan, bg_color, board_size, inner);
-                }
+                // Draw the square background (with highlight color if applicable)
+                render_square(buf, x, y, bg_color, board_size, inner);
 
                 // Get piece at this square
                 let piece = self.client_state.board().piece_on(square);
@@ -239,6 +274,16 @@ impl Widget for BoardWidget<'_> {
                             bounds: inner,
                         },
                     );
+                }
+
+                // Check for tab-selected destination and draw magenta outline
+                let tab_selected_destination = get_tab_selected_square(self.client_state);
+                let is_tab_selected = tab_selected_destination
+                    .map(|s| s == square)
+                    .unwrap_or(false);
+
+                if is_tab_selected {
+                    draw_square_outline(buf, x, y, Color::Magenta, board_size, inner);
                 }
             }
         }
@@ -266,68 +311,6 @@ fn render_square(
     }
 }
 
-fn draw_square_outline(
-    buf: &mut Buffer,
-    x: u16,
-    y: u16,
-    color: Color,
-    bg_color: Color,
-    board_size: BoardSize,
-    bounds: Rect,
-) {
-    let style = Style::default()
-        .fg(color)
-        .bg(bg_color)
-        .add_modifier(Modifier::BOLD);
-
-    // Top border
-    for dx in 0..board_size.square_width {
-        let px = x + dx;
-        if px < bounds.right() && y < bounds.bottom() {
-            let symbol = if dx == 0 {
-                "┏"
-            } else if dx == board_size.square_width - 1 {
-                "┓"
-            } else {
-                "━"
-            };
-            buf[(px, y)].set_symbol(symbol).set_style(style);
-        }
-    }
-
-    // Bottom border
-    let bottom_y = y + board_size.square_height - 1;
-    for dx in 0..board_size.square_width {
-        let px = x + dx;
-        if px < bounds.right() && bottom_y < bounds.bottom() {
-            let symbol = if dx == 0 {
-                "┗"
-            } else if dx == board_size.square_width - 1 {
-                "┛"
-            } else {
-                "━"
-            };
-            buf[(px, bottom_y)].set_symbol(symbol).set_style(style);
-        }
-    }
-
-    // Left and right borders
-    for dy in 1..board_size.square_height - 1 {
-        let py = y + dy;
-        if py < bounds.bottom() {
-            // Left border
-            if x < bounds.right() {
-                buf[(x, py)].set_symbol("┃").set_style(style);
-            }
-            // Right border
-            let right_x = x + board_size.square_width - 1;
-            if right_x < bounds.right() {
-                buf[(right_x, py)].set_symbol("┃").set_style(style);
-            }
-        }
-    }
-}
-
 struct PieceRenderParams {
     x: u16,
     y: u16,
@@ -344,7 +327,8 @@ fn render_piece(buf: &mut Buffer, params: &PieceRenderParams) {
 
     let fg_color = match params.color {
         ChessColor::White => Color::White,
-        ChessColor::Black => Color::Rgb(50, 50, 50), // Dark gray for black pieces
+        ChessColor::Black => Color::Black,
+        // ChessColor::Black => Color::Rgb(50, 50, 50), // Dark gray for black pieces
     };
 
     let style = Style::default()
@@ -377,183 +361,225 @@ fn piece_pixel_art(piece: Piece, size: BoardSizeVariant) -> Vec<&'static str> {
 
 #[rustfmt::skip]
 fn piece_pixel_art_small(piece: Piece) -> Vec<&'static str> {
-    // 5 lines high, fits in 9-char width
+    // 4 lines high, fits in 9-char width
     match piece {
         Piece::King => vec![
-            "  +++ ",
-            " (|||)",
-            " -=K=-",
-            "  | | ",
-            " /___\\",
+            "  ✺█✺█✺  ",
+            "   ███   ",
+            "  -=K=-  ",
+            "  █████  ",
         ],
         Piece::Queen => vec![
-            " w w w",
-            " (\\|/)",
-            " -=Q=-",
-            "  ] [ ",
-            " /___\\",
+            "  ✦█✦█✦  ",
+            "   ███   ",
+            "  -=Q=-  ",
+            "  █████  ",
         ],
         Piece::Rook => vec![
-            " |_|_|",
-            " |||||",
-            " -=R=-",
-            "  ] [ ",
-            " /___\\",
+            "  █ █ █  ",
+            "   ███   ",
+            "  -=R=-  ",
+            "  █████  ",
         ],
         Piece::Bishop => vec![
-            "   o  ",
-            "  (^) ",
-            " -=B=-",
-            "  ] [ ",
-            " /___\\",
+            "    ❂    ",
+            "  ▓███▓  ",
+            "  -=B=-  ",
+            "  █████  ",
         ],
         Piece::Knight => vec![
-            "  ,-. ",
-            " /.'| ",
-            " \\__; ",
-            "  ] [ ",
-            " /___\\",
+            "    ◉    ",
+            "   ▓██▓  ",
+            "  -=N=-  ",
+            "  █████  ",
         ],
         Piece::Pawn => vec![
-            "  ___ ",
-            " (   )",
-            "  | | ",
-            "  | | ",
-            " /___\\",
+            "    ●    ",
+            "   ▓▓▓   ",
+            "  -=P=-  ",
+            "  █████  ",
         ],
     }
 }
 
 #[rustfmt::skip]
 fn piece_pixel_art_medium(piece: Piece) -> Vec<&'static str> {
-    // 7 lines high, fits in 13-char width
+    // 6 lines high, fits in 13-char width
     match piece {
         Piece::King => vec![
-            "    +++   ",
-            "   (|||)  ",
-            "  <~***~> ",
-            "  --=K=-- ",
-            "   ] [ ]  ",
-            "   |   |  ",
-            "  /=====\\ ",
+            "   ✺█✺█✺█✺   ",
+            "   ███████   ",
+            "   ▓█████▓   ",
+            "  ---=K=---  ",
+            "    █▓▓██    ",
+            "  █████████  ",
         ],
         Piece::Queen => vec![
-            "  w O w  ",
-            "  (\\|/)  ",
-            "  <~*~>  ",
-            " --=Q=-- ",
-            "  ] | [  ",
-            "  |   |  ",
-            " /=====\\ ",
+            "  ✦█✦█✦█✦█✦  ",
+            "   ▓██████   ",
+            "   ▓█████▓   ",
+            "  ---=Q=---  ",
+            "   ▓█▓▓██    ",
+            "  ▓████████  ",
         ],
         Piece::Rook => vec![
-            " |_| |_| ",
-            " ||||||| ",
-            "  |||||  ",
-            " --=R=-- ",
-            "  ] | [  ",
-            "  |   |  ",
-            "  /=====\\ ",
+            "  █ █ █ █ █  ",
+            "  ▓████████  ",
+            "  ▓▓██████▓  ",
+            "   --=R=--   ",
+            "   ▌██▓▓█▐   ",
+            "  ▓████████  ",
         ],
         Piece::Bishop => vec![
-            "     o    ",
-            "    (^)   ",
-            "   <~*~>  ",
-            "  --=B=-- ",
-            "    ] [   ",
-            "    | |   ",
-            "  /===\\  ",
+            "      ❂      ",
+            "    ▓███▓    ",
+            "   ▓██████   ",
+            "   --=B=--   ",
+            "   ▌██▓▓█▐   ",
+            "  █████████  ",
         ],
         Piece::Knight => vec![
-            "   _,.   ",
-            "  /.'|   ",
-            " (_.-|   ",
-            "  \\__:   ",
-            "   ] [   ",
-            "   | |   ",
-            "  /===\\  ",
+            "    ◉        ",
+            "   ▓██▓      ",
+            "   ▓▓█████   ",
+            "   --=N=--   ",
+            "   ▌████▐    ",
+            "  ▓████████  ",
         ],
         Piece::Pawn => vec![
-            "          ",
-            "    ___   ",
-            "   (   )  ",
-            "    | |   ",
-            "   ] | [  ",
-            "   |   |  ",
-            "  /=====\\ ",
+            "      ●      ",
+            "     ▓▓▓     ",
+            "   ███████   ",
+            "   --=P=--   ",
+            "    ▄▓▓▓▄    ",
+            "  █████████  "
         ],
     }
 }
 
 #[rustfmt::skip]
 fn piece_pixel_art_large(piece: Piece) -> Vec<&'static str> {
-    // 9 lines high, fits in 17-char width
+    // 8 lines high, fits in 17-char width
     match piece {
         Piece::King => vec![
-            "      +++     ",
-            "     (|||)    ",
-            "    /~***~\\   ",
-            "   <--------> ",
-            "    ---=K=--- ",
-            "     ] [ ]    ",
-            "     |   |    ",
-            "    |     |   ",
-            "   /=======\\  ",
+            "    ✺█✺█✺█✺█✺    ",
+            "    █████████    ",
+            "   ▓█████████▓   ",
+            "    ---=K=---    ",
+            "   ▌█████████▐   ",
+            "    ▌██▓▓▓██▐    ",
+            "     ██   ██     ",
+            "   ███████████   ",
         ],
         Piece::Queen => vec![
-            "   w  w  w   ",
-            "   (\\|'|/)   ",
-            "    \\~*~/    ",
-            "   <------->  ",
-            "    ---=Q=--- ",
-            "     ] [ ]    ",
-            "     |   |    ",
-            "    |     |   ",
-            "   /=======\\  ",
+            "   ✦█✦█✦█✦█✦█✦   ",
+            "    ▓███████▓    ",
+            "   ▌█████████▐   ",
+            "    ---=Q=---    ",
+            "    ▌██▓▓▓██▐    ",
+            "     ██   ██     ",
+            "   ███████████   ",
         ],
         Piece::Rook => vec![
-            "  |_| |_| |_|",
-            "  |||||||||||",
-            "  |||||||||||",
-            "   |||||||||  ",
-            "    ---=R=--- ",
-            "     ] [ ]    ",
-            "     |   |    ",
-            "    |     |   ",
-            "   /=======\\  ",
+            "  █ █ █ █ █ █ █  ",
+            "   ▓▓█████████   ",
+            "   ▓▓▓████████   ",
+            "    ---=R=---    ",
+            "   ▌▌███████▐▐  ",
+            "   ▌▌█▓▓█▓▓█▐▐   ",
+            "    ▌███████▐    ",
+            "   ███████████   ",
         ],
         Piece::Bishop => vec![
-            "       o      ",
-            "      (^)     ",
-            "     /~*~\\    ",
-            "    <----->   ",
-            "    ---=B=--- ",
-            "     ] [ ]    ",
-            "      | |     ",
-            "     |   |    ",
-            "    /=====\\   ",
+            "       ❂         ",
+            "     ▓███▓       ",
+            "    ▓█████▓      ",
+            "   ---=B=---     ",
+            "   ▓██████▓      ",
+            "   ▌██▓▓▓██▐     ",
+            "    ██   ██      ",
+            "  ███████████    ",
         ],
         Piece::Knight => vec![
-            "     _,-.    ",
-            "    /.'  \\   ",
-            "   (_.--.;   ",
-            "    \\____:   ",
-            "    ---=N=---",
-            "      ] [    ",
-            "      | |    ",
-            "     |   |   ",
-            "    /=====\\  ",
+            "      ◉          ",
+            "    ▓██▓▓        ",
+            "   ▓▓█████▓▓     ",
+            "   --=N=--       ",
+            "   ▓▓█████       ",
+            "   ▌██▓▓▓██▐     ",
+            "    ██   ██      ",
+            "  ███████████    ",
         ],
         Piece::Pawn => vec![
-            "      ___     ",
-            "     (   )    ",
-            "      | |     ",
-            "      | |     ",
-            "      | |     ",
-            "     ] [ ]    ",
-            "     |   |    ",
-            "    |     |   ",
-            "   /=======\\  ",
+            "        ●        ",
+            "       ▓▓▓       ",
+            "      ▓████      ",
+            "    ---=P=---    ",
+            "     ▓▓▓▓▓▓▓     ",
+            "     ▄▄▄▄▄▄▄     ",
+            "     ▓█   ██     ",
+            "    █████████    ",
         ],
+    }
+}
+
+/// Get the currently selected destination square in tab input mode.
+fn get_tab_selected_square(_state: &ClientState) -> Option<Square> {
+    // No arrow-based selection — typeahead only
+    None
+}
+
+/// Draw a magenta outline around a square.
+fn draw_square_outline(
+    buf: &mut Buffer,
+    x: u16,
+    y: u16,
+    color: Color,
+    board_size: BoardSize,
+    bounds: Rect,
+) {
+    let style = Style::default().fg(color).add_modifier(Modifier::BOLD);
+
+    // Draw top border
+    for dx in 0..board_size.square_width {
+        let px = x + dx;
+        if px < bounds.right() && y < bounds.bottom() {
+            let symbol = if dx == 0 {
+                "┌"
+            } else if dx == board_size.square_width - 1 {
+                "┐"
+            } else {
+                "─"
+            };
+            buf[(px, y)].set_symbol(symbol).set_style(style);
+        }
+    }
+
+    // Draw bottom border
+    let bottom_y = y + board_size.square_height - 1;
+    for dx in 0..board_size.square_width {
+        let px = x + dx;
+        if px < bounds.right() && bottom_y < bounds.bottom() {
+            let symbol = if dx == 0 {
+                "└"
+            } else if dx == board_size.square_width - 1 {
+                "┘"
+            } else {
+                "─"
+            };
+            buf[(px, bottom_y)].set_symbol(symbol).set_style(style);
+        }
+    }
+
+    // Draw left and right borders
+    for dy in 1..board_size.square_height - 1 {
+        let py = y + dy;
+        if x < bounds.bottom() {
+            buf[(x, py)].set_symbol("│").set_style(style);
+        }
+        let right_x = x + board_size.square_width - 1;
+        if right_x < bounds.right() {
+            buf[(right_x, py)].set_symbol("│").set_style(style);
+        }
     }
 }

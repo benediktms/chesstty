@@ -26,6 +26,25 @@ pub struct GameConfig {
     pub resume_game_mode: Option<i32>,
     pub resume_human_side: Option<i32>,
     pub resume_skill_level: Option<u8>,
+    /// If set, enter review mode with this pre-fetched review data.
+    pub review_data: Option<chess_client::GameReviewProto>,
+    /// Original game mode from a finished game (for snapshot creation during review).
+    pub review_game_mode: Option<chess_client::GameModeProto>,
+    /// Original skill level from a finished game (for snapshot creation during review).
+    pub review_skill_level: Option<u8>,
+    /// Pre-history moves from a snapshot (moves played before the snapshot position).
+    /// `Some(...)` indicates a snapshot game, which implies paused start for engine modes.
+    pub pre_history: Option<Vec<chess_client::MoveRecord>>,
+}
+
+/// Actions returned from the menu.
+pub enum MenuAction {
+    /// Start a game (or review) with the given config.
+    StartGame(Box<GameConfig>),
+    /// Enqueue a game for review analysis, then return to menu.
+    EnqueueReview(String),
+    /// User chose to quit.
+    Quit,
 }
 
 /// Show menu and get game configuration.
@@ -33,7 +52,8 @@ pub struct GameConfig {
 pub async fn show_menu(
     suspended_sessions: Vec<chess_client::SuspendedSessionInfo>,
     saved_positions: Vec<chess_client::SavedPosition>,
-) -> anyhow::Result<Option<GameConfig>> {
+    finished_games: Vec<chess_client::FinishedGameInfo>,
+) -> anyhow::Result<MenuAction> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen)?;
@@ -41,11 +61,14 @@ pub async fn show_menu(
     let mut terminal = Terminal::new(backend)?;
 
     let has_saved_session = !suspended_sessions.is_empty();
+    let has_finished_games = !finished_games.is_empty();
 
     let mut menu_state = MenuState {
         suspended_sessions,
         saved_positions,
         has_saved_session,
+        has_finished_games,
+        finished_games,
         ..Default::default()
     };
 
@@ -60,6 +83,56 @@ pub async fn show_menu(
             if let Some(ref mut dialog_state) = menu_state.fen_dialog_state {
                 let fen_dialog = FenDialogWidget::new(dialog_state, &menu_state.saved_positions);
                 f.render_widget(fen_dialog, f.area());
+            }
+
+            // Render review game selection table if active
+            if let Some(ref mut ctx) = menu_state.review_table {
+                let rows: Vec<Vec<String>> = ctx
+                    .games
+                    .iter()
+                    .map(|g| {
+                        let result = &g.result;
+                        let reason = if g.result_reason.len() > 15 {
+                            format!("{}...", &g.result_reason[..12])
+                        } else {
+                            g.result_reason.clone()
+                        };
+                        let moves = format!("{} moves", g.move_count);
+                        let status = g
+                            .review_status
+                            .and_then(|s| chess_client::ReviewStatusType::try_from(s).ok())
+                            .map(|s| match s {
+                                chess_client::ReviewStatusType::ReviewStatusQueued => "Queued",
+                                chess_client::ReviewStatusType::ReviewStatusAnalyzing => {
+                                    "Analyzing"
+                                }
+                                chess_client::ReviewStatusType::ReviewStatusComplete => "Reviewed",
+                                chess_client::ReviewStatusType::ReviewStatusFailed => "Failed",
+                            })
+                            .unwrap_or("Not reviewed");
+                        vec![result.clone(), reason, moves, status.to_string()]
+                    })
+                    .collect();
+
+                render_table_overlay(
+                    f.area(),
+                    f.buffer_mut(),
+                    TableOverlayParams {
+                        title: "Review Game",
+                        headers: &["Result", "Reason", "Moves", "Status"],
+                        rows: &rows,
+                        column_widths: &[
+                            Constraint::Length(12),
+                            Constraint::Length(16),
+                            Constraint::Length(10),
+                            Constraint::Length(14),
+                        ],
+                        state: &mut ctx.table_state,
+                        width: 65,
+                        height: (ctx.games.len() as u16 + 6).min(20),
+                        footer: Some("Enter: View reviewed | a: Analyze | Esc: Back"),
+                    },
+                );
             }
 
             // Render session selection table if active
@@ -107,6 +180,7 @@ pub async fn show_menu(
                         state: &mut ctx.table_state,
                         width: 70,
                         height: (ctx.sessions.len() as u16 + 5).min(20),
+                        footer: None,
                     },
                 );
             }
@@ -114,11 +188,20 @@ pub async fn show_menu(
 
         if event::poll(Duration::from_millis(100))? {
             if let Event::Key(key) = event::read()? {
-                // Session table takes highest priority
+                // Review table takes highest priority
+                if menu_state.review_table.is_some() {
+                    let action = handle_review_table_input(&mut menu_state, key.code);
+                    if let Some(menu_action) = action {
+                        break menu_action;
+                    }
+                    continue;
+                }
+
+                // Session table takes next priority
                 if menu_state.session_table.is_some() {
                     let action = handle_session_table_input(&mut menu_state, key.code);
                     if let Some(config) = action {
-                        break Some(config);
+                        break MenuAction::StartGame(Box::new(config));
                     }
                     continue;
                 }
@@ -163,7 +246,7 @@ pub async fn show_menu(
                                     Some(FenDialogState::new(menu_state.saved_positions.len()));
                             } else {
                                 let config = create_game_config(&menu_state);
-                                break Some(config);
+                                break MenuAction::StartGame(Box::new(config));
                             }
                         }
                         Some(MenuItem::ResumeSession) => {
@@ -177,8 +260,19 @@ pub async fn show_menu(
                                 });
                             }
                         }
+                        Some(MenuItem::ReviewGame) => {
+                            let games = menu_state.finished_games.clone();
+                            if !games.is_empty() {
+                                use crate::ui::widgets::menu::ReviewTableContext;
+                                let count = games.len();
+                                menu_state.review_table = Some(ReviewTableContext {
+                                    table_state: SelectableTableState::new(count),
+                                    games,
+                                });
+                            }
+                        }
                         Some(MenuItem::Quit) => {
-                            break None;
+                            break MenuAction::Quit;
                         }
                         Some(MenuItem::StartPosition(_)) => {
                             use crate::ui::widgets::menu::StartPositionOption;
@@ -190,7 +284,7 @@ pub async fn show_menu(
                         _ => {}
                     },
                     KeyCode::Char('q') | KeyCode::Esc => {
-                        break None;
+                        break MenuAction::Quit;
                     }
                     _ => {}
                 }
@@ -548,6 +642,10 @@ fn create_game_config(menu_state: &MenuState) -> GameConfig {
         resume_game_mode: None,
         resume_human_side: None,
         resume_skill_level: None,
+        review_data: None,
+        review_game_mode: None,
+        review_skill_level: None,
+        pre_history: None,
     }
 }
 
@@ -600,4 +698,288 @@ fn handle_session_table_input(menu_state: &mut MenuState, key_code: KeyCode) -> 
     }
 
     None
+}
+
+/// Handle input for the review game selection table.
+/// Returns Some(MenuAction) when user picks a game or enqueues analysis.
+fn handle_review_table_input(menu_state: &mut MenuState, key_code: KeyCode) -> Option<MenuAction> {
+    let ctx = menu_state.review_table.as_mut()?;
+
+    match key_code {
+        KeyCode::Up | KeyCode::Char('k') => {
+            ctx.table_state.move_up();
+        }
+        KeyCode::Down | KeyCode::Char('j') => {
+            ctx.table_state.move_down();
+        }
+        KeyCode::Enter => {
+            if let Some(idx) = ctx.table_state.selected_index() {
+                if let Some(game) = ctx.games.get(idx) {
+                    let status = game
+                        .review_status
+                        .and_then(|s| chess_client::ReviewStatusType::try_from(s).ok());
+
+                    if status == Some(chess_client::ReviewStatusType::ReviewStatusComplete) {
+                        let game_id = game.game_id.clone();
+                        let review_game_mode = game.game_mode;
+                        menu_state.review_table = None;
+                        return Some(MenuAction::StartGame(Box::new(GameConfig {
+                            mode: GameMode::ReviewMode,
+                            skill_level: 0,
+                            start_fen: None,
+                            time_control_seconds: None,
+                            engine_threads: None,
+                            engine_hash_mb: None,
+                            resume_session_id: Some(game_id),
+                            resume_game_mode: None,
+                            resume_human_side: None,
+                            resume_skill_level: None,
+                            review_data: None,
+                            review_game_mode,
+                            review_skill_level: None,
+                            pre_history: None,
+                        })));
+                    }
+                }
+            }
+        }
+        KeyCode::Char('a') => {
+            // Enqueue analysis for the selected game (only if not reviewed and not in-flight)
+            if let Some(idx) = ctx.table_state.selected_index() {
+                if let Some(game) = ctx.games.get(idx) {
+                    let status = game
+                        .review_status
+                        .and_then(|s| chess_client::ReviewStatusType::try_from(s).ok());
+                    let can_enqueue = matches!(
+                        status,
+                        None | Some(chess_client::ReviewStatusType::ReviewStatusFailed)
+                    );
+                    if can_enqueue {
+                        let game_id = game.game_id.clone();
+                        menu_state.review_table = None;
+                        return Some(MenuAction::EnqueueReview(game_id));
+                    }
+                }
+            }
+        }
+        KeyCode::Esc => {
+            menu_state.review_table = None;
+        }
+        _ => {}
+    }
+
+    None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ui::widgets::menu::ReviewTableContext;
+
+    fn sample_game(game_id: &str, review_status: Option<i32>) -> chess_client::FinishedGameInfo {
+        chess_client::FinishedGameInfo {
+            game_id: game_id.to_string(),
+            result: "BlackWins".to_string(),
+            result_reason: "Checkmate".to_string(),
+            game_mode: None,
+            move_count: 4,
+            created_at: 1000,
+            review_status,
+        }
+    }
+
+    fn menu_with_review_table(games: Vec<chess_client::FinishedGameInfo>) -> MenuState {
+        let count = games.len();
+        let mut state = MenuState {
+            has_finished_games: !games.is_empty(),
+            finished_games: games.clone(),
+            ..Default::default()
+        };
+        state.review_table = Some(ReviewTableContext {
+            table_state: SelectableTableState::new(count),
+            games,
+        });
+        state
+    }
+
+    #[test]
+    fn test_enter_on_reviewed_game_returns_start_game() {
+        let games = vec![sample_game(
+            "game_1",
+            Some(chess_client::ReviewStatusType::ReviewStatusComplete as i32),
+        )];
+        let mut state = menu_with_review_table(games);
+
+        let action = handle_review_table_input(&mut state, KeyCode::Enter);
+        assert!(action.is_some());
+        match action.unwrap() {
+            MenuAction::StartGame(config) => {
+                assert_eq!(config.mode, GameMode::ReviewMode);
+                assert_eq!(config.resume_session_id, Some("game_1".to_string()));
+            }
+            _ => panic!("Expected StartGame"),
+        }
+        // Table should be dismissed
+        assert!(state.review_table.is_none());
+    }
+
+    #[test]
+    fn test_enter_on_unreviewed_game_does_nothing() {
+        let games = vec![sample_game("game_1", None)];
+        let mut state = menu_with_review_table(games);
+
+        let action = handle_review_table_input(&mut state, KeyCode::Enter);
+        assert!(action.is_none());
+        // Table should remain open
+        assert!(state.review_table.is_some());
+    }
+
+    #[test]
+    fn test_enter_on_analyzing_game_does_nothing() {
+        let games = vec![sample_game(
+            "game_1",
+            Some(chess_client::ReviewStatusType::ReviewStatusAnalyzing as i32),
+        )];
+        let mut state = menu_with_review_table(games);
+
+        let action = handle_review_table_input(&mut state, KeyCode::Enter);
+        assert!(action.is_none());
+        assert!(state.review_table.is_some());
+    }
+
+    #[test]
+    fn test_a_on_unreviewed_game_enqueues() {
+        let games = vec![sample_game("game_1", None)];
+        let mut state = menu_with_review_table(games);
+
+        let action = handle_review_table_input(&mut state, KeyCode::Char('a'));
+        assert!(action.is_some());
+        match action.unwrap() {
+            MenuAction::EnqueueReview(id) => assert_eq!(id, "game_1"),
+            _ => panic!("Expected EnqueueReview"),
+        }
+        assert!(state.review_table.is_none());
+    }
+
+    #[test]
+    fn test_a_on_failed_game_enqueues() {
+        let games = vec![sample_game(
+            "game_1",
+            Some(chess_client::ReviewStatusType::ReviewStatusFailed as i32),
+        )];
+        let mut state = menu_with_review_table(games);
+
+        let action = handle_review_table_input(&mut state, KeyCode::Char('a'));
+        assert!(action.is_some());
+        match action.unwrap() {
+            MenuAction::EnqueueReview(id) => assert_eq!(id, "game_1"),
+            _ => panic!("Expected EnqueueReview"),
+        }
+    }
+
+    #[test]
+    fn test_a_on_completed_review_does_nothing() {
+        let games = vec![sample_game(
+            "game_1",
+            Some(chess_client::ReviewStatusType::ReviewStatusComplete as i32),
+        )];
+        let mut state = menu_with_review_table(games);
+
+        let action = handle_review_table_input(&mut state, KeyCode::Char('a'));
+        assert!(action.is_none());
+        assert!(state.review_table.is_some());
+    }
+
+    #[test]
+    fn test_a_on_queued_game_does_nothing() {
+        let games = vec![sample_game(
+            "game_1",
+            Some(chess_client::ReviewStatusType::ReviewStatusQueued as i32),
+        )];
+        let mut state = menu_with_review_table(games);
+
+        let action = handle_review_table_input(&mut state, KeyCode::Char('a'));
+        assert!(action.is_none());
+        assert!(state.review_table.is_some());
+    }
+
+    #[test]
+    fn test_a_on_analyzing_game_does_nothing() {
+        let games = vec![sample_game(
+            "game_1",
+            Some(chess_client::ReviewStatusType::ReviewStatusAnalyzing as i32),
+        )];
+        let mut state = menu_with_review_table(games);
+
+        let action = handle_review_table_input(&mut state, KeyCode::Char('a'));
+        assert!(action.is_none());
+        assert!(state.review_table.is_some());
+    }
+
+    #[test]
+    fn test_esc_closes_review_table() {
+        let games = vec![sample_game("game_1", None)];
+        let mut state = menu_with_review_table(games);
+
+        let action = handle_review_table_input(&mut state, KeyCode::Esc);
+        assert!(action.is_none());
+        assert!(state.review_table.is_none());
+    }
+
+    #[test]
+    fn test_navigation_in_review_table() {
+        let games = vec![
+            sample_game("game_1", None),
+            sample_game("game_2", None),
+            sample_game("game_3", None),
+        ];
+        let mut state = menu_with_review_table(games);
+
+        // Starts at index 0
+        let ctx = state.review_table.as_ref().unwrap();
+        assert_eq!(ctx.table_state.selected_index(), Some(0));
+
+        // Move down
+        handle_review_table_input(&mut state, KeyCode::Down);
+        let ctx = state.review_table.as_ref().unwrap();
+        assert_eq!(ctx.table_state.selected_index(), Some(1));
+
+        // Move down with 'j'
+        handle_review_table_input(&mut state, KeyCode::Char('j'));
+        let ctx = state.review_table.as_ref().unwrap();
+        assert_eq!(ctx.table_state.selected_index(), Some(2));
+
+        // Move up with 'k'
+        handle_review_table_input(&mut state, KeyCode::Char('k'));
+        let ctx = state.review_table.as_ref().unwrap();
+        assert_eq!(ctx.table_state.selected_index(), Some(1));
+
+        // Move up
+        handle_review_table_input(&mut state, KeyCode::Up);
+        let ctx = state.review_table.as_ref().unwrap();
+        assert_eq!(ctx.table_state.selected_index(), Some(0));
+    }
+
+    #[test]
+    fn test_enter_selects_correct_game_after_navigation() {
+        let games = vec![
+            sample_game("game_1", None),
+            sample_game(
+                "game_2",
+                Some(chess_client::ReviewStatusType::ReviewStatusComplete as i32),
+            ),
+        ];
+        let mut state = menu_with_review_table(games);
+
+        // Navigate to second game
+        handle_review_table_input(&mut state, KeyCode::Down);
+
+        let action = handle_review_table_input(&mut state, KeyCode::Enter);
+        match action.unwrap() {
+            MenuAction::StartGame(config) => {
+                assert_eq!(config.resume_session_id, Some("game_2".to_string()));
+            }
+            _ => panic!("Expected StartGame"),
+        }
+    }
 }

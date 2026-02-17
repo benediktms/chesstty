@@ -37,6 +37,7 @@ message SessionSnapshot {
   optional GameModeProto game_mode = 11;
   bool engine_thinking = 12;
   optional TimerState timer = 13;
+  string start_fen = 14;
 }
 
 // Kept for backward compat during migration

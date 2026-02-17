@@ -74,6 +74,7 @@ ClientState
     ├── focus_stack                   # Focus context stack
     ├── popup_menu                    # Active popup menu state (if any)
     └── paused                        # Pause state
+└── review_state: Option<ReviewState>  # Review navigation (when in Review mode)
 ```
 
 **All updates flow through `apply_snapshot()`**: parses FEN into `cozy_chess::Board`, updates game mode, updates pause state. No local game logic.
@@ -135,6 +136,97 @@ FocusContext::Board (pop)
 | **PaneSelected** | Left/Right cycle visible panes, Up/Down scroll, Enter expands pane |
 | **PaneExpanded** | Up/Down/PageUp/PageDown scroll content, Esc collapses back |
 
+## Review Summary Display
+
+The `ReviewSummaryPanel` widget appears when viewing a completed game review. It displays:
+
+### Accuracy Section
+Shows the accuracy percentage for each player with a visual bar chart:
+```
+Accuracy
+  White: 87.3%  ████████████████████
+  Black: 72.1%  ███████████████░░░░░
+```
+
+Color-coded by performance:
+- **Green** (≥90%) - Excellent accuracy
+- **Yellow** (70-89%) - Good accuracy
+- **Red** (<70%) - Needs improvement
+
+### Evaluation Graph
+
+A **5-row ASCII sparkline chart** showing position evaluation throughout the game:
+
+```
+Evaluation
+    ▔▔▔▔▔▔▔▔
+  ▄▄        ▄▄
+▄▄              ▄▄
+▁▁                ▁▁░░░░░░
+░░░░░░░░░░░░░░░░░░░░░░░░░░░░
+```
+
+**How to read it:**
+- **Above the midline** (row 2) = White advantage
+- **Below the midline** = Black advantage
+- **Height/fullness** = Magnitude of advantage (scaled to ±500 cp)
+- **White/Gray** = Normal positions
+- **Yellow highlights** = Mistakes made
+- **Red highlights** = Blunders made
+
+Each column represents a sampled position across the game, automatically scaled to fit the available width.
+
+### Move Quality Breakdown
+
+Counts moves in each category for each side:
+```
+Move Quality
+  Best         W:5   B:3
+  Excellent    W:2   B:4
+  Good         W:8   B:10
+  Inaccuracy   W:3   B:2
+  Mistake      W:1   B:0
+  Blunder      W:0   B:1
+```
+
+### Critical Moments
+
+Lists blunders and mistakes (up to 10) with move number, side, move, and centipawn loss:
+```
+Critical Moments
+  1. [W] e4?? (52cp)
+  3. [B] Nf6? (35cp)
+  5. [W] h3?? (280cp)
+```
+
+Format: `move_number. [W|B] move_notation (cp_loss)`
+
+### Legend
+
+Reference guide for move quality annotations:
+```
+Legend
+  !! Brilliant
+  !  Excellent
+     Good / Best
+  ?! Inaccuracy
+  ?  Mistake
+  ?? Blunder
+  [] Forced
+```
+
+These annotations (NAG - Numeric Annotation Glyphs) appear in exported PGN files.
+
+### Analysis Info
+
+Shows depth of analysis and completion progress:
+```
+Depth: 18  Plies: 42/42
+```
+
+- **Depth** - How many half-moves ahead Stockfish analyzed
+- **Plies** - Number of moves analyzed / total moves in game
+
 ## Widget Inventory
 
 | Widget | File | Description |
@@ -149,6 +241,7 @@ FocusContext::Board (pop)
 | `MiniBoardWidget` | `mini_board.rs` | Compact Unicode board (18x10) shown in corner when a pane is expanded. |
 | `MenuWidget` | `menu.rs` | Main menu with dynamic items based on game mode, suspended sessions, and saved positions. |
 | `FenDialogWidget` | `fen_dialog.rs` | FEN input field with saved positions table overlay. |
+| `ReviewSummaryPanel` | `review_summary_panel.rs` | Accuracy scores, classification breakdown, critical moments list. Only visible in Review mode. |
 | `SelectableTableState` | `selectable_table.rs` | Reusable table component with keyboard navigation (used by FEN dialog and menu). |
 
 ## Pane Management
@@ -161,6 +254,7 @@ FocusContext::Board (pop)
 | EngineAnalysis | Yes | Yes | Yes |
 | MoveHistory | Yes | Yes | Yes |
 | UciDebug | No | Yes | Yes |
+| ReviewSummary | No (review mode only) | Yes | Yes |
 
 Pane order: GameInfo -> EngineAnalysis -> MoveHistory -> UciDebug
 
@@ -200,6 +294,22 @@ InputPhase::SelectPiece ──(type "e2", Enter)──> InputPhase::SelectDestin
 | `Esc` | Board (no selection) | Open popup menu (auto-pauses engine) |
 | `Tab` | Board | Enter pane selection |
 
+### Review Mode
+
+When in Review mode, board context keys are replaced with navigation:
+
+| Key | Action |
+|-----|--------|
+| Right / `l` | Next ply |
+| Left / `h` | Previous ply |
+| Home | Go to start |
+| End | Go to end |
+| `n` | Next critical moment (blunder/mistake) |
+| `p` | Previous critical moment |
+| Space | Toggle auto-play |
+
+Move input is disabled. All data is loaded once from the server; no further server calls are made during review.
+
 ## Module Structure
 
 ```
@@ -225,6 +335,7 @@ client-tui/src/
         ├── move_history_panel.rs
         ├── popup_menu.rs
         ├── promotion_dialog.rs
+        ├── review_summary_panel.rs
         ├── selectable_table.rs
         └── uci_debug_panel.rs
 ```

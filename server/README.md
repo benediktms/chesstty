@@ -30,14 +30,21 @@ graph TB
         SNAP[SessionSnapshot<br/>immutable snapshot]
     end
 
+    subgraph "Review"
+        RM[ReviewManager]
+    end
+
     subgraph "Persistence"
         SS[SessionStore<br/>data/sessions/*.json]
         PS[PositionStore<br/>data/positions/*.json]
+        RS[ReviewStore<br/>data/reviews/*.json]
+        FG[FinishedGameStore<br/>data/finished_games/*.json]
     end
 
     SVC --> SE & GE & EE & EVE & PE & POE
     SE & GE & EE & EVE & PE & POE --> SM
     SVC --> CONV & PARSE
+    SVC --> RM
     SM -->|"SessionHandle (mpsc)"| ACTOR
     ACTOR --> STATE
     STATE --> SNAP
@@ -50,7 +57,11 @@ graph TB
 server/src/
 ├── main.rs                    # Server startup, tracing init, gRPC server bind
 ├── config.rs                  # Data directory and defaults directory resolution
-├── persistence.rs             # SessionStore, PositionStore (JSON file I/O)
+├── persistence/
+│   ├── mod.rs                 # PersistenceError, re-exports, ID generators
+│   ├── session_store.rs       # SessionStore, SuspendedSessionData
+│   ├── finished_game_store.rs # FinishedGameStore, FinishedGameData, StoredMoveRecord
+│   └── position_store.rs      # PositionStore, SavedPositionData
 ├── service/
 │   ├── mod.rs                 # ChessServiceImpl (delegates to endpoint handlers)
 │   ├── converters.rs          # Domain ↔ Proto type conversions
@@ -62,6 +73,11 @@ server/src/
 │       ├── events.rs          # StreamEvents (gRPC server streaming)
 │       ├── persistence.rs     # Suspend, Resume, List, Delete suspended
 │       └── positions.rs       # SavePosition, ListPositions, DeletePosition
+├── review/
+│   ├── mod.rs                 # ReviewManager (job queue, worker pool, public API)
+│   ├── worker.rs              # ReviewWorker (per-ply engine analysis loop)
+│   ├── types.rs               # GameReview, PositionReview, MoveClassification
+│   └── store.rs               # ReviewStore (JSON file persistence)
 └── session/
     ├── mod.rs                 # SessionManager (session lifecycle + stores)
     ├── actor.rs               # Session actor loop (select!, command/event handling)
@@ -188,6 +204,7 @@ Search parameters scale with skill level:
 | `EventsEndpoints` | StreamEvents | gRPC server streaming |
 | `PersistenceEndpoints` | Suspend, Resume, List, Delete | Session persistence |
 | `PositionsEndpoints` | Save, List, Delete | Saved positions |
+| `ReviewEndpoints` | ListFinishedGames, EnqueueReview, GetReviewStatus, GetGameReview, ExportReviewPgn | Post-game review |
 
 ### Proto Boundary
 
@@ -255,6 +272,219 @@ Saved positions in `data/positions/`:
 
 Default positions (`is_default: true`) are seeded from the `defaults/` directory on first run and cannot be deleted.
 
+### Finished Games
+
+When a session with `GamePhase::Ended` is closed, the move history is automatically saved to `data/finished_games/`:
+
+```json
+{
+  "game_id": "game_1704067200000",
+  "start_fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+  "result": "WhiteWins",
+  "result_reason": "Checkmate",
+  "game_mode": "HumanVsEngine:White",
+  "move_count": 42,
+  "moves": [{ "from": "e2", "to": "e4", "san": "e4", "fen_after": "..." }],
+  "created_at": 1704067200
+}
+```
+
+### Review Results
+
+Reviews are stored in `data/reviews/`:
+
+```json
+{
+  "game_id": "game_1704067200000",
+  "status": "Complete",
+  "positions": [{ "ply": 0, "fen": "...", "played_san": "e4", "classification": "Best", "cp_loss": 0 }],
+  "white_accuracy": 87.3,
+  "black_accuracy": 72.1,
+  "analysis_depth": 18
+}
+```
+
+## Review System
+
+The ReviewManager runs background engine analysis of completed games:
+
+- **Job queue**: Bounded `mpsc(64)` channel with backpressure
+- **Worker pool**: Configurable number of workers (default 1), each spawning its own Stockfish process
+- **Per-ply analysis**: For each move, evaluates the position before and after, computes centipawn loss, and classifies the move (Best/Excellent/Good/Inaccuracy/Mistake/Blunder)
+- **Crash recovery**: Partial results persist after each ply; re-enqueuing resumes from last analyzed position
+- **Duplicate prevention**: An `RwLock<HashSet>` tracks in-flight game IDs
+
+### Worker Analysis Pipeline
+
+For each move (ply) in a finished game, the worker performs this sequence:
+
+#### 1. Evaluate Position Before Move
+- Set engine position to the FEN **before** the move
+- Search at fixed depth (configurable, typically 18 plies)
+- Extract:
+  - **best_eval** - Position evaluation from the moving side's perspective
+  - **best_move_uci** - Engine's recommended move
+  - **pv** - Principal variation (best line of play)
+
+#### 2. Evaluate Position After Move
+The handling differs for terminal vs ongoing positions:
+
+**Ongoing positions:**
+- Set engine position to FEN **after** the move
+- Search at same depth
+- Extract **played_eval** (from opponent's perspective)
+
+**Terminal positions (checkmate/stalemate):**
+- Skip engine call (Stockfish returns `bestmove (none)` which parser can't handle)
+- Infer eval from game status:
+  - Checkmate: `Mate(0)` - the side to move is checkmated
+  - Stalemate: `Centipawns(0)` - draw by stalemate
+
+This special handling prevents parser errors while correctly representing the position.
+
+#### 3. Compute Centipawn Loss
+
+This is where perspective matters carefully:
+
+```
+best_eval ← from moving side's perspective (before move)
+played_eval ← from opponent's perspective (after move)
+
+// Convert to moving side's perspective
+played_eval_from_mover = -played_eval
+
+// Loss is always non-negative
+cp_loss = max(0, best_cp - played_cp)
+```
+
+**Example**: White plays e4
+1. Before: Engine says White is +50 (White's perspective) → best_cp = 50
+2. After: Engine says White is -20 (Black's perspective) → played_cp = 20 (from White's perspective)
+3. Loss: max(0, 50 - 20) = 30 cp
+
+The `max(0, ...)` clamp ensures cp_loss is never negative (a move can't simultaneously lose material AND gain position).
+
+#### 4. Classify Move
+
+Classification is deterministic based on cp_loss and forced move detection:
+
+```rust
+pub fn from_cp_loss(cp_loss: i32, is_forced: bool) -> MoveClassification {
+    if is_forced { return Self::Forced; }
+    match cp_loss {
+        i if i <= 0 => Self::Best,         // 0 or better (rare)
+        1..=10 => Self::Excellent,
+        11..=30 => Self::Good,
+        31..=100 => Self::Inaccuracy,
+        101..=300 => Self::Mistake,
+        _ => Self::Blunder,
+    }
+}
+```
+
+**Forced move detection**: Uses `cozy_chess` to generate all legal moves; if count ≤ 1, the move is forced.
+
+#### 5. Store Evaluations (Normalized to White)
+
+For consistency in storage, evaluations are always stored from White's perspective:
+
+**For White's moves:**
+- `eval_before = best_eval` (already from White's perspective)
+- `eval_after = -played_eval` (negate to get White's perspective)
+
+**For Black's moves:**
+- `eval_before = -best_eval` (negate to get White's perspective)
+- `eval_after = played_eval` (already from White's perspective, since it's Black's perspective of the resulting position)
+
+This allows the UI to consistently interpret values as "positive = White advantage" regardless of whose move it was.
+
+### Accuracy Calculation
+
+After all plies are analyzed, accuracy is computed separately for each side:
+
+```rust
+pub fn compute_accuracy(positions: &[PositionReview], is_white: bool) -> f64 {
+    // Filter to moves by this side
+    let side_positions: Vec<_> = positions
+        .iter()
+        .filter(|p| is_white_ply(p.ply) == is_white)
+        .collect();
+
+    if side_positions.is_empty() { return 100.0; }
+
+    // Average centipawn loss (with cap at 1000 to prevent mate outliers)
+    let avg_cp_loss = side_positions
+        .iter()
+        .map(|p| (p.cp_loss as f64).min(1000.0))
+        .sum::<f64>() / side_positions.len() as f64;
+
+    // Exponential formula
+    let accuracy = 103.1668 * (-0.006 * avg_cp_loss).exp() - 3.1668;
+    accuracy.clamp(0.0, 100.0)
+}
+```
+
+**Key details:**
+
+- **Ply filtering**: Odd plies (1, 3, 5, ...) are White's moves; even plies (2, 4, 6, ...) are Black's moves
+- **Centipawn cap at 1000**: Prevents mate scores (which convert to ±20000+ cp) from skewing the average. This handles cases where a move loses a game with mate-in-N (which should count as "very bad" but not infinitely bad).
+- **Exponential formula**: Calibrated so that typical accuracy values match chess.com/lichess standards:
+  - 0 cp loss → ~100%
+  - 10 cp loss → ~94%
+  - 35 cp loss → ~80%
+  - 100 cp loss → ~54%
+- **Clamped to [0, 100]**: Even with extreme cp_loss, accuracy is bounded
+
+**Edge cases:**
+- Empty game (no moves) → 100% accuracy
+- Mate positions with high cp_loss → Capped at 1000, so max contribution is 1000/count
+- Empty position list for one side → 100% accuracy
+
+### Rounding and Precision
+
+**Floating-point handling:**
+- `exp()` function uses full f64 precision; no pre-rounding
+- Final accuracy is formatted to 1 decimal place for display
+- Centipawn values are stored as i32 (integer)
+- Evaluations use `AnalysisScore` enum (Centipawns(i32) or Mate(i32))
+
+**Mate score conversion to centipawns:**
+- `Mate(N)` where N > 0 → `20000 - (N as i32 * 500)` (converts to high positive score)
+- `Mate(-N)` where N > 0 → `-(20000 - (N as i32 * 500))` (converts to negative)
+- This ensures mate-in-1 (M1) > mate-in-2 (M2) in value, but both are extremely high/low
+
+**Terminal position handling:**
+- Checkmate positions return `Mate(0)` (immediate mate) from the side-to-move's perspective
+- Stalemate returns `Centipawns(0)` (draw)
+
+### Persistence and Crash Recovery
+
+Reviews are stored with positions written **after every ply**:
+
+```json
+{
+  "game_id": "game_123",
+  "status": { "Analyzing": {"current_ply": 15, "total_plies": 42} },
+  "positions": [/* 15 completed positions */],
+  "white_accuracy": null,
+  "black_accuracy": null,
+  "total_plies": 42,
+  "analyzed_plies": 15
+}
+```
+
+On worker crash or restart:
+1. Load the partial review
+2. Check `analyzed_plies` (15)
+3. Resume from ply 16
+4. Skip initial 15 iterations
+
+On successful completion:
+1. Compute accuracy for both sides
+2. Set status to "Complete"
+3. Record `completed_at` timestamp
+4. Persist final review
+
 ## Configuration
 
 ```bash
@@ -287,6 +517,6 @@ Tests are co-located with source code:
 
 - **`actor.rs`** - Actor lifecycle, make_move via actor, subscribe, pause/resume, shutdown
 - **`state.rs`** - Snapshot creation, apply_move, auto-trigger logic, timer ticking
-- **`persistence.rs`** - Save/load roundtrip, list, delete, default position seeding
+- **`persistence/`** - Save/load roundtrip, list, delete for sessions, finished games, and positions
 - **`converters.rs`** - Domain -> proto conversion correctness
 - **`parsers.rs`** - Square/move parsing, valid and invalid inputs

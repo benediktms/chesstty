@@ -22,6 +22,7 @@ graph TB
         SM[SessionManager<br/>RwLock&lt;HashMap&gt;]
         SA[Session Actor<br/>per-session async task]
         SS[SessionState<br/>Game + Engine + Timer]
+        RM[ReviewManager<br/>worker pool]
     end
 
     subgraph Engine ["Engine (engine crate)"]
@@ -36,6 +37,8 @@ graph TB
     subgraph Storage ["Persistence"]
         PS[SessionStore<br/>JSON files]
         PP[PositionStore<br/>JSON files]
+        RS[ReviewStore<br/>JSON files]
+        FG[FinishedGameStore<br/>JSON files]
     end
 
     UI --> CS
@@ -50,6 +53,9 @@ graph TB
     SF -->|"EngineEvent"| SA
     SA -->|"broadcast channel"| SVC
     SVC -->|"SessionStreamEvent"| GC
+    SVC --> RM
+    RM --> RS
+    SM --> FG
     SM --> PS
     SM --> PP
 ```
@@ -136,7 +142,7 @@ The actor uses `tokio::select! { biased; }` with priority ordering:
 
 ### Protocol Structure
 
-The protocol is defined in 8 `.proto` files organized by domain:
+The protocol is defined in 9 `.proto` files organized by domain:
 
 ```
 proto/proto/
@@ -147,10 +153,11 @@ proto/proto/
 ├── engine.proto          # SetEngine, StopEngine, EngineConfig
 ├── events.proto          # StreamEvents, SessionStreamEvent
 ├── persistence.proto     # Suspend, Resume, List, Delete sessions
-└── positions.proto       # Save, List, Delete positions
+├── positions.proto       # Save, List, Delete positions
+└── review.proto          # Post-game review messages
 ```
 
-### RPC Endpoints (20 total)
+### RPC Endpoints (25 total)
 
 | Domain | RPCs | Pattern |
 |--------|------|---------|
@@ -159,6 +166,7 @@ proto/proto/
 | Engine | SetEngine, StopEngine, PauseSession, ResumeSession | Unary |
 | Persistence | SuspendSession, ListSuspendedSessions, ResumeSuspendedSession, DeleteSuspendedSession | Unary |
 | Positions | SavePosition, ListPositions, DeletePosition | Unary |
+| Review | ListFinishedGames, EnqueueReview, GetReviewStatus, GetGameReview, ExportReviewPgn | Unary |
 | Events | StreamEvents | Server streaming |
 
 **Key design choice**: There is no `TriggerEngineMove` RPC. The server auto-triggers engine moves based on game mode after every state change, keeping the client thin.
@@ -219,7 +227,7 @@ The client maintains a `ClientState` as a single source of truth for rendering. 
 
 ```
 chesstty/
-├── proto/          # gRPC protocol definitions (8 .proto files)
+├── proto/          # gRPC protocol definitions (9 .proto files)
 ├── server/         # Authoritative game server (actor model, session management)
 ├── chess-client/   # Reusable gRPC client library
 ├── client-tui/     # Terminal UI (ratatui + crossterm)
@@ -270,6 +278,45 @@ just stockfish      # Check Stockfish installation
 - **Human vs Human** - Two players on the same terminal
 - **Human vs Engine** - Play against Stockfish (skill 0-20)
 - **Engine vs Engine** - Watch Stockfish play itself
+- **Post-Game Review** - Analyze completed games with engine evaluation
+
+### Post-Game Review System
+
+After each completed game, you can request an engine analysis to see how well you played. The review system evaluates every move and provides:
+
+#### Accuracy Score
+A percentage (0-100) representing how closely each player's moves matched the engine's recommendations. Calculated using:
+```
+accuracy = 103.1668 × e^(-0.006 × avg_cp_loss) - 3.1668
+```
+This exponential formula converts average centipawn loss into an accuracy percentage calibrated to match typical chess platforms:
+- ACPL = 10 → ~94% accuracy
+- ACPL = 35 → ~80% accuracy
+- ACPL = 100 → ~54% accuracy
+
+#### Move Classification
+Every move is rated relative to the engine's best move:
+- **Best** (0 cp loss) - Perfect play
+- **Excellent** (1-10 cp) - Near-perfect
+- **Good** (11-30 cp) - Solid move
+- **Inaccuracy** (31-100 cp) - Suboptimal but playable
+- **Mistake** (101-300 cp) - Serious error
+- **Blunder** (300+ cp) - Game-losing error
+
+**cp** = centipawn (1/100th of a pawn). A typical pawn is worth ~100 cp.
+
+#### Evaluation Graph
+A real-time visualization of position strength throughout the game:
+- Shows who was winning at each point
+- Highlights critical mistakes that swung the game
+- Helps identify where the game was lost
+
+#### What Gets Analyzed
+- Every move in the game is evaluated at a fixed depth (typically 18 plies)
+- The engine evaluates the position **before** each move to find the best move and best evaluation
+- The position **after** each move is evaluated from the opponent's perspective
+- Centipawn loss = how much worse the played move was than the best move
+- Forced moves (only one legal move) are labeled as such and don't count as errors
 
 ### Capabilities
 - **Session Persistence** - Suspend and resume games (JSON file storage)
@@ -279,6 +326,7 @@ just stockfish      # Check Stockfish installation
 - **Timer Support** - Server-managed chess clocks with flag detection
 - **UCI Debug Panel** - View raw Stockfish protocol messages
 - **Adaptive Board Rendering** - Auto-sizes to terminal dimensions (Small/Medium/Large)
+- **Post-Game Review** - Background engine analysis with accuracy scores, move classification, evaluation graphs, and annotated PGN export
 
 ### Code Quality
 - Zero unsafe code (`unsafe_code = "forbid"`)

@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 cozy-chess = { workspace = true }
+serde = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]

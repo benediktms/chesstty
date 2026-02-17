@@ -1,5 +1,5 @@
+use crate::converters::{format_file, format_piece_upper, format_rank};
 use cozy_chess::{Board, Color, GameStatus, Move, Piece, Square};
-use std::collections::HashMap;
 
 /// Main game state wrapper around cozy-chess Board
 #[derive(Debug, Clone)]
@@ -7,10 +7,6 @@ pub struct Game {
     position: Board,
     history: Vec<HistoryEntry>,
     redo_stack: Vec<HistoryEntry>, // Stack for redo operations
-    #[allow(dead_code)]
-    pgn_tags: HashMap<String, String>,
-    #[allow(dead_code)]
-    start_position: StartPosition,
 }
 
 /// Snapshot of state before a move (for efficient undo)
@@ -25,17 +21,7 @@ pub struct HistoryEntry {
     pub promotion: Option<Piece>, // Promotion piece if any
     pub san: String,              // Standard Algebraic Notation
     pub fen: String,              // FEN after this move
-    pub castling_rights: u8,
-    pub en_passant: Option<Square>,
-    pub halfmove_clock: u8,
-    pub board_before: Board, // Board state before this move (for O(1) undo)
-}
-
-/// Starting position of the game
-#[derive(Debug, Clone)]
-pub enum StartPosition {
-    Standard,
-    Fen(String),
+    pub board_before: Board,      // Board state before this move (for O(1) undo)
 }
 
 /// High-level game phase state machine.
@@ -124,8 +110,6 @@ impl Game {
             position: Board::default(),
             history: Vec::new(),
             redo_stack: Vec::new(),
-            pgn_tags: HashMap::new(),
-            start_position: StartPosition::Standard,
         }
     }
 
@@ -136,8 +120,6 @@ impl Game {
             position,
             history: Vec::new(),
             redo_stack: Vec::new(),
-            pgn_tags: HashMap::new(),
-            start_position: StartPosition::Fen(fen.to_string()),
         })
     }
 
@@ -196,9 +178,6 @@ impl Game {
             promotion: mv.promotion,
             san,
             fen,
-            castling_rights: 0, // TODO: Extract from board
-            en_passant: None,   // TODO: Extract from board
-            halfmove_clock: 0,  // TODO: Extract from board
             board_before,
         };
 
@@ -269,23 +248,44 @@ impl Game {
     }
 }
 
+/// Format a move as SAN given a board position.
+/// Returns the UCI format as fallback if the piece can't be determined.
+pub fn format_move_as_san(board: &Board, mv: Move) -> String {
+    // Handle castling
+    if let Some(piece) = board.piece_on(mv.from) {
+        if piece == Piece::King {
+            let from_file = mv.from.file();
+            let to_file = mv.to.file();
+            if from_file == cozy_chess::File::E
+                && (to_file == cozy_chess::File::G || to_file == cozy_chess::File::H)
+            {
+                return "O-O".to_string();
+            }
+            if from_file == cozy_chess::File::E
+                && (to_file == cozy_chess::File::C || to_file == cozy_chess::File::A)
+            {
+                return "O-O-O".to_string();
+            }
+        }
+        generate_san(board, mv, piece)
+    } else {
+        crate::format_uci_move(mv)
+    }
+}
+
 /// Generate simplified SAN notation for a move
 fn generate_san(board: &Board, mv: Move, piece: Piece) -> String {
     let mut san = String::new();
 
     // Piece prefix (except pawns)
     match piece {
-        Piece::King => san.push('K'),
-        Piece::Queen => san.push('Q'),
-        Piece::Rook => san.push('R'),
-        Piece::Bishop => san.push('B'),
-        Piece::Knight => san.push('N'),
         Piece::Pawn => {
             // Pawn captures include the file
             if board.piece_on(mv.to).is_some() {
-                san.push(file_to_char(mv.from));
+                san.push(format_file(mv.from.file()));
             }
         }
+        _ => san.push(format_piece_upper(piece)),
     }
 
     // Capture indicator
@@ -294,53 +294,126 @@ fn generate_san(board: &Board, mv: Move, piece: Piece) -> String {
     }
 
     // Destination square
-    san.push(file_to_char(mv.to));
-    san.push(rank_to_char(mv.to));
+    san.push(format_file(mv.to.file()));
+    san.push(format_rank(mv.to.rank()));
 
     // Promotion
     if let Some(promo) = mv.promotion {
         san.push('=');
-        san.push(match promo {
-            Piece::Queen => 'Q',
-            Piece::Rook => 'R',
-            Piece::Bishop => 'B',
-            Piece::Knight => 'N',
-            _ => '?',
-        });
+        san.push(format_piece_upper(promo));
     }
 
     san
 }
 
-fn file_to_char(square: Square) -> char {
-    match square.file() {
-        cozy_chess::File::A => 'a',
-        cozy_chess::File::B => 'b',
-        cozy_chess::File::C => 'c',
-        cozy_chess::File::D => 'd',
-        cozy_chess::File::E => 'e',
-        cozy_chess::File::F => 'f',
-        cozy_chess::File::G => 'g',
-        cozy_chess::File::H => 'h',
-    }
-}
-
-fn rank_to_char(square: Square) -> char {
-    match square.rank() {
-        cozy_chess::Rank::First => '1',
-        cozy_chess::Rank::Second => '2',
-        cozy_chess::Rank::Third => '3',
-        cozy_chess::Rank::Fourth => '4',
-        cozy_chess::Rank::Fifth => '5',
-        cozy_chess::Rank::Sixth => '6',
-        cozy_chess::Rank::Seventh => '7',
-        cozy_chess::Rank::Eighth => '8',
-    }
-}
-
 impl Default for Game {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cozy_chess::{File, Move, Piece, Rank, Square};
+
+    fn mv(from_file: File, from_rank: Rank, to_file: File, to_rank: Rank) -> Move {
+        Move {
+            from: Square::new(from_file, from_rank),
+            to: Square::new(to_file, to_rank),
+            promotion: None,
+        }
+    }
+
+    #[test]
+    fn test_san_pawn_push() {
+        let board: Board = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+            .parse()
+            .unwrap();
+        // e2e4
+        let san = format_move_as_san(&board, mv(File::E, Rank::Second, File::E, Rank::Fourth));
+        assert_eq!(san, "e4");
+    }
+
+    #[test]
+    fn test_san_knight_move() {
+        let board: Board = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+            .parse()
+            .unwrap();
+        // g1f3
+        let san = format_move_as_san(&board, mv(File::G, Rank::First, File::F, Rank::Third));
+        assert_eq!(san, "Nf3");
+    }
+
+    #[test]
+    fn test_san_pawn_capture() {
+        // Position where white pawn on e4 can capture black pawn on d5
+        let board: Board = "rnbqkbnr/ppp1pppp/8/3p4/4P3/8/PPPP1PPP/RNBQKBNR w KQkq d6 0 2"
+            .parse()
+            .unwrap();
+        let san = format_move_as_san(&board, mv(File::E, Rank::Fourth, File::D, Rank::Fifth));
+        assert_eq!(san, "exd5");
+    }
+
+    #[test]
+    fn test_san_piece_capture() {
+        // Position where white bishop on c4 captures pawn on f7
+        let board: Board = "rnbqkbnr/pppppppp/8/8/2B5/8/PPPPPPPP/RNBQK1NR w KQkq - 0 1"
+            .parse()
+            .unwrap();
+        let san = format_move_as_san(&board, mv(File::C, Rank::Fourth, File::F, Rank::Seventh));
+        assert_eq!(san, "Bxf7");
+    }
+
+    #[test]
+    fn test_san_kingside_castle() {
+        let board: Board = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQK2R w KQkq - 0 1"
+            .parse()
+            .unwrap();
+        // cozy-chess represents castling as king to rook square (e1h1)
+        let san = format_move_as_san(&board, mv(File::E, Rank::First, File::H, Rank::First));
+        assert_eq!(san, "O-O");
+    }
+
+    #[test]
+    fn test_san_queenside_castle() {
+        let board: Board = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/R3KBNR w KQkq - 0 1"
+            .parse()
+            .unwrap();
+        // cozy-chess: e1a1
+        let san = format_move_as_san(&board, mv(File::E, Rank::First, File::A, Rank::First));
+        assert_eq!(san, "O-O-O");
+    }
+
+    #[test]
+    fn test_san_promotion() {
+        let board: Board = "8/P7/8/8/8/8/8/4K2k w - - 0 1".parse().unwrap();
+        let m = Move {
+            from: Square::new(File::A, Rank::Seventh),
+            to: Square::new(File::A, Rank::Eighth),
+            promotion: Some(Piece::Queen),
+        };
+        let san = format_move_as_san(&board, m);
+        assert_eq!(san, "a8=Q");
+    }
+
+    #[test]
+    fn test_san_queen_move() {
+        // Queen on d1, move to h5
+        let board: Board = "rnbqkbnr/pppp1ppp/8/4p3/6P1/5P2/PPPPP2P/RNBQKBNR b KQkq - 0 2"
+            .parse()
+            .unwrap();
+        let san = format_move_as_san(&board, mv(File::D, Rank::Eighth, File::H, Rank::Fourth));
+        assert_eq!(san, "Qh4");
+    }
+
+    #[test]
+    fn test_san_empty_square_fallback() {
+        // Move from an empty square should fall back to UCI
+        let board: Board = "8/8/8/8/8/8/8/4K2k w - - 0 1".parse().unwrap();
+        let san = format_move_as_san(&board, mv(File::A, Rank::First, File::A, Rank::Second));
+        // No piece on a1, should return UCI format
+        assert_eq!(san, "a1a2");
     }
 }
 

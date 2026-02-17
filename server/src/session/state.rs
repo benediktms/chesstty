@@ -13,6 +13,7 @@ use super::snapshot::{MoveRecord, SessionSnapshot, TimerSnapshot};
 pub(crate) struct SessionState {
     pub session_id: String,
     pub game: Game,
+    pub start_fen: String,
     pub phase: GamePhase,
     pub game_mode: GameMode,
     pub engine: Option<StockfishEngine>,
@@ -20,6 +21,9 @@ pub(crate) struct SessionState {
     pub analysis: Option<EngineAnalysis>,
     pub engine_thinking: bool,
     pub timer: Option<TimerState>,
+    /// Per-move clock data: remaining time (ms) for the player who made each move.
+    /// Parallel to game.history().
+    pub move_clock_data: Vec<Option<u64>>,
 }
 
 /// Server-owned timer state.
@@ -97,9 +101,11 @@ impl TimerState {
 impl SessionState {
     pub fn new(session_id: String, game: Game, game_mode: GameMode) -> Self {
         let phase = GamePhase::from_game(&game);
+        let start_fen = game.to_fen();
         Self {
             session_id,
             game,
+            start_fen,
             phase,
             game_mode,
             engine: None,
@@ -107,6 +113,7 @@ impl SessionState {
             analysis: None,
             engine_thinking: false,
             timer: None,
+            move_clock_data: Vec::new(),
         }
     }
 
@@ -116,7 +123,11 @@ impl SessionState {
             .game
             .history()
             .iter()
-            .map(history_entry_to_record)
+            .enumerate()
+            .map(|(i, entry)| {
+                let clock_ms = self.move_clock_data.get(i).copied().flatten();
+                history_entry_to_record(entry, clock_ms)
+            })
             .collect();
 
         let last_move = self
@@ -128,6 +139,7 @@ impl SessionState {
         SessionSnapshot {
             session_id: self.session_id.clone(),
             fen: self.game.to_fen(),
+            start_fen: self.start_fen.clone(),
             side_to_move: format_color(self.game.side_to_move()),
             phase: self.phase.clone(),
             game_mode: self.game_mode.clone(),
@@ -170,6 +182,18 @@ impl SessionState {
             }
         }
 
+        // Capture remaining clock time for the player who just moved.
+        // After switch_to/stop, the mover's time has been flushed.
+        let mover_side = match self.game.side_to_move() {
+            cozy_chess::Color::White => PlayerSide::Black, // opposite of current side
+            cozy_chess::Color::Black => PlayerSide::White,
+        };
+        let clock = self.timer.as_ref().map(|t| match mover_side {
+            PlayerSide::White => t.white_remaining_ms,
+            PlayerSide::Black => t.black_remaining_ms,
+        });
+        self.move_clock_data.push(clock);
+
         Ok(self.snapshot())
     }
 
@@ -178,6 +202,7 @@ impl SessionState {
         self.phase = GamePhase::from_game(&self.game);
         self.analysis = None;
         self.engine_thinking = false;
+        self.move_clock_data.pop();
         Ok(self.snapshot())
     }
 
@@ -185,6 +210,7 @@ impl SessionState {
         self.game.redo().map_err(|_| SessionError::NothingToRedo)?;
         self.phase = GamePhase::from_game(&self.game);
         self.analysis = None;
+        self.move_clock_data.push(None); // original timing lost
         Ok(self.snapshot())
     }
 
@@ -196,9 +222,11 @@ impl SessionState {
             None => Game::new(),
         };
         self.game = new_game;
+        self.start_fen = self.game.to_fen();
         self.phase = GamePhase::from_game(&self.game);
         self.analysis = None;
         self.engine_thinking = false;
+        self.move_clock_data.clear();
         Ok(self.snapshot())
     }
 
@@ -312,7 +340,7 @@ impl SessionState {
     }
 }
 
-fn history_entry_to_record(entry: &HistoryEntry) -> MoveRecord {
+fn history_entry_to_record(entry: &HistoryEntry, clock_ms: Option<u64>) -> MoveRecord {
     MoveRecord {
         from: format_square(entry.from),
         to: format_square(entry.to),
@@ -321,6 +349,7 @@ fn history_entry_to_record(entry: &HistoryEntry) -> MoveRecord {
         promotion: entry.promotion.map(|p| format_piece_upper(p).to_string()),
         san: entry.san.clone(),
         fen_after: entry.fen.clone(),
+        clock_ms,
     }
 }
 

@@ -67,6 +67,8 @@ pub struct TableOverlayParams<'a> {
     pub state: &'a mut SelectableTableState,
     pub width: u16,
     pub height: u16,
+    /// Optional help text shown at the bottom of the overlay.
+    pub footer: Option<&'a str>,
 }
 
 /// Renders a selectable table as a centered overlay dialog.
@@ -79,6 +81,7 @@ pub fn render_table_overlay(area: Rect, buf: &mut Buffer, params: TableOverlayPa
         state,
         width,
         height,
+        footer,
     } = params;
     let popup_area = centered_rect(width, height, area);
 
@@ -131,7 +134,21 @@ pub fn render_table_overlay(area: Rect, buf: &mut Buffer, params: TableOverlayPa
         .highlight_style(highlight_style)
         .highlight_symbol(" \u{25b6} ");
 
-    StatefulWidget::render(table, inner, buf, &mut state.table_state);
+    // Split inner area to leave room for footer if present
+    if let Some(footer_text) = footer {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(1), Constraint::Length(1)])
+            .split(inner);
+
+        StatefulWidget::render(table, chunks[0], buf, &mut state.table_state);
+
+        let footer_line =
+            Text::from(footer_text.to_string()).style(Style::default().fg(Color::DarkGray));
+        footer_line.render(chunks[1], buf);
+    } else {
+        StatefulWidget::render(table, inner, buf, &mut state.table_state);
+    }
 }
 
 fn centered_rect(width: u16, height: u16, area: Rect) -> Rect {

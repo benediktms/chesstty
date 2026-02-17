@@ -2,7 +2,7 @@ pub mod stockfish;
 pub mod uci;
 
 pub use stockfish::{EngineConfig as StockfishConfig, StockfishEngine};
-pub use uci::{UciEngine, UciError, UciMessage};
+pub use uci::{UciError, UciMessage};
 
 use cozy_chess::Move;
 use tokio::sync::mpsc;

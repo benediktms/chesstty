@@ -86,6 +86,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 | `list_positions()` | `Vec<SavedPosition>` | List all saved positions |
 | `delete_position(id)` | `()` | Delete a saved position |
 
+### Review
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `list_finished_games()` | `Vec<FinishedGameInfo>` | List finished games eligible for review |
+| `enqueue_review(game_id)` | `ReviewStatusInfo` | Enqueue a game for background review analysis |
+| `get_review_status(game_id)` | `ReviewStatusInfo` | Get the current review status for a game |
+| `get_game_review(game_id)` | `GameReviewProto` | Get the full review with per-ply analysis |
+| `export_review_pgn(game_id)` | `String` | Export annotated PGN for a reviewed game |
+
 ## Error Handling
 
 All methods return `ClientResult<T>`, which is `Result<T, ClientError>`:

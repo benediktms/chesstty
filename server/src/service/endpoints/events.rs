@@ -29,7 +29,7 @@ impl Drop for CleanupGuard {
         );
         tokio::spawn(async move {
             match session_manager.close_session(&session_id).await {
-                Ok(()) => {
+                Ok(_saved_game_id) => {
                     tracing::info!(
                         session_id = %session_id,
                         "Session cleaned up after client disconnect"

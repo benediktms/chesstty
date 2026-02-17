@@ -12,6 +12,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "proto/events.proto",
                 "proto/persistence.proto",
                 "proto/positions.proto",
+                "proto/review.proto",
                 "proto/chess_service.proto",
             ],
             &["proto"],

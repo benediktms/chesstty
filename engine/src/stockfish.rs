@@ -1,6 +1,5 @@
 use crate::uci::{format_uci_move, parse_uci_message, UciMessage};
-use crate::{EngineCommand, EngineEvent, GoParams, UciMessageDirection};
-use cozy_chess::Move;
+use crate::{EngineCommand, EngineEvent, UciMessageDirection};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -25,7 +24,7 @@ pub struct EngineConfig {
 
 impl StockfishEngine {
     /// Spawn a new Stockfish instance with full configuration.
-    #[tracing::instrument(level = "info")]
+    #[tracing::instrument(level = "info", skip(config))]
     pub async fn spawn_with_config(config: EngineConfig) -> Result<Self, String> {
         let skill_level = config.skill_level;
         tracing::info!("Starting Stockfish engine spawn (config: {:?})", config);
@@ -385,42 +384,4 @@ fn find_stockfish_path() -> Option<PathBuf> {
     }
 
     None
-}
-
-/// Helper to make a move with the engine
-pub async fn make_engine_move(
-    engine: &StockfishEngine,
-    fen: &str,
-    moves: Vec<Move>,
-    skill_level: u8,
-) -> Result<Move, String> {
-    // Set position
-    engine
-        .send_command(EngineCommand::SetPosition {
-            fen: fen.to_string(),
-            moves,
-        })
-        .await?;
-
-    // Start thinking - adjust time based on skill level
-    let movetime = match skill_level {
-        0..=5 => 100,    // Beginner: 100ms
-        6..=10 => 500,   // Intermediate: 500ms
-        11..=15 => 1000, // Advanced: 1s
-        _ => 2000,       // Master: 2s
-    };
-
-    engine
-        .send_command(EngineCommand::Go(GoParams {
-            movetime: Some(movetime),
-            depth: None,
-            infinite: false,
-        }))
-        .await?;
-
-    Ok(cozy_chess::Move {
-        from: cozy_chess::Square::new(cozy_chess::File::A, cozy_chess::Rank::First),
-        to: cozy_chess::Square::new(cozy_chess::File::A, cozy_chess::Rank::Second),
-        promotion: None,
-    })
 }

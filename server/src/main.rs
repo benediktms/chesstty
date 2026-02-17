@@ -1,5 +1,6 @@
 mod config;
 mod persistence;
+mod review;
 mod service;
 mod session;
 
@@ -36,12 +37,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create persistence stores
     let session_store = persistence::SessionStore::new(data_dir.join("sessions"));
     let position_store = persistence::PositionStore::new(data_dir.join("positions"), defaults_dir);
+    let finished_game_store = Arc::new(persistence::FinishedGameStore::new(data_dir.clone()));
 
     // Create session manager
-    let session_manager = Arc::new(SessionManager::new(session_store, position_store));
+    let session_manager = Arc::new(SessionManager::new(
+        session_store,
+        position_store,
+        finished_game_store.clone(),
+    ));
+
+    // Create review manager
+    let review_store = Arc::new(review::store::ReviewStore::new(data_dir));
+    let review_manager = Arc::new(review::ReviewManager::new(
+        finished_game_store,
+        review_store,
+        review::ReviewConfig::default(),
+    ));
+
+    // Recover any pending reviews from previous runs
+    review_manager.recover_pending_reviews().await;
 
     // Create service
-    let service = ChessServiceImpl::new(session_manager.clone());
+    let service = ChessServiceImpl::new(session_manager.clone(), review_manager.clone());
 
     // Server address
     let addr = "[::1]:50051".parse()?;

@@ -1,5 +1,6 @@
 use crate::{EngineInfo, Score};
-use cozy_chess::{File, Move, Piece, Rank, Square};
+use chess::converters::{format_piece, format_square, parse_piece, parse_square};
+use cozy_chess::{Move, Piece};
 
 /// Incoming message from UCI engine
 #[derive(Debug, Clone)]
@@ -145,17 +146,18 @@ pub fn parse_uci_move(s: &str) -> Result<Move, crate::UciError> {
         return Err(crate::UciError::InvalidMove(s.to_string()));
     }
 
-    let from = parse_square(&s[0..2])?;
-    let to = parse_square(&s[2..4])?;
+    let from =
+        parse_square(&s[0..2]).ok_or_else(|| crate::UciError::InvalidSquare(s.to_string()))?;
+    let to = parse_square(&s[2..4]).ok_or_else(|| crate::UciError::InvalidSquare(s.to_string()))?;
 
     let promotion = if s.len() == 5 {
-        Some(match &s[4..5] {
-            "q" => Piece::Queen,
-            "r" => Piece::Rook,
-            "b" => Piece::Bishop,
-            "n" => Piece::Knight,
+        let promo_char = s.chars().nth(4).unwrap();
+        let piece = parse_piece(promo_char)
+            .ok_or_else(|| crate::UciError::InvalidPromotion(s.to_string()))?;
+        match piece {
+            Piece::Queen | Piece::Rook | Piece::Bishop | Piece::Knight => Some(piece),
             _ => return Err(crate::UciError::InvalidPromotion(s.to_string())),
-        })
+        }
     } else {
         None
     };
@@ -167,75 +169,13 @@ pub fn parse_uci_move(s: &str) -> Result<Move, crate::UciError> {
     })
 }
 
-fn parse_square(s: &str) -> Result<Square, crate::UciError> {
-    if s.len() != 2 {
-        return Err(crate::UciError::InvalidSquare(s.to_string()));
-    }
-
-    let file = match s.chars().next().unwrap() {
-        'a' => File::A,
-        'b' => File::B,
-        'c' => File::C,
-        'd' => File::D,
-        'e' => File::E,
-        'f' => File::F,
-        'g' => File::G,
-        'h' => File::H,
-        _ => return Err(crate::UciError::InvalidSquare(s.to_string())),
-    };
-
-    let rank = match s.chars().nth(1).unwrap() {
-        '1' => Rank::First,
-        '2' => Rank::Second,
-        '3' => Rank::Third,
-        '4' => Rank::Fourth,
-        '5' => Rank::Fifth,
-        '6' => Rank::Sixth,
-        '7' => Rank::Seventh,
-        '8' => Rank::Eighth,
-        _ => return Err(crate::UciError::InvalidSquare(s.to_string())),
-    };
-
-    Ok(Square::new(file, rank))
-}
-
-/// Format move for UCI (cozy-chess Move → "e2e4")
+/// Format move for UCI (cozy-chess Move -> "e2e4")
 pub fn format_uci_move(mv: &Move) -> String {
     let mut s = format!("{}{}", format_square(mv.from), format_square(mv.to));
     if let Some(promo) = mv.promotion {
-        s.push(match promo {
-            Piece::Queen => 'q',
-            Piece::Rook => 'r',
-            Piece::Bishop => 'b',
-            Piece::Knight => 'n',
-            _ => unreachable!(),
-        });
+        s.push(format_piece(promo));
     }
     s
-}
-
-fn format_square(sq: Square) -> String {
-    let file = match sq.file() {
-        File::A => 'a',
-        File::B => 'b',
-        File::C => 'c',
-        File::D => 'd',
-        File::E => 'e',
-        File::F => 'f',
-        File::G => 'g',
-        File::H => 'h',
-    };
-    let rank = match sq.rank() {
-        Rank::First => '1',
-        Rank::Second => '2',
-        Rank::Third => '3',
-        Rank::Fourth => '4',
-        Rank::Fifth => '5',
-        Rank::Sixth => '6',
-        Rank::Seventh => '7',
-        Rank::Eighth => '8',
-    };
-    format!("{}{}", file, rank)
 }
 
 #[cfg(test)]
