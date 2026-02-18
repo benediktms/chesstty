@@ -69,6 +69,15 @@ pub async fn handle_key(
                 .toggle_visibility(PaneId::EngineAnalysis);
             return AppAction::Continue;
         }
+        KeyCode::Char('$') => {
+            if !matches!(state.mode, GameMode::ReviewMode) {
+                state
+                    .ui
+                    .pane_manager
+                    .toggle_visibility(PaneId::AdvancedAnalysis);
+            }
+            return AppAction::Continue;
+        }
         _ => {}
     }
 
@@ -130,15 +139,6 @@ async fn handle_board_context(
                     review.auto_play = !review.auto_play;
                     return AppAction::Continue;
                 }
-                KeyCode::Tab => {
-                    if let Some(first) = state.ui.pane_manager.first_selectable() {
-                        state
-                            .ui
-                            .focus_stack
-                            .push(FocusContext::PaneSelected { pane_id: first });
-                    }
-                    return AppAction::Continue;
-                }
                 KeyCode::Char('s') => {
                     // Open snapshot dialog
                     let current_ply = review.current_ply;
@@ -146,6 +146,32 @@ async fn handle_board_context(
                     let positions = &review.review.positions;
                     state.ui.snapshot_dialog =
                         Some(SnapshotDialogState::new(current_ply, &game_id, positions));
+                    return AppAction::Continue;
+                }
+                KeyCode::Tab => {
+                    // Tab cycles to next pane (clockwise), Shift+Tab cycles previous (anti-clockwise)
+                    let current = state.ui.focus_stack.selected_pane();
+                    if key.modifiers.contains(KeyModifiers::SHIFT) {
+                        // Shift+Tab: previous pane
+                        if let Some(curr) = current {
+                            if let Some(prev) = state.ui.pane_manager.prev_selectable(curr) {
+                                state.ui.focus_stack.pop();
+                                state.ui.focus_stack.push(FocusContext::PaneSelected { pane_id: prev });
+                            }
+                        } else if let Some(first) = state.ui.pane_manager.first_selectable() {
+                            state.ui.focus_stack.push(FocusContext::PaneSelected { pane_id: first });
+                        }
+                    } else {
+                        // Tab: next pane
+                        if let Some(curr) = current {
+                            if let Some(next) = state.ui.pane_manager.next_selectable(curr) {
+                                state.ui.focus_stack.pop();
+                                state.ui.focus_stack.push(FocusContext::PaneSelected { pane_id: next });
+                            }
+                        } else if let Some(first) = state.ui.pane_manager.first_selectable() {
+                            state.ui.focus_stack.push(FocusContext::PaneSelected { pane_id: first });
+                        }
+                    }
                     return AppAction::Continue;
                 }
                 KeyCode::Esc => {
@@ -164,12 +190,28 @@ async fn handle_board_context(
             return AppAction::Continue;
         }
         KeyCode::Tab => {
-            // Enter pane selection mode
-            if let Some(first) = state.ui.pane_manager.first_selectable() {
-                state
-                    .ui
-                    .focus_stack
-                    .push(FocusContext::PaneSelected { pane_id: first });
+            // Tab cycles to next pane (clockwise), Shift+Tab cycles previous (anti-clockwise)
+            let current = state.ui.focus_stack.selected_pane();
+            if key.modifiers.contains(KeyModifiers::SHIFT) {
+                // Shift+Tab: previous pane
+                if let Some(curr) = current {
+                    if let Some(prev) = state.ui.pane_manager.prev_selectable(curr) {
+                        state.ui.focus_stack.pop();
+                        state.ui.focus_stack.push(FocusContext::PaneSelected { pane_id: prev });
+                    }
+                } else if let Some(first) = state.ui.pane_manager.first_selectable() {
+                    state.ui.focus_stack.push(FocusContext::PaneSelected { pane_id: first });
+                }
+            } else {
+                // Tab: next pane
+                if let Some(curr) = current {
+                    if let Some(next) = state.ui.pane_manager.next_selectable(curr) {
+                        state.ui.focus_stack.pop();
+                        state.ui.focus_stack.push(FocusContext::PaneSelected { pane_id: next });
+                    }
+                } else if let Some(first) = state.ui.pane_manager.first_selectable() {
+                    state.ui.focus_stack.push(FocusContext::PaneSelected { pane_id: first });
+                }
             }
         }
         // Pause toggle (any engine mode) — must be before Char(c) catch-all
@@ -434,6 +476,7 @@ async fn handle_snapshot_dialog_input(state: &mut ClientState, key: KeyEvent) ->
                     review_game_mode: None,
                     review_skill_level: None,
                     pre_history: Some(pre_history),
+                    advanced_data: None,
                 };
                 return AppAction::PlaySnapshot(Box::new(config));
             } else {
@@ -518,7 +561,7 @@ fn handle_pane_selected_context(
                     .push(FocusContext::PaneSelected { pane_id: prev });
             }
         }
-        KeyCode::Right | KeyCode::Tab | KeyCode::Char('l') => {
+        KeyCode::Right | KeyCode::Char('l') => {
             if let Some(next) = state.ui.pane_manager.next_selectable(pane_id) {
                 state.ui.focus_stack.pop();
                 state
@@ -526,6 +569,13 @@ fn handle_pane_selected_context(
                     .focus_stack
                     .push(FocusContext::PaneSelected { pane_id: next });
             }
+        }
+        // Tab switching for ReviewTabsPanel (only when that pane is selected)
+        KeyCode::Char('1') if pane_id == PaneId::ReviewSummary => {
+            state.ui.review_tab = 0;
+        }
+        KeyCode::Char('2') if pane_id == PaneId::ReviewSummary => {
+            state.ui.review_tab = 1;
         }
         KeyCode::Up | KeyCode::Char('k') => {
             let scroll = state.ui.pane_manager.scroll_mut(pane_id);

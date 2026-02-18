@@ -85,69 +85,6 @@ impl GameInfoPanel<'_> {
                 ),
             ]));
 
-            // Per-move analysis when current_ply > 0
-            if let Some(pos) = rs.current_position() {
-                lines.push(Line::raw(""));
-
-                // Classification
-                let class_name = classification_display_name(pos.classification);
-                let class_color = classification_color(pos.classification);
-                lines.push(Line::from(Span::styled(
-                    class_name.to_string(),
-                    Style::default()
-                        .fg(class_color)
-                        .add_modifier(Modifier::BOLD),
-                )));
-
-                // Played move
-                let played_marker = classification_marker_str(pos.classification);
-                lines.push(Line::from(vec![
-                    Span::styled("Played: ", Style::default().fg(Color::DarkGray)),
-                    Span::styled(
-                        format!("{}{}", pos.played_san, played_marker),
-                        Style::default()
-                            .fg(class_color)
-                            .add_modifier(Modifier::BOLD),
-                    ),
-                ]));
-
-                // Best move
-                if !pos.best_move_san.is_empty() {
-                    lines.push(Line::from(vec![
-                        Span::styled("Best:   ", Style::default().fg(Color::DarkGray)),
-                        Span::styled(
-                            pos.best_move_san.clone(),
-                            Style::default()
-                                .fg(Color::Green)
-                                .add_modifier(Modifier::BOLD),
-                        ),
-                    ]));
-                }
-
-                // Eval
-                if let Some(ref score) = pos.eval_before {
-                    let (text, color) = format_review_score(score);
-                    lines.push(Line::from(vec![
-                        Span::styled("Eval:   ", Style::default().fg(Color::DarkGray)),
-                        Span::styled(
-                            text,
-                            Style::default().fg(color).add_modifier(Modifier::BOLD),
-                        ),
-                    ]));
-                }
-
-                // CP Loss
-                if pos.cp_loss > 0 {
-                    lines.push(Line::from(vec![
-                        Span::styled("Loss:   ", Style::default().fg(Color::DarkGray)),
-                        Span::styled(
-                            format!("{}cp", pos.cp_loss),
-                            Style::default().fg(Color::Yellow),
-                        ),
-                    ]));
-                }
-            }
-
             // Auto-play indicator
             if rs.auto_play {
                 lines.push(Line::raw(""));
@@ -157,6 +94,37 @@ impl GameInfoPanel<'_> {
                         .fg(Color::Green)
                         .add_modifier(Modifier::BOLD),
                 )));
+            }
+
+            // Add game status (winner/result) - from review data
+            if let Some(ref rs) = self.client_state.review_state {
+                if let Some(ref winner) = rs.review.winner {
+                    lines.push(Line::raw(""));
+                    let status_text = match winner.as_str() {
+                        "White" => "White Wins!",
+                        "Black" => "Black Wins!",
+                        "Draw" => "Draw",
+                        _ => "Unknown",
+                    };
+                    let status_color = match winner.as_str() {
+                        "White" => Color::White,
+                        "Black" => Color::Gray,
+                        "Draw" => Color::Yellow,
+                        _ => Color::Red,
+                    };
+                    lines.push(Line::from(vec![
+                        Span::styled(
+                            "Result: ",
+                            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                        ),
+                        Span::styled(
+                            status_text,
+                            Style::default()
+                                .fg(status_color)
+                                .add_modifier(Modifier::BOLD),
+                        ),
+                    ]));
+                }
             }
         }
 
@@ -352,7 +320,6 @@ impl GameInfoPanel<'_> {
         // Add game status
         let status = self.client_state.status();
         if status != 0 {
-            // 0 = Ongoing
             lines.push(Line::raw(""));
             let status_text = match status {
                 1 => "Checkmate!",
@@ -370,6 +337,49 @@ impl GameInfoPanel<'_> {
                     Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
                 ),
             ]));
+
+            // Add winner display (derived from status and side to move)
+            if status == 1 {
+                let side_to_move = self.client_state.side_to_move();
+                let winner = if side_to_move == "white" {
+                    "Black"
+                } else {
+                    "White"
+                };
+                lines.push(Line::from(vec![
+                    Span::styled(
+                        "Winner: ",
+                        Style::default()
+                            .fg(Color::Green)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(
+                        winner,
+                        Style::default()
+                            .fg(if winner == "White" {
+                                Color::White
+                            } else {
+                                Color::Gray
+                            })
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                ]));
+            } else if status == 2 || status == 3 {
+                lines.push(Line::from(vec![
+                    Span::styled(
+                        "Result: ",
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(
+                        "Draw",
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                ]));
+            }
         }
 
         lines
@@ -413,22 +423,6 @@ pub(crate) fn format_review_score(score: &ReviewScore) -> (String, Color) {
     }
 }
 
-/// Get a display name for a classification value.
-fn classification_display_name(classification: i32) -> &'static str {
-    match MoveClassification::try_from(classification) {
-        Ok(MoveClassification::ClassificationBrilliant) => "BRILLIANT",
-        Ok(MoveClassification::ClassificationBest) => "BEST",
-        Ok(MoveClassification::ClassificationExcellent) => "EXCELLENT",
-        Ok(MoveClassification::ClassificationGood) => "GOOD",
-        Ok(MoveClassification::ClassificationInaccuracy) => "INACCURACY",
-        Ok(MoveClassification::ClassificationMistake) => "MISTAKE",
-        Ok(MoveClassification::ClassificationBlunder) => "BLUNDER",
-        Ok(MoveClassification::ClassificationForced) => "FORCED",
-        Ok(MoveClassification::ClassificationBook) => "BOOK",
-        _ => "UNKNOWN",
-    }
-}
-
 /// Get the color for a classification value.
 pub(crate) fn classification_color(classification: i32) -> Color {
     match MoveClassification::try_from(classification) {
@@ -442,19 +436,6 @@ pub(crate) fn classification_color(classification: i32) -> Color {
         Ok(MoveClassification::ClassificationForced) => Color::DarkGray,
         Ok(MoveClassification::ClassificationBook) => Color::DarkGray,
         _ => Color::White,
-    }
-}
-
-/// Get the annotation marker for a classification (e.g., "!!", "??").
-fn classification_marker_str(classification: i32) -> &'static str {
-    match MoveClassification::try_from(classification) {
-        Ok(MoveClassification::ClassificationBrilliant) => "!!",
-        Ok(MoveClassification::ClassificationExcellent) => "!",
-        Ok(MoveClassification::ClassificationInaccuracy) => "?!",
-        Ok(MoveClassification::ClassificationMistake) => "?",
-        Ok(MoveClassification::ClassificationBlunder) => "??",
-        Ok(MoveClassification::ClassificationForced) => "[]",
-        _ => "",
     }
 }
 

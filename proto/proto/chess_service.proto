@@ -9,6 +9,7 @@ import "events.proto";
 import "persistence.proto";
 import "positions.proto";
 import "review.proto";
+import "advanced_review.proto";
 
 // ============================================================================
 // Core chess service
@@ -58,6 +59,9 @@ service ChessService {
   rpc GetGameReview(GetGameReviewRequest) returns (GetGameReviewResponse);
   rpc ExportReviewPgn(ExportReviewPgnRequest) returns (ExportReviewPgnResponse);
   rpc DeleteFinishedGame(DeleteFinishedGameRequest) returns (Empty);
+
+  // Advanced analysis
+  rpc GetAdvancedAnalysis(GetAdvancedAnalysisRequest) returns (GetAdvancedAnalysisResponse);
 }
 
 message PauseSessionRequest {

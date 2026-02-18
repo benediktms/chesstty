@@ -75,6 +75,7 @@ message GameReviewProto {
   uint32 analysis_depth = 8;
   optional uint64 started_at = 9;
   optional uint64 completed_at = 10;
+  optional string winner = 11;          // "White", "Black", "Draw"
 }
 
 // Info about a finished game eligible for review.

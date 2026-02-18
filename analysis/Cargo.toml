@@ -1,0 +1,9 @@
+[package]
+name = "analysis"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+chess = { path = "../chess" }
+cozy-chess = { workspace = true }
+serde = { workspace = true }

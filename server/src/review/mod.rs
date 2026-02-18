@@ -1,3 +1,4 @@
+pub mod advanced;
 pub mod store;
 pub mod types;
 pub mod worker;
@@ -5,9 +6,11 @@ pub mod worker;
 use std::collections::HashSet;
 use std::sync::Arc;
 
+use analysis::AnalysisConfig;
 use tokio::sync::{mpsc, Mutex, RwLock};
 
 use crate::persistence::FinishedGameStore;
+use advanced::AdvancedAnalysisStore;
 use store::ReviewStore;
 use types::*;
 
@@ -15,8 +18,10 @@ use types::*;
 pub struct ReviewConfig {
     /// Number of concurrent workers (each spawns its own Stockfish process).
     pub worker_count: usize,
-    /// Engine depth per position.
+    /// Engine depth per position (used when advanced analysis is disabled).
     pub analysis_depth: u32,
+    /// Advanced analysis configuration.
+    pub analysis: AnalysisConfig,
 }
 
 impl Default for ReviewConfig {
@@ -24,6 +29,7 @@ impl Default for ReviewConfig {
         Self {
             worker_count: 1,
             analysis_depth: 18,
+            analysis: AnalysisConfig::default(),
         }
     }
 }
@@ -37,6 +43,7 @@ pub struct ReviewManager {
     enqueued: Arc<RwLock<HashSet<String>>>,
     review_store: Arc<ReviewStore>,
     finished_game_store: Arc<FinishedGameStore>,
+    advanced_store: Arc<AdvancedAnalysisStore>,
     /// Kept alive so the channel stays open even if no workers are spawned.
     _job_rx: Arc<Mutex<mpsc::Receiver<ReviewJob>>>,
 }
@@ -45,6 +52,7 @@ impl ReviewManager {
     pub fn new(
         finished_game_store: Arc<FinishedGameStore>,
         review_store: Arc<ReviewStore>,
+        advanced_store: Arc<AdvancedAnalysisStore>,
         config: ReviewConfig,
     ) -> Self {
         let (job_tx, job_rx) = mpsc::channel::<ReviewJob>(64);
@@ -59,16 +67,28 @@ impl ReviewManager {
         for worker_id in 0..config.worker_count {
             let rx = shared_rx.clone();
             let store = review_store.clone();
+            let adv_store = advanced_store.clone();
             let enqueued = enqueued.clone();
             let depth = config.analysis_depth;
+            let analysis_config = config.analysis.clone();
             tokio::spawn(async move {
-                worker::run_review_worker(worker_id, rx, store, enqueued, depth).await;
+                worker::run_review_worker(
+                    worker_id,
+                    rx,
+                    store,
+                    adv_store,
+                    enqueued,
+                    depth,
+                    analysis_config,
+                )
+                .await;
             });
         }
 
         tracing::info!(
             worker_count = config.worker_count,
             depth = config.analysis_depth,
+            compute_advanced = config.analysis.compute_advanced,
             "Review manager initialized"
         );
 
@@ -77,6 +97,7 @@ impl ReviewManager {
             enqueued,
             review_store,
             finished_game_store,
+            advanced_store,
             _job_rx: shared_rx,
         }
     }
@@ -229,6 +250,16 @@ impl ReviewManager {
         self.review_store.load(game_id).map_err(|e| e.to_string())
     }
 
+    /// Get the advanced analysis for a game.
+    pub fn get_advanced_analysis(
+        &self,
+        game_id: &str,
+    ) -> Result<Option<analysis::AdvancedGameAnalysis>, String> {
+        self.advanced_store
+            .load(game_id)
+            .map_err(|e| e.to_string())
+    }
+
     /// List all finished games eligible for review.
     pub fn list_finished_games(&self) -> Result<Vec<crate::persistence::FinishedGameData>, String> {
         self.finished_game_store.list().map_err(|e| e.to_string())
@@ -250,6 +281,10 @@ impl ReviewManager {
         self.review_store
             .delete(game_id)
             .map_err(|e| e.to_string())?;
+        // Also delete advanced analysis if it exists
+        self.advanced_store
+            .delete(game_id)
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 }
@@ -260,12 +295,13 @@ mod tests {
     use crate::persistence::{FinishedGameData, StoredMoveRecord};
 
     /// Create test stores in a temp directory (leaked so it outlives the test).
-    fn test_stores() -> (Arc<FinishedGameStore>, Arc<ReviewStore>) {
+    fn test_stores() -> (Arc<FinishedGameStore>, Arc<ReviewStore>, Arc<AdvancedAnalysisStore>) {
         let dir = tempfile::tempdir().unwrap();
         let finished = Arc::new(FinishedGameStore::new(dir.path().to_path_buf()));
         let reviews = Arc::new(ReviewStore::new(dir.path().to_path_buf()));
+        let advanced = Arc::new(AdvancedAnalysisStore::new(dir.path().to_path_buf()));
         std::mem::forget(dir);
-        (finished, reviews)
+        (finished, reviews, advanced)
     }
 
     /// Create a ReviewManager with 0 workers (no Stockfish needed).
@@ -274,13 +310,16 @@ mod tests {
     fn test_manager_no_workers(
         finished: Arc<FinishedGameStore>,
         reviews: Arc<ReviewStore>,
+        advanced: Arc<AdvancedAnalysisStore>,
     ) -> ReviewManager {
         ReviewManager::new(
             finished,
             reviews,
+            advanced,
             ReviewConfig {
                 worker_count: 0,
                 analysis_depth: 1,
+                ..Default::default()
             },
         )
     }
@@ -290,6 +329,7 @@ mod tests {
     fn test_manager_closed_channel(
         finished: Arc<FinishedGameStore>,
         reviews: Arc<ReviewStore>,
+        advanced: Arc<AdvancedAnalysisStore>,
     ) -> ReviewManager {
         let (job_tx, job_rx) = mpsc::channel::<ReviewJob>(1);
         // Drop receiver immediately so all sends fail
@@ -301,6 +341,7 @@ mod tests {
             enqueued: Arc::new(RwLock::new(HashSet::new())),
             review_store: reviews,
             finished_game_store: finished,
+            advanced_store: advanced,
             _job_rx: Arc::new(Mutex::new(keep_rx)),
         }
     }
@@ -367,9 +408,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_enqueue_send_failure_removes_from_enqueued() {
-        let (finished, reviews) = test_stores();
+        let (finished, reviews, advanced) = test_stores();
         finished.save(&sample_finished_game("game_1")).unwrap();
-        let mgr = test_manager_closed_channel(finished, reviews);
+        let mgr = test_manager_closed_channel(finished, reviews, advanced);
 
         // First enqueue should fail because the channel is closed
         let result = mgr.enqueue("game_1").await;
@@ -381,8 +422,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_enqueue_nonexistent_game_fails() {
-        let (finished, reviews) = test_stores();
-        let mgr = test_manager_no_workers(finished, reviews);
+        let (finished, reviews, advanced) = test_stores();
+        let mgr = test_manager_no_workers(finished, reviews, advanced);
 
         let result = mgr.enqueue("nonexistent").await;
         assert!(result.is_err());
@@ -391,9 +432,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_enqueue_sets_status_to_queued() {
-        let (finished, reviews) = test_stores();
+        let (finished, reviews, advanced) = test_stores();
         finished.save(&sample_finished_game("game_1")).unwrap();
-        let mgr = test_manager_no_workers(finished, reviews);
+        let mgr = test_manager_no_workers(finished, reviews, advanced);
 
         mgr.enqueue("game_1").await.unwrap();
 
@@ -403,9 +444,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_duplicate_enqueue_rejected() {
-        let (finished, reviews) = test_stores();
+        let (finished, reviews, advanced) = test_stores();
         finished.save(&sample_finished_game("game_1")).unwrap();
-        let mgr = test_manager_no_workers(finished, reviews);
+        let mgr = test_manager_no_workers(finished, reviews, advanced);
 
         mgr.enqueue("game_1").await.unwrap();
         let result = mgr.enqueue("game_1").await;
@@ -415,7 +456,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_enqueue_rejects_completed_review() {
-        let (finished, reviews) = test_stores();
+        let (finished, reviews, advanced) = test_stores();
         finished.save(&sample_finished_game("game_1")).unwrap();
 
         // Pre-save a completed review
@@ -430,10 +471,11 @@ mod tests {
             analysis_depth: 18,
             started_at: Some(1000),
             completed_at: Some(2000),
+            winner: Some("White".to_string()),
         };
         reviews.save(&completed).unwrap();
 
-        let mgr = test_manager_no_workers(finished, reviews);
+        let mgr = test_manager_no_workers(finished, reviews, advanced);
 
         let result = mgr.enqueue("game_1").await;
         assert!(result.is_err());
@@ -442,7 +484,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_enqueue_allows_re_enqueue_after_failure() {
-        let (finished, reviews) = test_stores();
+        let (finished, reviews, advanced) = test_stores();
         finished.save(&sample_finished_game("game_1")).unwrap();
 
         // Pre-save a failed review
@@ -459,10 +501,11 @@ mod tests {
             analysis_depth: 18,
             started_at: Some(1000),
             completed_at: None,
+            winner: None,
         };
         reviews.save(&failed).unwrap();
 
-        let mgr = test_manager_no_workers(finished, reviews);
+        let mgr = test_manager_no_workers(finished, reviews, advanced);
 
         // Should succeed — failed reviews can be re-enqueued
         mgr.enqueue("game_1").await.unwrap();
@@ -474,8 +517,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_status_no_review_returns_error() {
-        let (finished, reviews) = test_stores();
-        let mgr = test_manager_no_workers(finished, reviews);
+        let (finished, reviews, advanced) = test_stores();
+        let mgr = test_manager_no_workers(finished, reviews, advanced);
 
         let result = mgr.get_status("nonexistent").await;
         assert!(result.is_err());
@@ -483,15 +526,15 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_review_returns_none_for_unknown() {
-        let (finished, reviews) = test_stores();
-        let mgr = test_manager_no_workers(finished, reviews);
+        let (finished, reviews, advanced) = test_stores();
+        let mgr = test_manager_no_workers(finished, reviews, advanced);
 
         assert!(mgr.get_review("nonexistent").unwrap().is_none());
     }
 
     #[tokio::test]
     async fn test_get_review_returns_stored_review() {
-        let (finished, reviews) = test_stores();
+        let (finished, reviews, advanced) = test_stores();
 
         let review = GameReview {
             game_id: "game_1".to_string(),
@@ -504,10 +547,11 @@ mod tests {
             analysis_depth: 18,
             started_at: Some(1000),
             completed_at: Some(2000),
+            winner: Some("Black".to_string()),
         };
         reviews.save(&review).unwrap();
 
-        let mgr = test_manager_no_workers(finished, reviews);
+        let mgr = test_manager_no_workers(finished, reviews, advanced);
 
         let loaded = mgr.get_review("game_1").unwrap().unwrap();
         assert_eq!(loaded.game_id, "game_1");
@@ -517,11 +561,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_list_finished_games() {
-        let (finished, reviews) = test_stores();
+        let (finished, reviews, advanced) = test_stores();
         finished.save(&sample_finished_game("game_a")).unwrap();
         finished.save(&sample_finished_game("game_b")).unwrap();
 
-        let mgr = test_manager_no_workers(finished, reviews);
+        let mgr = test_manager_no_workers(finished, reviews, advanced);
 
         let games = mgr.list_finished_games().unwrap();
         assert_eq!(games.len(), 2);
@@ -529,7 +573,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_delete_finished_game() {
-        let (finished, reviews) = test_stores();
+        let (finished, reviews, advanced) = test_stores();
         finished.save(&sample_finished_game("game_1")).unwrap();
 
         // Also save an associated review
@@ -544,10 +588,11 @@ mod tests {
             analysis_depth: 18,
             started_at: Some(1000),
             completed_at: Some(2000),
+            winner: Some("Draw".to_string()),
         };
         reviews.save(&review).unwrap();
 
-        let mgr = test_manager_no_workers(finished.clone(), reviews.clone());
+        let mgr = test_manager_no_workers(finished.clone(), reviews.clone(), advanced);
 
         mgr.delete_finished_game("game_1").await.unwrap();
 
@@ -558,9 +603,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_delete_blocks_while_enqueued() {
-        let (finished, reviews) = test_stores();
+        let (finished, reviews, advanced) = test_stores();
         finished.save(&sample_finished_game("game_1")).unwrap();
-        let mgr = test_manager_no_workers(finished, reviews);
+        let mgr = test_manager_no_workers(finished, reviews, advanced);
 
         mgr.enqueue("game_1").await.unwrap();
 
@@ -571,8 +616,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_delete_nonexistent_is_ok() {
-        let (finished, reviews) = test_stores();
-        let mgr = test_manager_no_workers(finished, reviews);
+        let (finished, reviews, advanced) = test_stores();
+        let mgr = test_manager_no_workers(finished, reviews, advanced);
 
         // Deleting a game that doesn't exist should not error
         mgr.delete_finished_game("nonexistent").await.unwrap();
@@ -580,7 +625,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_recover_re_enqueues_analyzing_reviews() {
-        let (finished, reviews) = test_stores();
+        let (finished, reviews, advanced) = test_stores();
         finished.save(&sample_finished_game("game_1")).unwrap();
 
         // Simulate a review stuck in Analyzing (server crashed mid-analysis)
@@ -598,10 +643,11 @@ mod tests {
             analysis_depth: 18,
             started_at: Some(1000),
             completed_at: None,
+            winner: None,
         };
         reviews.save(&stuck).unwrap();
 
-        let mgr = test_manager_no_workers(finished, reviews);
+        let mgr = test_manager_no_workers(finished, reviews, advanced);
 
         // Before recovery: shows stale Analyzing from disk
         let status_before = mgr.get_status("game_1").await.unwrap();
@@ -621,11 +667,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_recover_enqueues_unreviewed_games() {
-        let (finished, reviews) = test_stores();
+        let (finished, reviews, advanced) = test_stores();
         // Finished game with no review file at all
         finished.save(&sample_finished_game("game_1")).unwrap();
 
-        let mgr = test_manager_no_workers(finished, reviews);
+        let mgr = test_manager_no_workers(finished, reviews, advanced);
         mgr.recover_pending_reviews().await;
 
         let status = mgr.get_status("game_1").await.unwrap();
@@ -634,7 +680,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_recover_skips_completed_reviews() {
-        let (finished, reviews) = test_stores();
+        let (finished, reviews, advanced) = test_stores();
         finished.save(&sample_finished_game("game_1")).unwrap();
 
         let completed = GameReview {
@@ -648,10 +694,11 @@ mod tests {
             analysis_depth: 18,
             started_at: Some(1000),
             completed_at: Some(2000),
+            winner: Some("White".to_string()),
         };
         reviews.save(&completed).unwrap();
 
-        let mgr = test_manager_no_workers(finished, reviews);
+        let mgr = test_manager_no_workers(finished, reviews, advanced);
         mgr.recover_pending_reviews().await;
 
         // Should still show Complete, not Queued
@@ -661,7 +708,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_recover_skips_failed_reviews() {
-        let (finished, reviews) = test_stores();
+        let (finished, reviews, advanced) = test_stores();
         finished.save(&sample_finished_game("game_1")).unwrap();
 
         let failed = GameReview {
@@ -677,10 +724,11 @@ mod tests {
             analysis_depth: 18,
             started_at: Some(1000),
             completed_at: None,
+            winner: None,
         };
         reviews.save(&failed).unwrap();
 
-        let mgr = test_manager_no_workers(finished, reviews);
+        let mgr = test_manager_no_workers(finished, reviews, advanced);
         mgr.recover_pending_reviews().await;
 
         // Failed reviews are NOT auto-retried -- user must manually trigger
@@ -697,15 +745,22 @@ mod tests {
     /// and verify the completed review has correct structure.
     #[tokio::test]
     async fn test_full_analysis_pipeline() {
-        let (finished, reviews) = test_stores();
+        let (finished, reviews, advanced) = test_stores();
         finished.save(&sample_finished_game("game_1")).unwrap();
 
         let mgr = ReviewManager::new(
             finished,
             reviews.clone(),
+            advanced.clone(),
             ReviewConfig {
                 worker_count: 1,
                 analysis_depth: 4, // shallow for speed
+                analysis: AnalysisConfig {
+                    compute_advanced: true,
+                    shallow_depth: 4,
+                    deep_depth: 6,
+                    max_critical_positions: 5,
+                },
             },
         );
 
@@ -757,5 +812,13 @@ mod tests {
             "eval_best should be Mate variant, got: {:?}",
             last_black_move.eval_best
         );
+
+        // Advanced analysis should have been produced
+        let adv = mgr.get_advanced_analysis("game_1").unwrap();
+        assert!(adv.is_some(), "Advanced analysis should be present");
+        let adv = adv.unwrap();
+        assert_eq!(adv.game_id, "game_1");
+        assert_eq!(adv.positions.len(), 4);
+        assert_eq!(adv.pipeline_version, 1);
     }
 }

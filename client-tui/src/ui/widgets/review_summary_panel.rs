@@ -1,15 +1,17 @@
+use crate::review_state::ReviewState;
 use chess::is_white_ply;
-use chess_client::{review_score, GameReviewProto, MoveClassification, PositionReview};
+use chess_client::{review_score, MoveClassification, PositionReview};
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph, Widget},
+    widgets::StatefulWidget,
+    widgets::{Block, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Widget},
 };
 
 pub struct ReviewSummaryPanel<'a> {
-    pub review: &'a GameReviewProto,
+    pub review_state: &'a ReviewState,
     pub scroll: u16,
     pub is_selected: bool,
     pub expanded: bool,
@@ -43,6 +45,86 @@ impl Widget for ReviewSummaryPanel<'_> {
 
         let mut lines: Vec<Line<'static>> = vec![];
 
+        let review = &self.review_state.review;
+
+        // Game winner at the very top
+        if let Some(ref winner) = review.winner {
+            let status_text = match winner.as_str() {
+                "White" => "White Wins!",
+                "Black" => "Black Wins!",
+                "Draw" => "Draw",
+                _ => "Unknown",
+            };
+            let status_color = match winner.as_str() {
+                "White" => Color::White,
+                "Black" => Color::Gray,
+                "Draw" => Color::Yellow,
+                _ => Color::Red,
+            };
+            lines.push(Line::from(Span::styled(
+                status_text,
+                Style::default()
+                    .fg(status_color)
+                    .add_modifier(Modifier::BOLD),
+            )));
+            lines.push(Line::raw(""));
+        }
+
+        // === CURRENT POSITION ANALYSIS (TOP) ===
+        if self.review_state.current_ply > 0 {
+            lines.push(Line::from(Span::styled(
+                "Current Position",
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
+            )));
+
+            if let Some(pos) = self.review_state.current_position() {
+                let is_white = is_white_ply(pos.ply);
+                let move_num = pos.ply.div_ceil(2);
+                let side = if is_white { "White" } else { "Black" };
+
+                lines.push(Line::from(vec![
+                    Span::raw("Move "),
+                    Span::styled(
+                        format!("{}. {}", move_num, side),
+                        Style::default()
+                            .fg(Color::White)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                ]));
+
+                if let Some((marker, color)) = classification_marker(&pos.classification) {
+                    lines
+                        .last_mut()
+                        .unwrap()
+                        .push_span(Span::styled(marker, Style::default().fg(color)));
+                }
+
+                if pos.cp_loss > 0 {
+                    lines.push(Line::from(vec![
+                        Span::raw("  cp_loss: "),
+                        Span::styled(
+                            format!("{}", pos.cp_loss),
+                            Style::default().fg(cp_loss_color(pos.cp_loss)),
+                        ),
+                    ]));
+                }
+            }
+
+            // Check if there's advanced position analysis
+            if let Some(adv_pos) = self.review_state.advanced_position() {
+                if adv_pos.is_critical {
+                    lines.push(Line::from(Span::styled(
+                        "  \u{26A0} CRITICAL POSITION \u{26A0}",
+                        Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                    )));
+                }
+            }
+
+            lines.push(Line::raw(""));
+        }
+
         // Accuracy section
         lines.push(Line::from(Span::styled(
             "Accuracy",
@@ -51,7 +133,7 @@ impl Widget for ReviewSummaryPanel<'_> {
                 .add_modifier(Modifier::BOLD),
         )));
 
-        if let Some(white_acc) = self.review.white_accuracy {
+        if let Some(white_acc) = review.white_accuracy {
             lines.push(Line::from(vec![
                 Span::raw("  White: "),
                 Span::styled(
@@ -62,7 +144,7 @@ impl Widget for ReviewSummaryPanel<'_> {
                 Span::raw(accuracy_bar(white_acc, 20)),
             ]));
         }
-        if let Some(black_acc) = self.review.black_accuracy {
+        if let Some(black_acc) = review.black_accuracy {
             lines.push(Line::from(vec![
                 Span::raw("  Black: "),
                 Span::styled(
@@ -75,7 +157,7 @@ impl Widget for ReviewSummaryPanel<'_> {
         }
 
         // Eval graph
-        if !self.review.positions.is_empty() {
+        if !review.positions.is_empty() {
             lines.push(Line::raw(""));
             lines.push(Line::from(Span::styled(
                 "Evaluation",
@@ -84,13 +166,13 @@ impl Widget for ReviewSummaryPanel<'_> {
                     .add_modifier(Modifier::BOLD),
             )));
             let graph_width = (inner.width as usize).saturating_sub(4).min(60);
-            let graph_lines = build_eval_graph(&self.review.positions, graph_width);
+            let graph_lines = build_eval_graph(&review.positions, graph_width);
             lines.extend(graph_lines);
         }
 
         lines.push(Line::raw(""));
 
-        // Classification breakdown
+        // Classification breakdown - combined with Legend
         lines.push(Line::from(Span::styled(
             "Move Quality",
             Style::default()
@@ -98,56 +180,60 @@ impl Widget for ReviewSummaryPanel<'_> {
                 .add_modifier(Modifier::BOLD),
         )));
 
-        let (white_counts, black_counts) = count_classifications(&self.review.positions);
+        let (white_counts, black_counts) = count_classifications(&review.positions);
+        // Categories with symbols - show all even if count is 0 (legend purposes)
         let categories = [
             (
-                "Best",
-                MoveClassification::ClassificationBest as i32,
-                Color::LightGreen,
+                "!! Brilliant",
+                MoveClassification::ClassificationBrilliant as i32,
+                Color::Cyan,
             ),
             (
-                "Excellent",
+                "!  Excellent",
                 MoveClassification::ClassificationExcellent as i32,
                 Color::Cyan,
             ),
             (
-                "Good",
+                "   Good/Best",
                 MoveClassification::ClassificationGood as i32,
                 Color::White,
             ),
             (
-                "Inaccuracy",
+                "?! Inaccuracy",
                 MoveClassification::ClassificationInaccuracy as i32,
                 Color::Yellow,
             ),
             (
-                "Mistake",
+                "?  Mistake",
                 MoveClassification::ClassificationMistake as i32,
                 Color::Magenta,
             ),
             (
-                "Blunder",
+                "?? Blunder",
                 MoveClassification::ClassificationBlunder as i32,
                 Color::Red,
             ),
+            (
+                "[] Forced",
+                MoveClassification::ClassificationForced as i32,
+                Color::DarkGray,
+            ),
         ];
 
+        // Show all categories (combined legend + counts)
         for (label, class_val, color) in &categories {
             let w = white_counts.get(class_val).copied().unwrap_or(0);
             let b = black_counts.get(class_val).copied().unwrap_or(0);
-            if w > 0 || b > 0 {
-                lines.push(Line::from(vec![
-                    Span::styled(format!("  {:<12}", label), Style::default().fg(*color)),
-                    Span::raw(format!("W:{:<3} B:{}", w, b)),
-                ]));
-            }
+            lines.push(Line::from(vec![
+                Span::styled(format!("  {:14}", label), Style::default().fg(*color)),
+                Span::raw(format!("W:{:<3} B:{}", w, b)),
+            ]));
         }
 
         lines.push(Line::raw(""));
 
         // Critical moments
-        let critical: Vec<_> = self
-            .review
+        let critical: Vec<_> = review
             .positions
             .iter()
             .filter(|p| {
@@ -193,45 +279,27 @@ impl Widget for ReviewSummaryPanel<'_> {
             }
         }
 
-        // Legend
-        lines.push(Line::raw(""));
-        lines.push(Line::from(Span::styled(
-            "Legend",
-            Style::default()
-                .fg(Color::White)
-                .add_modifier(Modifier::BOLD),
-        )));
-        let legend_items: &[(&str, &str, Color)] = &[
-            ("!!", "Brilliant", Color::Cyan),
-            ("! ", "Excellent", Color::Cyan),
-            ("  ", "Good / Best", Color::White),
-            ("?!", "Inaccuracy", Color::Yellow),
-            ("? ", "Mistake", Color::Magenta),
-            ("??", "Blunder", Color::Red),
-            ("[]", "Forced", Color::DarkGray),
-        ];
-        for (marker, label, color) in legend_items {
-            lines.push(Line::from(vec![
-                Span::styled(format!("  {} ", marker), Style::default().fg(*color)),
-                Span::styled(label.to_string(), Style::default().fg(*color)),
-            ]));
-        }
-
         // Analysis info
         lines.push(Line::raw(""));
         lines.push(Line::from(vec![
             Span::styled("Depth: ", Style::default().fg(Color::DarkGray)),
-            Span::raw(format!("{}", self.review.analysis_depth)),
+            Span::raw(format!("{}", review.analysis_depth)),
             Span::raw("  "),
             Span::styled("Plies: ", Style::default().fg(Color::DarkGray)),
-            Span::raw(format!(
-                "{}/{}",
-                self.review.analyzed_plies, self.review.total_plies
-            )),
+            Span::raw(format!("{}/{}", review.analyzed_plies, review.total_plies)),
         ]));
 
+        let content_height = lines.len() as u16;
         let paragraph = Paragraph::new(lines).scroll((self.scroll, 0));
         paragraph.render(inner, buf);
+
+        if content_height > inner.height {
+            let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
+                .thumb_style(Style::default().fg(Color::Cyan).bg(Color::DarkGray));
+            let mut scrollbar_state =
+                ScrollbarState::new(content_height as usize).position(self.scroll as usize);
+            scrollbar.render(inner, buf, &mut scrollbar_state);
+        }
     }
 }
 
@@ -368,4 +436,28 @@ fn count_classifications(
         *map.entry(p.classification).or_insert(0) += 1;
     }
     (white, black)
+}
+
+fn classification_marker(classification: &i32) -> Option<(&'static str, Color)> {
+    match MoveClassification::try_from(*classification) {
+        Ok(MoveClassification::ClassificationBrilliant) => Some(("!!", Color::Cyan)),
+        Ok(MoveClassification::ClassificationExcellent) => Some(("!", Color::Cyan)),
+        Ok(MoveClassification::ClassificationInaccuracy) => Some(("?!", Color::Yellow)),
+        Ok(MoveClassification::ClassificationMistake) => Some(("?", Color::Magenta)),
+        Ok(MoveClassification::ClassificationBlunder) => Some(("??", Color::Red)),
+        Ok(MoveClassification::ClassificationForced) => Some(("[]", Color::DarkGray)),
+        _ => None,
+    }
+}
+
+fn cp_loss_color(cp_loss: i32) -> Color {
+    if cp_loss < 10 {
+        Color::Green
+    } else if cp_loss < 30 {
+        Color::Yellow
+    } else if cp_loss < 60 {
+        Color::Magenta
+    } else {
+        Color::Red
+    }
 }

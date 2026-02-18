@@ -78,6 +78,7 @@ mod tests {
             analysis_depth: 18,
             started_at: Some(1000),
             completed_at: None,
+            winner: Some("White".to_string()),
         }
     }
 

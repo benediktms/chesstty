@@ -1,5 +1,12 @@
 //! Post-game review endpoints
 
+use analysis::board_analysis::{
+    KingSafetyMetrics, PositionKingSafety, PositionTensionMetrics, SquareInfo, TacticalAnalysis,
+    TacticalPattern,
+};
+use analysis::advanced::types::{
+    AdvancedGameAnalysis, AdvancedPositionAnalysis, PsychologicalProfile,
+};
 use crate::review::types::{is_white_ply, AnalysisScore, MoveClassification, ReviewStatus};
 use crate::review::ReviewManager;
 use chess_proto::*;
@@ -145,6 +152,26 @@ impl ReviewEndpoints {
 
         Ok(Response::new(Empty {}))
     }
+
+    pub async fn get_advanced_analysis(
+        &self,
+        request: Request<GetAdvancedAnalysisRequest>,
+    ) -> Result<Response<GetAdvancedAnalysisResponse>, Status> {
+        let game_id = &request.get_ref().game_id;
+        tracing::info!(game_id = %game_id, "RPC get_advanced_analysis");
+
+        let analysis = self
+            .review_manager
+            .get_advanced_analysis(game_id)
+            .map_err(Status::internal)?
+            .ok_or_else(|| {
+                Status::not_found(format!("Advanced analysis not found: {}", game_id))
+            })?;
+
+        Ok(Response::new(GetAdvancedAnalysisResponse {
+            analysis: Some(convert_advanced_analysis_to_proto(&analysis)),
+        }))
+    }
 }
 
 // ============================================================================
@@ -251,6 +278,7 @@ fn convert_game_review_to_proto(
         analysis_depth: review.analysis_depth,
         started_at: review.started_at,
         completed_at: review.completed_at,
+        winner: review.winner.clone(),
     }
 }
 
@@ -275,6 +303,172 @@ fn parse_game_mode_string(mode: &str, human_side: Option<&str>) -> GameModeProto
             mode: mode_type as i32,
             human_side: None,
         }
+    }
+}
+
+// ============================================================================
+// Advanced analysis conversion helpers
+// ============================================================================
+
+fn convert_advanced_analysis_to_proto(
+    analysis: &AdvancedGameAnalysis,
+) -> AdvancedGameAnalysisProto {
+    AdvancedGameAnalysisProto {
+        game_id: analysis.game_id.clone(),
+        positions: analysis
+            .positions
+            .iter()
+            .map(convert_advanced_position_to_proto)
+            .collect(),
+        white_psychology: Some(convert_psychology_to_proto(&analysis.white_psychology)),
+        black_psychology: Some(convert_psychology_to_proto(&analysis.black_psychology)),
+        pipeline_version: analysis.pipeline_version,
+        shallow_depth: analysis.shallow_depth,
+        deep_depth: analysis.deep_depth,
+        critical_positions_count: analysis.critical_positions_count,
+        computed_at: analysis.computed_at,
+    }
+}
+
+fn convert_advanced_position_to_proto(
+    pos: &AdvancedPositionAnalysis,
+) -> AdvancedPositionAnalysisProto {
+    AdvancedPositionAnalysisProto {
+        ply: pos.ply,
+        tactics_before: Some(convert_tactics_to_proto(&pos.tactics_before)),
+        tactics_after: Some(convert_tactics_to_proto(&pos.tactics_after)),
+        king_safety: Some(convert_king_safety_to_proto(&pos.king_safety)),
+        tension: Some(convert_tension_to_proto(&pos.tension)),
+        is_critical: pos.is_critical,
+        deep_depth: pos.deep_depth,
+    }
+}
+
+fn convert_tactics_to_proto(tactics: &TacticalAnalysis) -> TacticalAnalysisProto {
+    TacticalAnalysisProto {
+        patterns: tactics.patterns.iter().map(convert_pattern_to_proto).collect(),
+        fork_count: tactics.fork_count as u32,
+        pin_count: tactics.pin_count as u32,
+        skewer_count: tactics.skewer_count as u32,
+        discovered_attack_count: tactics.discovered_attack_count as u32,
+        hanging_piece_count: tactics.hanging_piece_count as u32,
+        has_back_rank_weakness: tactics.has_back_rank_weakness,
+    }
+}
+
+fn convert_pattern_to_proto(pattern: &TacticalPattern) -> TacticalPatternProto {
+    let p = match pattern {
+        TacticalPattern::Fork { attacker, targets } => {
+            tactical_pattern_proto::Pattern::Fork(ForkProto {
+                attacker: Some(convert_square_info(attacker)),
+                targets: targets.iter().map(convert_square_info).collect(),
+            })
+        }
+        TacticalPattern::Pin {
+            pinner,
+            pinned_piece,
+            pinned_to,
+        } => tactical_pattern_proto::Pattern::Pin(PinProto {
+            pinner: Some(convert_square_info(pinner)),
+            pinned_piece: Some(convert_square_info(pinned_piece)),
+            pinned_to: Some(convert_square_info(pinned_to)),
+        }),
+        TacticalPattern::Skewer {
+            attacker,
+            front_piece,
+            back_piece,
+        } => tactical_pattern_proto::Pattern::Skewer(SkewerProto {
+            attacker: Some(convert_square_info(attacker)),
+            front_piece: Some(convert_square_info(front_piece)),
+            back_piece: Some(convert_square_info(back_piece)),
+        }),
+        TacticalPattern::DiscoveredAttack {
+            moving_piece,
+            revealed_attacker,
+            target,
+        } => tactical_pattern_proto::Pattern::DiscoveredAttack(DiscoveredAttackProto {
+            moving_piece: Some(convert_square_info(moving_piece)),
+            revealed_attacker: Some(convert_square_info(revealed_attacker)),
+            target: Some(convert_square_info(target)),
+        }),
+        TacticalPattern::HangingPiece {
+            piece,
+            attacker_count,
+            defender_count,
+        } => tactical_pattern_proto::Pattern::HangingPiece(HangingPieceProto {
+            piece: Some(convert_square_info(piece)),
+            attacker_count: *attacker_count as u32,
+            defender_count: *defender_count as u32,
+        }),
+        TacticalPattern::BackRankWeakness {
+            king_square,
+            blocking_rank,
+        } => tactical_pattern_proto::Pattern::BackRankWeakness(BackRankWeaknessProto {
+            king_square: Some(convert_square_info(king_square)),
+            blocking_rank: *blocking_rank as u32,
+        }),
+    };
+    TacticalPatternProto { pattern: Some(p) }
+}
+
+fn convert_square_info(info: &SquareInfo) -> SquareInfoProto {
+    SquareInfoProto {
+        square: info.square.clone(),
+        piece: info.piece.to_string(),
+        color: info.color.to_string(),
+    }
+}
+
+fn convert_king_safety_to_proto(safety: &PositionKingSafety) -> PositionKingSafetyProto {
+    PositionKingSafetyProto {
+        white: Some(convert_king_safety_metrics(&safety.white)),
+        black: Some(convert_king_safety_metrics(&safety.black)),
+    }
+}
+
+fn convert_king_safety_metrics(m: &KingSafetyMetrics) -> KingSafetyMetricsProto {
+    KingSafetyMetricsProto {
+        color: m.color.to_string(),
+        pawn_shield_count: m.pawn_shield_count as u32,
+        pawn_shield_max: m.pawn_shield_max as u32,
+        open_files_near_king: m.open_files_near_king as u32,
+        attacker_count: m.attacker_count as u32,
+        attack_weight: m.attack_weight as u32,
+        attacked_king_zone_squares: m.attacked_king_zone_squares as u32,
+        king_zone_size: m.king_zone_size as u32,
+        exposure_score: m.exposure_score,
+    }
+}
+
+fn convert_tension_to_proto(t: &PositionTensionMetrics) -> PositionTensionMetricsProto {
+    PositionTensionMetricsProto {
+        mutually_attacked_pairs: t.mutually_attacked_pairs as u32,
+        contested_squares: t.contested_squares as u32,
+        attacked_but_defended: t.attacked_but_defended as u32,
+        forcing_moves: t.forcing_moves as u32,
+        checks_available: t.checks_available as u32,
+        captures_available: t.captures_available as u32,
+        volatility_score: t.volatility_score,
+    }
+}
+
+fn convert_psychology_to_proto(p: &PsychologicalProfile) -> PsychologicalProfileProto {
+    PsychologicalProfileProto {
+        color: p.color.to_string(),
+        max_consecutive_errors: p.max_consecutive_errors as u32,
+        error_streak_start_ply: p.error_streak_start_ply,
+        favorable_swings: p.favorable_swings as u32,
+        unfavorable_swings: p.unfavorable_swings as u32,
+        max_momentum_streak: p.max_momentum_streak as u32,
+        blunder_cluster_density: p.blunder_cluster_density as u32,
+        blunder_cluster_range_start: p.blunder_cluster_range.map(|(s, _)| s),
+        blunder_cluster_range_end: p.blunder_cluster_range.map(|(_, e)| e),
+        time_quality_correlation: p.time_quality_correlation,
+        avg_blunder_time_ms: p.avg_blunder_time_ms,
+        avg_good_move_time_ms: p.avg_good_move_time_ms,
+        opening_avg_cp_loss: p.opening_avg_cp_loss,
+        middlegame_avg_cp_loss: p.middlegame_avg_cp_loss,
+        endgame_avg_cp_loss: p.endgame_avg_cp_loss,
     }
 }
 

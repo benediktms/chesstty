@@ -1,4 +1,6 @@
+pub mod advanced_analysis_panel;
 pub mod board;
+pub mod board_overlay;
 pub mod engine_panel;
 pub mod fen_dialog;
 pub mod game_info_panel;
@@ -9,12 +11,15 @@ pub mod move_history_panel;
 pub mod popup_menu;
 pub mod promotion_dialog;
 pub mod review_summary_panel;
+pub mod review_tabs_panel;
 pub mod selectable_table;
 pub mod snapshot_dialog;
 pub mod tab_input;
 pub mod uci_debug_panel;
 
 pub use board::BoardWidget;
+#[allow(unused_imports)]
+pub use board_overlay::{build_game_overlay, build_review_overlay, BoardOverlay};
 pub use engine_panel::EngineAnalysisPanel;
 pub use fen_dialog::{FenDialogState, FenDialogWidget};
 pub use game_info_panel::GameInfoPanel;
@@ -25,6 +30,7 @@ pub use move_history_panel::MoveHistoryPanel;
 pub use popup_menu::PopupMenuWidget;
 pub use promotion_dialog::PromotionWidget;
 pub use review_summary_panel::ReviewSummaryPanel;
+pub use review_tabs_panel::ReviewTabsPanel;
 pub use selectable_table::{render_table_overlay, TableOverlayParams};
 pub use snapshot_dialog::SnapshotDialogWidget;
 pub use tab_input::TabInputWidget;

@@ -92,6 +92,8 @@ pub struct UiState {
     pub paused: bool,
     pub paused_before_menu: bool,
     pub tab_input: TabInputState,
+    pub review_tab: u8,
+    pub review_moves_selection: Option<u32>,
 }
 
 #[derive(Debug, Clone)]
@@ -202,6 +204,8 @@ impl ClientState {
                 paused: false,
                 paused_before_menu: false,
                 tab_input: TabInputState::new(),
+                review_tab: 0,
+                review_moves_selection: None,
             },
             snapshot,
             board,
@@ -221,6 +225,7 @@ impl ClientState {
         review: GameReviewProto,
         review_game_mode: Option<GameModeProto>,
         review_skill_level: u8,
+        advanced: Option<AdvancedGameAnalysisProto>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let client = ChessClient::connect(server_addr).await?;
 
@@ -228,8 +233,15 @@ impl ClientState {
         let snapshot = SessionSnapshot::default();
 
         let mut pane_manager = PaneManager::new();
-        // Show review-specific panes; keep EngineAnalysis visible (used for MoveAnalysisPanel)
+        // In review mode: hide GameInfo and EngineAnalysis, show ReviewSummary
+        pane_manager.toggle_visibility(crate::ui::pane::PaneId::GameInfo); // hide
+        pane_manager.toggle_visibility(crate::ui::pane::PaneId::EngineAnalysis); // hide
         pane_manager.toggle_visibility(crate::ui::pane::PaneId::ReviewSummary); // show
+
+        // Auto-show AdvancedAnalysis pane if advanced data is available
+        if advanced.is_some() {
+            pane_manager.toggle_visibility(crate::ui::pane::PaneId::AdvancedAnalysis);
+        }
 
         Ok(Self {
             client,
@@ -254,6 +266,8 @@ impl ClientState {
                 paused: false,
                 paused_before_menu: false,
                 tab_input: TabInputState::new(),
+                review_tab: 1,
+                review_moves_selection: None,
             },
             snapshot,
             board,
@@ -263,6 +277,7 @@ impl ClientState {
                 review,
                 review_game_mode,
                 review_skill_level,
+                advanced,
             )),
             pre_history: Vec::new(),
         })

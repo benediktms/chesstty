@@ -297,4 +297,15 @@ impl ChessService for ChessServiceImpl {
     ) -> Result<Response<Empty>, Status> {
         self.review_endpoints.delete_finished_game(request).await
     }
+
+    // =========================================================================
+    // Advanced Analysis Endpoint
+    // =========================================================================
+
+    async fn get_advanced_analysis(
+        &self,
+        request: Request<GetAdvancedAnalysisRequest>,
+    ) -> Result<Response<GetAdvancedAnalysisResponse>, Status> {
+        self.review_endpoints.get_advanced_analysis(request).await
+    }
 }

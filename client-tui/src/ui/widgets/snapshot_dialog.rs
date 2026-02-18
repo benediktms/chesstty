@@ -131,7 +131,6 @@ impl SnapshotDialogState {
             SnapshotDialogFocus::PlayNow => SnapshotDialogFocus::Name,
         };
     }
-
 }
 
 /// Check whether the position at the given ply is terminal.

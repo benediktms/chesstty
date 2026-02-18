@@ -1,11 +1,14 @@
-use crate::state::ClientState;
-use cozy_chess::{Color as ChessColor, File, Piece, Rank, Square};
+use super::board_overlay::{BoardOverlay, OverlayColor, OverlayElement};
+use cozy_chess::{Board, Color as ChessColor, File, Piece, Rank, Square};
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
     style::{Color, Modifier, Style},
     widgets::{Block, Borders, Widget},
 };
+// Default board square colors (tan/brown)
+const LIGHT_SQUARE: Color = Color::Rgb(240, 217, 181);
+const DARK_SQUARE: Color = Color::Rgb(181, 136, 99);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum BoardSizeVariant {
@@ -52,9 +55,6 @@ impl BoardSize {
         let medium_width = Self::MEDIUM.square_width * 8;
         let medium_height = Self::MEDIUM.square_height * 8;
 
-        let _small_width = Self::SMALL.square_width * 8;
-        let _small_height = Self::SMALL.square_height * 8;
-
         if available_width >= large_width && available_height >= large_height {
             Self::LARGE
         } else if available_width >= medium_width && available_height >= medium_height {
@@ -74,46 +74,18 @@ impl BoardSize {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum SquareHighlight {
-    Selected,
-    LegalMove,
-    BestMove,
-    LastMove,
-    Typeahead,
-    None,
-}
-
-impl SquareHighlight {
-    fn bg_color(self, is_light_square: bool) -> Color {
-        let (light, dark) = match self {
-            Self::Selected => (Color::LightYellow, Color::Yellow),
-            Self::LegalMove => (Color::LightBlue, Color::Blue),
-            Self::BestMove => (Color::LightGreen, Color::Green),
-            Self::LastMove => (Color::LightYellow, Color::Yellow),
-            Self::Typeahead => (Color::LightCyan, Color::Cyan),
-            Self::None => (Color::Rgb(240, 217, 181), Color::Rgb(181, 136, 99)),
-        };
-        if is_light_square {
-            light
-        } else {
-            dark
-        }
-    }
-}
-
 pub struct BoardWidget<'a> {
-    pub client_state: &'a ClientState,
-    pub typeahead_squares: &'a [Square],
+    pub board: &'a Board,
+    pub overlay: &'a BoardOverlay,
     pub flipped: bool,
 }
 
 impl<'a> BoardWidget<'a> {
     #[allow(dead_code)]
-    pub fn new(client_state: &'a ClientState, typeahead_squares: &'a [Square]) -> Self {
+    pub fn new(board: &'a Board, overlay: &'a BoardOverlay) -> Self {
         Self {
-            client_state,
-            typeahead_squares,
+            board,
+            overlay,
             flipped: false,
         }
     }
@@ -187,7 +159,10 @@ impl Widget for BoardWidget<'_> {
             }
         }
 
-        // Draw each square
+        // Pre-compute arrow paths for BFS rendering
+        let arrow_paths = compute_arrow_paths(self.overlay, board_size, self.flipped);
+
+        // First pass: Draw all square backgrounds (base colors + highlight tints)
         for rank_idx in 0..8 {
             for file_idx in 0..8 {
                 let file = if self.flipped {
@@ -196,71 +171,78 @@ impl Widget for BoardWidget<'_> {
                     File::index(file_idx)
                 };
                 let rank = if self.flipped {
-                    Rank::index(rank_idx) // Bottom rank (1) is at top when flipped
+                    Rank::index(rank_idx)
                 } else {
-                    Rank::index(7 - rank_idx) // Top rank is 8
+                    Rank::index(7 - rank_idx)
                 };
                 let square = Square::new(file, rank);
 
                 let x = board_start_x + (file_idx as u16 * board_size.square_width);
                 let y = board_start_y + (rank_idx as u16 * board_size.square_height);
 
-                // Check if this square is selected
-                let is_selected = self
-                    .client_state
-                    .ui
-                    .selected_square
-                    .map(|s| s == square)
-                    .unwrap_or(false);
+                let is_light_square = (file_idx + rank_idx) % 2 == 0;
 
-                // Check if this square is highlighted (legal move destination)
-                let is_highlighted = self.client_state.ui.highlighted_squares.contains(&square);
+                let bg_color = match self.overlay.square_tint(square) {
+                    Some(color) => color.resolve(is_light_square),
+                    None => {
+                        if is_light_square {
+                            LIGHT_SQUARE
+                        } else {
+                            DARK_SQUARE
+                        }
+                    }
+                };
 
-                // Check if this is part of the last move
-                let is_last_move = self
-                    .client_state
-                    .ui
-                    .last_move
-                    .map(|(from, to)| from == square || to == square)
-                    .unwrap_or(false);
+                render_square(buf, x, y, bg_color, board_size, inner);
+            }
+        }
 
-                // Check if this square matches typeahead input
-                let is_typeahead = self.typeahead_squares.contains(&square);
+        // Second pass: Draw all arrow paths (on top of square backgrounds)
+        for arrow_path in &arrow_paths {
+            render_arrow_path(
+                buf,
+                arrow_path,
+                board_start_x,
+                board_start_y,
+                board_size,
+                inner,
+            );
+        }
 
-                // Check if this is a best move square (review mode)
-                let is_best_move = self
-                    .client_state
-                    .ui
-                    .best_move_squares
-                    .map(|(from, to)| from == square || to == square)
-                    .unwrap_or(false);
+        // Third pass: Draw all pieces (always on top of highlights and arrows)
+        for rank_idx in 0..8 {
+            for file_idx in 0..8 {
+                let file = if self.flipped {
+                    File::index(7 - file_idx)
+                } else {
+                    File::index(file_idx)
+                };
+                let rank = if self.flipped {
+                    Rank::index(rank_idx)
+                } else {
+                    Rank::index(7 - rank_idx)
+                };
+                let square = Square::new(file, rank);
+
+                let x = board_start_x + (file_idx as u16 * board_size.square_width);
+                let y = board_start_y + (rank_idx as u16 * board_size.square_height);
 
                 let is_light_square = (file_idx + rank_idx) % 2 == 0;
 
-                let highlight = if is_selected {
-                    SquareHighlight::Selected
-                } else if is_highlighted {
-                    SquareHighlight::LegalMove
-                } else if is_best_move {
-                    SquareHighlight::BestMove
-                } else if is_last_move {
-                    SquareHighlight::LastMove
-                } else if is_typeahead {
-                    SquareHighlight::Typeahead
-                } else {
-                    SquareHighlight::None
+                let bg_color = match self.overlay.square_tint(square) {
+                    Some(color) => color.resolve(is_light_square),
+                    None => {
+                        if is_light_square {
+                            LIGHT_SQUARE
+                        } else {
+                            DARK_SQUARE
+                        }
+                    }
                 };
 
-                let bg_color = highlight.bg_color(is_light_square);
+                let piece = self.board.piece_on(square);
+                let piece_color = self.board.color_on(square);
 
-                // Draw the square background (with highlight color if applicable)
-                render_square(buf, x, y, bg_color, board_size, inner);
-
-                // Get piece at this square
-                let piece = self.client_state.board().piece_on(square);
-                let piece_color = self.client_state.board().color_on(square);
-
-                // Draw piece
                 if let (Some(piece), Some(piece_color)) = (piece, piece_color) {
                     render_piece(
                         buf,
@@ -275,15 +257,38 @@ impl Widget for BoardWidget<'_> {
                         },
                     );
                 }
+            }
+        }
 
-                // Check for tab-selected destination and draw magenta outline
-                let tab_selected_destination = get_tab_selected_square(self.client_state);
-                let is_tab_selected = tab_selected_destination
-                    .map(|s| s == square)
-                    .unwrap_or(false);
+        // Fourth pass: Draw all square outlines (on top of pieces)
+        for rank_idx in 0..8 {
+            for file_idx in 0..8 {
+                let file = if self.flipped {
+                    File::index(7 - file_idx)
+                } else {
+                    File::index(file_idx)
+                };
+                let rank = if self.flipped {
+                    Rank::index(rank_idx)
+                } else {
+                    Rank::index(7 - rank_idx)
+                };
+                let square = Square::new(file, rank);
 
-                if is_tab_selected {
-                    draw_square_outline(buf, x, y, Color::Magenta, board_size, inner);
+                let x = board_start_x + (file_idx as u16 * board_size.square_width);
+                let y = board_start_y + (rank_idx as u16 * board_size.square_height);
+
+                let is_light_square = (file_idx + rank_idx) % 2 == 0;
+
+                if let Some(outline_color) = self.overlay.square_outline(square) {
+                    draw_square_outline(
+                        buf,
+                        x,
+                        y,
+                        outline_color.resolve(is_light_square),
+                        board_size,
+                        inner,
+                    );
                 }
             }
         }
@@ -328,7 +333,6 @@ fn render_piece(buf: &mut Buffer, params: &PieceRenderParams) {
     let fg_color = match params.color {
         ChessColor::White => Color::White,
         ChessColor::Black => Color::Black,
-        // ChessColor::Black => Color::Rgb(50, 50, 50), // Dark gray for black pieces
     };
 
     let style = Style::default()
@@ -364,13 +368,13 @@ fn piece_pixel_art_small(piece: Piece) -> Vec<&'static str> {
     // 4 lines high, fits in 9-char width
     match piece {
         Piece::King => vec![
-            "  ✺█✺█✺  ",
+            "  ✺▲✺▲✺  ",
             "   ███   ",
             "  -=K=-  ",
             "  █████  ",
         ],
         Piece::Queen => vec![
-            "  ✦█✦█✦  ",
+            " ✦◣◢✦◣◢✦ ",
             "   ███   ",
             "  -=Q=-  ",
             "  █████  ",
@@ -415,7 +419,7 @@ fn piece_pixel_art_medium(piece: Piece) -> Vec<&'static str> {
             "  █████████  ",
         ],
         Piece::Queen => vec![
-            "  ✦█✦█✦█✦█✦  ",
+            "  ◣✦◣◢✦◣◢✦◢  ",
             "   ▓██████   ",
             "   ▓█████▓   ",
             "  ---=Q=---  ",
@@ -472,7 +476,7 @@ fn piece_pixel_art_large(piece: Piece) -> Vec<&'static str> {
             "   ███████████   ",
         ],
         Piece::Queen => vec![
-            "   ✦█✦█✦█✦█✦█✦   ",
+            "   ◣✦◢◣◢✦◣◢◣✦◢   ",
             "    ▓███████▓    ",
             "   ▌█████████▐   ",
             "    ---=Q=---    ",
@@ -523,13 +527,7 @@ fn piece_pixel_art_large(piece: Piece) -> Vec<&'static str> {
     }
 }
 
-/// Get the currently selected destination square in tab input mode.
-fn get_tab_selected_square(_state: &ClientState) -> Option<Square> {
-    // No arrow-based selection — typeahead only
-    None
-}
-
-/// Draw a magenta outline around a square.
+/// Draw an outline (border) around a square.
 fn draw_square_outline(
     buf: &mut Buffer,
     x: u16,
@@ -574,12 +572,220 @@ fn draw_square_outline(
     // Draw left and right borders
     for dy in 1..board_size.square_height - 1 {
         let py = y + dy;
-        if x < bounds.bottom() {
+        if x < bounds.right() && py < bounds.bottom() {
             buf[(x, py)].set_symbol("│").set_style(style);
         }
         let right_x = x + board_size.square_width - 1;
-        if right_x < bounds.right() {
+        if right_x < bounds.right() && py < bounds.bottom() {
             buf[(right_x, py)].set_symbol("│").set_style(style);
         }
+    }
+}
+
+// =========================================================================
+// BFS Arrow Rendering
+// =========================================================================
+
+/// A computed arrow path through the pixel grid, ready for rendering.
+struct ArrowPath {
+    /// Sequence of (px, py) pixel positions forming the arrow body.
+    cells: Vec<(u16, u16)>,
+    /// The arrow color.
+    color: OverlayColor,
+    /// The pixel position of the arrow head.
+    head: Option<(u16, u16)>,
+    /// Direction of the arrow at its head (for choosing the head symbol).
+    head_direction: (i16, i16),
+}
+
+/// Compute arrow paths for all Arrow overlay elements using BFS.
+///
+/// Each arrow is traced from the center of the `from` square to the center
+/// of the `to` square through the terminal's cell grid.
+fn compute_arrow_paths(
+    overlay: &BoardOverlay,
+    board_size: BoardSize,
+    flipped: bool,
+) -> Vec<ArrowPath> {
+    let mut paths = Vec::new();
+
+    for element in overlay.elements() {
+        if let OverlayElement::Arrow {
+            from, to, color, ..
+        } = element
+        {
+            let (from_col, from_row) = square_to_grid_idx(*from, flipped);
+            let (to_col, to_row) = square_to_grid_idx(*to, flipped);
+
+            // Center pixel of each square (relative to board_start)
+            let from_cx = from_col as u16 * board_size.square_width + board_size.square_width / 2;
+            let from_cy = from_row as u16 * board_size.square_height + board_size.square_height / 2;
+            let to_cx = to_col as u16 * board_size.square_width + board_size.square_width / 2;
+            let to_cy = to_row as u16 * board_size.square_height + board_size.square_height / 2;
+
+            let cells = bfs_line(from_cx, from_cy, to_cx, to_cy);
+            let head_direction = if cells.len() >= 2 {
+                let (px, py) = cells[cells.len() - 1];
+                let (ppx, ppy) = cells[cells.len() - 2];
+                (px as i16 - ppx as i16, py as i16 - ppy as i16)
+            } else {
+                (0, 0)
+            };
+            let head = cells.last().copied();
+
+            paths.push(ArrowPath {
+                cells,
+                color: *color,
+                head,
+                head_direction,
+            });
+        }
+    }
+
+    paths
+}
+
+/// Convert a chess square to grid indices (col, row) where (0,0) is top-left.
+fn square_to_grid_idx(square: Square, flipped: bool) -> (usize, usize) {
+    let file_idx = square.file() as usize;
+    let rank_idx = square.rank() as usize;
+
+    if flipped {
+        (7 - file_idx, rank_idx)
+    } else {
+        (file_idx, 7 - rank_idx)
+    }
+}
+
+/// BFS/Bresenham-like line from (x0, y0) to (x1, y1) through the cell grid.
+/// Returns a list of (x, y) pixel coordinates forming the path.
+///
+/// We use a simple Bresenham line algorithm which traces the shortest
+/// straight path — this is more efficient than BFS for straight/diagonal arrows
+/// and produces clean visual lines.
+fn bfs_line(x0: u16, y0: u16, x1: u16, y1: u16) -> Vec<(u16, u16)> {
+    let mut cells = Vec::new();
+
+    let dx = (x1 as i32 - x0 as i32).abs();
+    let dy = -(y1 as i32 - y0 as i32).abs();
+    let sx: i32 = if x0 < x1 { 1 } else { -1 };
+    let sy: i32 = if y0 < y1 { 1 } else { -1 };
+    let mut err = dx + dy;
+
+    let mut cx = x0 as i32;
+    let mut cy = y0 as i32;
+
+    loop {
+        cells.push((cx as u16, cy as u16));
+
+        if cx == x1 as i32 && cy == y1 as i32 {
+            break;
+        }
+
+        let e2 = 2 * err;
+        if e2 >= dy {
+            err += dy;
+            cx += sx;
+        }
+        if e2 <= dx {
+            err += dx;
+            cy += sy;
+        }
+    }
+
+    cells
+}
+
+/// Render a computed arrow path onto the buffer.
+fn render_arrow_path(
+    buf: &mut Buffer,
+    path: &ArrowPath,
+    board_start_x: u16,
+    board_start_y: u16,
+    board_size: BoardSize,
+    bounds: Rect,
+) {
+    if path.cells.is_empty() {
+        return;
+    }
+
+    // Determine which cells to render: skip the first and last few cells
+    // (inside the from/to squares) to avoid overwriting piece art.
+    // We render the arrow body through the gap between squares.
+    let skip_start = (board_size.square_width.min(board_size.square_height) / 3) as usize;
+    let skip_end = skip_start;
+
+    let total = path.cells.len();
+    if total <= skip_start + skip_end {
+        return; // Arrow too short to render a visible path
+    }
+
+    // Use the overlay color resolved for a neutral context (dark)
+    let arrow_fg = path.color.resolve(false);
+    let style = Style::default().fg(arrow_fg).add_modifier(Modifier::BOLD);
+
+    // Draw arrow body
+    for &(px, py) in &path.cells[skip_start..total.saturating_sub(skip_end)] {
+        let screen_x = board_start_x + px;
+        let screen_y = board_start_y + py;
+        if screen_x < bounds.right()
+            && screen_y < bounds.bottom()
+            && screen_x >= bounds.x
+            && screen_y >= bounds.y
+        {
+            let (dx, dy) = path.head_direction;
+            let symbol = arrow_body_symbol(dx, dy);
+            buf[(screen_x, screen_y)]
+                .set_symbol(symbol)
+                .set_style(style);
+        }
+    }
+
+    // Draw arrow head
+    if let Some((hx, hy)) = path.head {
+        let screen_x = board_start_x + hx;
+        let screen_y = board_start_y + hy;
+        if screen_x < bounds.right()
+            && screen_y < bounds.bottom()
+            && screen_x >= bounds.x
+            && screen_y >= bounds.y
+        {
+            let (dx, dy) = path.head_direction;
+            let symbol = arrow_head_symbol(dx, dy);
+            let head_style = Style::default().fg(arrow_fg).add_modifier(Modifier::BOLD);
+            buf[(screen_x, screen_y)]
+                .set_symbol(symbol)
+                .set_style(head_style);
+        }
+    }
+}
+
+/// Choose an arrow body character based on the overall direction.
+fn arrow_body_symbol(dx: i16, dy: i16) -> &'static str {
+    let dx = dx.signum();
+    let dy = dy.signum();
+    match (dx, dy) {
+        (0, _) => "│",            // vertical
+        (_, 0) => "─",            // horizontal
+        (1, -1) | (-1, 1) => "╱", // diagonal /
+        (1, 1) | (-1, -1) => "╲", // diagonal \
+        _ => "·",
+    }
+}
+
+/// Choose an arrow head character based on direction.
+fn arrow_head_symbol(dx: i16, dy: i16) -> &'static str {
+    let dx = dx.signum();
+    let dy = dy.signum();
+    match (dx, dy) {
+        (0, -1) => "▲",  // up (rank increases = visually up when not flipped)
+        (0, 1) => "▼",   // down
+        (1, 0) => "▶",   // right
+        (-1, 0) => "◀",  // left
+        (1, -1) => "◥",  // up-right
+        (-1, -1) => "◤", // up-left
+        (1, 1) => "◢",   // down-right
+        (-1, 1) => "◣",  // down-left
+        _ => "●",
     }
 }

@@ -1,5 +1,6 @@
 use chess_client::{
-    GameModeProto, GameReviewProto, MoveClassification, MoveRecord, PositionReview,
+    AdvancedGameAnalysisProto, GameModeProto, GameReviewProto, MoveClassification, MoveRecord,
+    PositionReview,
 };
 use cozy_chess::{Board, Square};
 
@@ -22,6 +23,8 @@ pub struct ReviewState {
     pub game_mode: Option<GameModeProto>,
     /// Original skill level (for creating snapshots that preserve difficulty).
     pub skill_level: u8,
+    /// Advanced analysis data (tactical patterns, king safety, tension, psychological profiles).
+    pub advanced: Option<AdvancedGameAnalysisProto>,
 }
 
 impl ReviewState {
@@ -85,7 +88,7 @@ impl ReviewState {
 
     /// Build a ReviewState from review data, constructing move_history from positions.
     pub fn new(review: GameReviewProto) -> Self {
-        Self::with_metadata(review, None, 0)
+        Self::with_metadata(review, None, 0, None)
     }
 
     /// Build a ReviewState with original game metadata preserved for snapshot creation.
@@ -93,6 +96,7 @@ impl ReviewState {
         review: GameReviewProto,
         game_mode: Option<GameModeProto>,
         skill_level: u8,
+        advanced: Option<AdvancedGameAnalysisProto>,
     ) -> Self {
         let move_history = review
             .positions
@@ -118,6 +122,7 @@ impl ReviewState {
             review,
             game_mode,
             skill_level,
+            advanced,
         }
     }
 
@@ -127,6 +132,15 @@ impl ReviewState {
             return None;
         }
         self.review
+            .positions
+            .iter()
+            .find(|p| p.ply == self.current_ply)
+    }
+
+    /// Get the AdvancedPositionAnalysis for the current ply (None if no advanced data or at ply 0).
+    pub fn advanced_position(&self) -> Option<&chess_client::AdvancedPositionAnalysisProto> {
+        self.advanced
+            .as_ref()?
             .positions
             .iter()
             .find(|p| p.ply == self.current_ply)
@@ -395,7 +409,7 @@ mod tests {
             mode: GameModeType::HumanVsEngine.into(),
             human_side: Some(PlayerSideProto::White.into()),
         });
-        let rs = ReviewState::with_metadata(review, game_mode.clone(), 12);
+        let rs = ReviewState::with_metadata(review, game_mode.clone(), 12, None);
 
         assert_eq!(rs.skill_level, 12);
         assert!(rs.game_mode.is_some());

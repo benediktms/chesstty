@@ -9,6 +9,7 @@ pub enum PaneId {
     EngineAnalysis,
     UciDebug,
     ReviewSummary,
+    AdvancedAnalysis,
 }
 
 /// Static properties describing a pane's capabilities.
@@ -28,7 +29,7 @@ pub fn pane_properties(id: PaneId) -> PaneProperties {
         PaneId::GameInfo => PaneProperties {
             id,
             title: "Game Info",
-            is_selectable: false,
+            is_selectable: true,
             is_expandable: false,
             border_color: Color::Cyan,
             preferred_height: 10,
@@ -65,6 +66,14 @@ pub fn pane_properties(id: PaneId) -> PaneProperties {
             border_color: Color::Green,
             preferred_height: 15,
         },
+        PaneId::AdvancedAnalysis => PaneProperties {
+            id,
+            title: "Advanced Analysis",
+            is_selectable: true,
+            is_expandable: true,
+            border_color: Color::Magenta,
+            preferred_height: 18,
+        },
     }
 }
 
@@ -92,6 +101,7 @@ impl PaneManager {
             PaneId::EngineAnalysis,
             PaneId::MoveHistory,
             PaneId::ReviewSummary,
+            PaneId::AdvancedAnalysis,
             PaneId::UciDebug,
         ];
 
@@ -100,6 +110,7 @@ impl PaneManager {
         visibility.insert(PaneId::MoveHistory, true);
         visibility.insert(PaneId::EngineAnalysis, true);
         visibility.insert(PaneId::ReviewSummary, false);
+        visibility.insert(PaneId::AdvancedAnalysis, false);
         visibility.insert(PaneId::UciDebug, false);
 
         let mut scroll_positions = HashMap::new();
@@ -214,10 +225,14 @@ mod tests {
     fn test_visible_selectable_panes() {
         let pm = PaneManager::new();
         let selectable = pm.visible_selectable_panes();
-        // GameInfo is not selectable, UciDebug is hidden
+        // GameInfo is now selectable, UciDebug is hidden
         assert_eq!(
             selectable,
-            vec![PaneId::EngineAnalysis, PaneId::MoveHistory]
+            vec![
+                PaneId::GameInfo,
+                PaneId::EngineAnalysis,
+                PaneId::MoveHistory
+            ]
         );
     }
 
@@ -232,14 +247,18 @@ mod tests {
     #[test]
     fn test_next_selectable() {
         let pm = PaneManager::new();
-        // Order: EngineAnalysis, MoveHistory (both visible + selectable)
+        // Order: GameInfo, EngineAnalysis, MoveHistory (all visible + selectable)
+        assert_eq!(
+            pm.next_selectable(PaneId::GameInfo),
+            Some(PaneId::EngineAnalysis)
+        );
         assert_eq!(
             pm.next_selectable(PaneId::EngineAnalysis),
             Some(PaneId::MoveHistory)
         );
         assert_eq!(
             pm.next_selectable(PaneId::MoveHistory),
-            Some(PaneId::EngineAnalysis)
+            Some(PaneId::GameInfo)
         );
     }
 
@@ -247,8 +266,12 @@ mod tests {
     fn test_prev_selectable() {
         let pm = PaneManager::new();
         assert_eq!(
-            pm.prev_selectable(PaneId::EngineAnalysis),
+            pm.prev_selectable(PaneId::GameInfo),
             Some(PaneId::MoveHistory)
+        );
+        assert_eq!(
+            pm.prev_selectable(PaneId::EngineAnalysis),
+            Some(PaneId::GameInfo)
         );
         assert_eq!(
             pm.prev_selectable(PaneId::MoveHistory),
@@ -260,7 +283,11 @@ mod tests {
     fn test_next_selectable_skips_hidden() {
         let mut pm = PaneManager::new();
         pm.toggle_visibility(PaneId::UciDebug); // Now visible + selectable
-                                                // Order: EngineAnalysis, MoveHistory, UciDebug
+                                                // Order: GameInfo, EngineAnalysis, MoveHistory, UciDebug
+        assert_eq!(
+            pm.next_selectable(PaneId::GameInfo),
+            Some(PaneId::EngineAnalysis)
+        );
         assert_eq!(
             pm.next_selectable(PaneId::EngineAnalysis),
             Some(PaneId::MoveHistory)
@@ -269,21 +296,16 @@ mod tests {
             pm.next_selectable(PaneId::MoveHistory),
             Some(PaneId::UciDebug)
         );
-        assert_eq!(
-            pm.next_selectable(PaneId::UciDebug),
-            Some(PaneId::EngineAnalysis)
-        );
+        assert_eq!(pm.next_selectable(PaneId::UciDebug), Some(PaneId::GameInfo));
 
         // Now hide EngineAnalysis
         pm.toggle_visibility(PaneId::EngineAnalysis);
+        // Order: GameInfo, MoveHistory, UciDebug
         assert_eq!(
             pm.next_selectable(PaneId::MoveHistory),
             Some(PaneId::UciDebug)
         );
-        assert_eq!(
-            pm.next_selectable(PaneId::UciDebug),
-            Some(PaneId::MoveHistory)
-        );
+        assert_eq!(pm.next_selectable(PaneId::UciDebug), Some(PaneId::GameInfo));
     }
 
     #[test]
@@ -291,8 +313,11 @@ mod tests {
         let mut pm = PaneManager::new();
         pm.toggle_visibility(PaneId::EngineAnalysis); // hide
         pm.toggle_visibility(PaneId::MoveHistory); // hide
-                                                   // UciDebug is already hidden, GameInfo is not selectable
-        assert_eq!(pm.next_selectable(PaneId::MoveHistory), None);
+                                                   // UciDebug is already hidden, but GameInfo is now selectable
+        assert_eq!(
+            pm.next_selectable(PaneId::MoveHistory),
+            Some(PaneId::GameInfo)
+        );
     }
 
     #[test]

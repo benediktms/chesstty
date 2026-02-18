@@ -1,0 +1,156 @@
+syntax = "proto3";
+package chess;
+
+// ============================================================================
+// Advanced Review Analysis Messages
+// ============================================================================
+
+// Information about a piece on a specific square.
+message SquareInfoProto {
+  string square = 1;
+  string piece = 2;    // Single char: P, N, B, R, Q, K
+  string color = 3;    // "w" or "b"
+}
+
+// A detected tactical pattern.
+message TacticalPatternProto {
+  oneof pattern {
+    ForkProto fork = 1;
+    PinProto pin = 2;
+    SkewerProto skewer = 3;
+    DiscoveredAttackProto discovered_attack = 4;
+    HangingPieceProto hanging_piece = 5;
+    BackRankWeaknessProto back_rank_weakness = 6;
+  }
+}
+
+message ForkProto {
+  SquareInfoProto attacker = 1;
+  repeated SquareInfoProto targets = 2;
+}
+
+message PinProto {
+  SquareInfoProto pinner = 1;
+  SquareInfoProto pinned_piece = 2;
+  SquareInfoProto pinned_to = 3;
+}
+
+message SkewerProto {
+  SquareInfoProto attacker = 1;
+  SquareInfoProto front_piece = 2;
+  SquareInfoProto back_piece = 3;
+}
+
+message DiscoveredAttackProto {
+  SquareInfoProto moving_piece = 1;
+  SquareInfoProto revealed_attacker = 2;
+  SquareInfoProto target = 3;
+}
+
+message HangingPieceProto {
+  SquareInfoProto piece = 1;
+  uint32 attacker_count = 2;
+  uint32 defender_count = 3;
+}
+
+message BackRankWeaknessProto {
+  SquareInfoProto king_square = 1;
+  uint32 blocking_rank = 2;
+}
+
+// Summary of tactical patterns in a position.
+message TacticalAnalysisProto {
+  repeated TacticalPatternProto patterns = 1;
+  uint32 fork_count = 2;
+  uint32 pin_count = 3;
+  uint32 skewer_count = 4;
+  uint32 discovered_attack_count = 5;
+  uint32 hanging_piece_count = 6;
+  bool has_back_rank_weakness = 7;
+}
+
+// King safety metrics for one side.
+message KingSafetyMetricsProto {
+  string color = 1;
+  uint32 pawn_shield_count = 2;
+  uint32 pawn_shield_max = 3;
+  uint32 open_files_near_king = 4;
+  uint32 attacker_count = 5;
+  uint32 attack_weight = 6;
+  uint32 attacked_king_zone_squares = 7;
+  uint32 king_zone_size = 8;
+  float exposure_score = 9;
+}
+
+// King safety for both sides.
+message PositionKingSafetyProto {
+  KingSafetyMetricsProto white = 1;
+  KingSafetyMetricsProto black = 2;
+}
+
+// Position tension and volatility metrics.
+message PositionTensionMetricsProto {
+  uint32 mutually_attacked_pairs = 1;
+  uint32 contested_squares = 2;
+  uint32 attacked_but_defended = 3;
+  uint32 forcing_moves = 4;
+  uint32 checks_available = 5;
+  uint32 captures_available = 6;
+  float volatility_score = 7;
+}
+
+// Advanced analysis for a single position.
+message AdvancedPositionAnalysisProto {
+  uint32 ply = 1;
+  TacticalAnalysisProto tactics_before = 2;
+  TacticalAnalysisProto tactics_after = 3;
+  PositionKingSafetyProto king_safety = 4;
+  PositionTensionMetricsProto tension = 5;
+  bool is_critical = 6;
+  optional uint32 deep_depth = 7;
+}
+
+// Psychological profile for one player.
+message PsychologicalProfileProto {
+  string color = 1;
+  uint32 max_consecutive_errors = 2;
+  optional uint32 error_streak_start_ply = 3;
+  uint32 favorable_swings = 4;
+  uint32 unfavorable_swings = 5;
+  uint32 max_momentum_streak = 6;
+  uint32 blunder_cluster_density = 7;
+  optional uint32 blunder_cluster_range_start = 8;
+  optional uint32 blunder_cluster_range_end = 9;
+  optional float time_quality_correlation = 10;
+  optional uint64 avg_blunder_time_ms = 11;
+  optional uint64 avg_good_move_time_ms = 12;
+  double opening_avg_cp_loss = 13;
+  double middlegame_avg_cp_loss = 14;
+  double endgame_avg_cp_loss = 15;
+}
+
+// Complete advanced analysis for a game.
+message AdvancedGameAnalysisProto {
+  string game_id = 1;
+  repeated AdvancedPositionAnalysisProto positions = 2;
+  PsychologicalProfileProto white_psychology = 3;
+  PsychologicalProfileProto black_psychology = 4;
+  uint32 pipeline_version = 5;
+  uint32 shallow_depth = 6;
+  uint32 deep_depth = 7;
+  uint32 critical_positions_count = 8;
+  uint64 computed_at = 9;
+}
+
+// ============================================================================
+// Request / Response Messages
+// ============================================================================
+
+// Get advanced analysis for a game.
+message GetAdvancedAnalysisRequest {
+  string game_id = 1;
+}
+
+message GetAdvancedAnalysisResponse {
+  AdvancedGameAnalysisProto analysis = 1;
+}

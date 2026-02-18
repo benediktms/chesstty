@@ -35,6 +35,8 @@ pub struct GameConfig {
     /// Pre-history moves from a snapshot (moves played before the snapshot position).
     /// `Some(...)` indicates a snapshot game, which implies paused start for engine modes.
     pub pre_history: Option<Vec<chess_client::MoveRecord>>,
+    /// Advanced analysis data (tactical patterns, king safety, tension, psychological profiles).
+    pub advanced_data: Option<chess_client::AdvancedGameAnalysisProto>,
 }
 
 /// Actions returned from the menu.
@@ -646,6 +648,7 @@ fn create_game_config(menu_state: &MenuState) -> GameConfig {
         review_game_mode: None,
         review_skill_level: None,
         pre_history: None,
+        advanced_data: None,
     }
 }
 
@@ -738,6 +741,7 @@ fn handle_review_table_input(menu_state: &mut MenuState, key_code: KeyCode) -> O
                             review_game_mode,
                             review_skill_level: None,
                             pre_history: None,
+                            advanced_data: None,
                         })));
                     }
                 }

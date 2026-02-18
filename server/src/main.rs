@@ -47,10 +47,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ));
 
     // Create review manager
-    let review_store = Arc::new(review::store::ReviewStore::new(data_dir));
+    let review_store = Arc::new(review::store::ReviewStore::new(data_dir.clone()));
+    let advanced_store = Arc::new(review::advanced::AdvancedAnalysisStore::new(data_dir));
     let review_manager = Arc::new(review::ReviewManager::new(
         finished_game_store,
         review_store,
+        advanced_store,
         review::ReviewConfig::default(),
     ));
 

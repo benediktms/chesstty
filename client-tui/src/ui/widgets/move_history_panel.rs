@@ -4,7 +4,8 @@ use ratatui::{
     layout::Rect,
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph, Widget},
+    widgets::StatefulWidget,
+    widgets::{Block, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Widget},
 };
 
 pub struct MoveHistoryPanel<'a> {
@@ -49,6 +50,25 @@ impl<'a> MoveHistoryPanel<'a> {
     pub fn with_current_ply(mut self, ply: Option<u32>) -> Self {
         self.current_ply = ply;
         self
+    }
+
+    /// Calculate scroll position to keep current_ply visible.
+    /// Centers the current ply in the visible area when possible.
+    pub fn calculate_scroll(&self, visible_height: u16) -> u16 {
+        if let Some(current_ply) = self.current_ply {
+            if current_ply == 0 {
+                return 0;
+            }
+            let total_rows = (self.history.len() + 1) / 2;
+            if total_rows <= visible_height as usize {
+                return 0;
+            }
+            let current_row = ((current_ply.saturating_sub(1)) / 2) as usize;
+            let scroll_threshold = current_row.saturating_sub((visible_height / 2) as usize);
+            scroll_threshold as u16
+        } else {
+            0
+        }
     }
 }
 
@@ -122,6 +142,15 @@ impl Widget for MoveHistoryPanel<'_> {
 
         let paragraph = Paragraph::new(lines).scroll((self.scroll, 0));
         paragraph.render(inner, buf);
+
+        let total_rows = (self.history.len() + 1) / 2;
+        if total_rows > inner.height as usize {
+            let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
+                .thumb_style(Style::default().fg(Color::Cyan).bg(Color::DarkGray));
+            let mut scrollbar_state =
+                ScrollbarState::new(total_rows).position(self.scroll as usize);
+            scrollbar.render(inner, buf, &mut scrollbar_state);
+        }
     }
 }
 

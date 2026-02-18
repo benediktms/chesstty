@@ -386,4 +386,19 @@ impl ChessClient {
         self.client.delete_finished_game(request).await?;
         Ok(())
     }
+
+    /// Get advanced analysis for a game (tactical patterns, king safety, tension, psychological profiles)
+    pub async fn get_advanced_analysis(
+        &mut self,
+        game_id: &str,
+    ) -> ClientResult<AdvancedGameAnalysisProto> {
+        let request = GetAdvancedAnalysisRequest {
+            game_id: game_id.to_string(),
+        };
+        let response = self.client.get_advanced_analysis(request).await?;
+        response
+            .into_inner()
+            .analysis
+            .ok_or_else(|| ClientError::InvalidData("missing advanced analysis".into()))
+    }
 }

@@ -2,9 +2,10 @@ use crate::state::{ClientState, GameMode, InputPhase, PlayerColor};
 use crate::ui::menu_app;
 use crate::ui::pane::PaneId;
 use crate::ui::widgets::{
+    advanced_analysis_panel::AdvancedAnalysisPanel, build_game_overlay, build_review_overlay,
     BoardWidget, EngineAnalysisPanel, GameInfoPanel, MiniBoardWidget, MoveAnalysisPanel,
-    MoveHistoryPanel, PopupMenuWidget, PromotionWidget, SnapshotDialogWidget, TabInputWidget,
-    UciDebugPanel,
+    MoveHistoryPanel, PopupMenuWidget, PromotionWidget, SnapshotDialogWidget,
+    TabInputWidget, UciDebugPanel,
 };
 use chess_client::{GameModeProto, GameModeType, PlayerSideProto};
 use crossterm::{
@@ -115,6 +116,24 @@ pub async fn run_app() -> anyhow::Result<()> {
                                         "Review fetched, entering review mode"
                                     );
                                     cfg.review_data = Some(review);
+
+                                    // Also try to fetch advanced analysis
+                                    match client.get_advanced_analysis(game_id).await {
+                                        Ok(advanced) => {
+                                            tracing::info!(
+                                                game_id = %game_id,
+                                                "Advanced analysis fetched"
+                                            );
+                                            cfg.advanced_data = Some(advanced);
+                                        }
+                                        Err(e) => {
+                                            tracing::warn!(
+                                                game_id = %game_id,
+                                                "Advanced analysis not available: {}",
+                                                e
+                                            );
+                                        }
+                                    }
                                 }
                                 Err(e) => {
                                     tracing::error!(game_id = %game_id, "Failed to fetch review: {}", e);
@@ -203,6 +222,7 @@ async fn run_game<B: ratatui::backend::Backend>(
                 review_data,
                 config.review_game_mode,
                 config.review_skill_level.unwrap_or(0),
+                config.advanced_data,
             )
             .await
             .map_err(|e| anyhow::anyhow!("Failed to connect: {}", e))?;
@@ -395,9 +415,6 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
                 }
             }
 
-            // Update board overlays from review state
-            state.ui.last_move = review.played_move_squares();
-            state.ui.best_move_squares = review.best_move_squares();
         }
 
         // Timer is server-owned — no client-side ticking needed.
@@ -422,6 +439,13 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
             Vec::new()
         };
 
+        // Build board overlay from current mode state
+        let board_overlay = if let Some(ref review) = state.review_state {
+            build_review_overlay(review)
+        } else {
+            build_game_overlay(&state.ui, &typeahead_squares)
+        };
+
         // Snapshot pane state for rendering (avoids borrow conflicts)
         let selected_panel = state.ui.focus_stack.selected_pane();
         let expanded_panel = state.ui.focus_stack.expanded_pane();
@@ -431,7 +455,8 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
         let history_scroll = state.ui.pane_manager.scroll(PaneId::MoveHistory);
         let debug_scroll = state.ui.pane_manager.scroll(PaneId::UciDebug);
         let review_scroll = state.ui.pane_manager.scroll(PaneId::ReviewSummary);
-        let show_review = state.ui.pane_manager.is_visible(PaneId::ReviewSummary);
+        let _advanced_scroll = state.ui.pane_manager.scroll(PaneId::AdvancedAnalysis);
+        let is_review_mode = matches!(state.mode, GameMode::ReviewMode);
 
         // Draw UI
         terminal.draw(|f| {
@@ -455,48 +480,62 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
                 .constraints(content_constraints)
                 .split(main_vertical[0]);
 
-            let board_area_chunks = Layout::default()
+            // 3-column layout: Left (review) | Center (board) | Right (Game Info + History)
+            let main_chunks = Layout::default()
                 .direction(Direction::Horizontal)
-                .constraints([Constraint::Min(50), Constraint::Length(40)])
+                .constraints([
+                    Constraint::Percentage(20),  // Left: Review panels
+                    Constraint::Percentage(55),  // Center: Board
+                    Constraint::Percentage(25),  // Right: Game Info + History
+                ])
                 .split(content_chunks[0]);
 
-            // Split left column into board + tab input
-            let left_col = Layout::default()
-                .direction(Direction::Vertical)
-                .constraints([Constraint::Min(6), Constraint::Length(4)])
-                .split(board_area_chunks[0]);
+            let left_col = main_chunks[0];
+            let board_area = main_chunks[1];
+            let right_col = main_chunks[2];
 
-            let left_area = left_col[0];
-            let tab_input_area = left_col[1];
+            let tab_input_area = Rect {
+                x: 0,
+                y: main_vertical[1].y,
+                width: f.area().width,
+                height: 1,
+            };
 
             let mut right_constraints = vec![Constraint::Length(10)];
 
             let show_engine_in_right =
-                show_engine && expanded_panel != Some(PaneId::EngineAnalysis);
+                show_engine && expanded_panel != Some(PaneId::EngineAnalysis) && !is_review_mode;
             if show_engine_in_right {
                 right_constraints.push(Constraint::Length(12));
             }
 
             let show_history_in_right = expanded_panel != Some(PaneId::MoveHistory);
-            let show_review_in_right = show_review && expanded_panel != Some(PaneId::ReviewSummary);
             if show_history_in_right {
-                // If review panel is also shown, give history a fixed size
-                if show_review_in_right {
-                    right_constraints.push(Constraint::Min(10));
-                } else {
-                    right_constraints.push(Constraint::Min(15));
-                }
-            }
-            if show_review_in_right {
-                right_constraints.push(Constraint::Min(15));
+                right_constraints.push(Constraint::Min(10));
             }
 
             let right_chunks = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints(right_constraints)
-                .split(board_area_chunks[1]);
+                .split(right_col);
 
-            // === LEFT AREA ===
+            // === LEFT COLUMN (Review panels in review mode) ===
+            if is_review_mode {
+                if let Some(ref review_state) = state.review_state {
+                    let is_selected = selected_panel == Some(PaneId::ReviewSummary);
+                    let tab_panel = crate::ui::widgets::ReviewTabsPanel {
+                        review_state,
+                        current_tab: state.ui.review_tab,
+                        scroll: review_scroll,
+                        is_selected,
+                        expanded: false,
+                        moves_selection: state.ui.review_moves_selection,
+                    };
+                    f.render_widget(tab_panel, left_col);
+                }
+            }
+
+            // === BOARD (center column) ===
             if let Some(exp_pane) = expanded_panel {
                 match exp_pane {
                     PaneId::MoveHistory => {
@@ -508,7 +547,7 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
                         let widget = MoveHistoryPanel::expanded(state.history(), history_scroll)
                             .with_review_positions(review_positions)
                             .with_current_ply(current_ply);
-                        f.render_widget(widget, left_area);
+                        f.render_widget(widget, board_area);
                     }
                     PaneId::EngineAnalysis => {
                         if let Some(ref rs) = state.review_state {
@@ -518,7 +557,7 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
                                 is_selected: true,
                                 expanded: true,
                             };
-                            f.render_widget(widget, left_area);
+                            f.render_widget(widget, board_area);
                         } else {
                             let widget = EngineAnalysisPanel::new(
                                 state.ui.engine_info.as_ref(),
@@ -526,37 +565,51 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
                                 engine_scroll,
                                 true,
                             );
-                            f.render_widget(widget, left_area);
+                            f.render_widget(widget, board_area);
                         }
                     }
                     PaneId::UciDebug => {
                         let widget = UciDebugPanel::new(&state.ui.uci_log, debug_scroll, true);
-                        f.render_widget(widget, left_area);
+                        f.render_widget(widget, board_area);
                     }
                     PaneId::GameInfo => {
                         let widget = GameInfoPanel::new(state);
-                        f.render_widget(widget, left_area);
+                        f.render_widget(widget, board_area);
                     }
                     PaneId::ReviewSummary => {
-                        // ReviewSummary expanded: render if review state is available
+                        // In review mode, render expanded ReviewSummary for more details
                         if let Some(ref review_state) = state.review_state {
                             let widget = crate::ui::widgets::ReviewSummaryPanel {
-                                review: &review_state.review,
+                                review_state,
                                 scroll: *state.ui.pane_manager.scroll_mut(PaneId::ReviewSummary),
                                 is_selected: true,
                                 expanded: true,
                             };
-                            f.render_widget(widget, left_area);
+                            f.render_widget(widget, board_area);
+                        }
+                    }
+                    PaneId::AdvancedAnalysis => {
+                        // Skip in review mode - we use ReviewTabsPanel instead
+                        if !is_review_mode {
+                            if let Some(ref review_state) = state.review_state {
+                                let widget = AdvancedAnalysisPanel {
+                                    review_state,
+                                    scroll: *state.ui.pane_manager.scroll_mut(PaneId::AdvancedAnalysis),
+                                    is_selected: true,
+                                    expanded: true,
+                                };
+                                f.render_widget(widget, board_area);
+                            }
                         }
                     }
                 }
 
                 let mini_width = 20u16;
                 let mini_height = 11u16;
-                if left_area.width >= mini_width + 2 && left_area.height >= mini_height + 2 {
+                if board_area.width >= mini_width + 2 && board_area.height >= mini_height + 2 {
                     let mini_area = Rect {
-                        x: left_area.x + left_area.width - mini_width,
-                        y: left_area.y + left_area.height - mini_height,
+                        x: board_area.x + board_area.width - mini_width,
+                        y: board_area.y + board_area.height - mini_height,
                         width: mini_width,
                         height: mini_height,
                     };
@@ -573,6 +626,7 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
                     f.render_widget(mini_board, mini_area);
                 }
             } else {
+                // No expanded panel - render board in center column
                 let is_flipped = matches!(
                     state.mode,
                     GameMode::HumanVsEngine {
@@ -580,28 +634,30 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
                     }
                 );
                 let board_widget = BoardWidget {
-                    client_state: state,
-                    typeahead_squares: &typeahead_squares,
+                    board: state.board(),
+                    overlay: &board_overlay,
                     flipped: is_flipped,
                 };
-                f.render_widget(board_widget, left_area);
+                f.render_widget(board_widget, board_area);
             }
 
             // === RIGHT PANELS ===
             let mut chunk_idx = 0;
 
+            // Always render GameInfoPanel
             let game_info = GameInfoPanel {
                 client_state: state,
             };
             f.render_widget(game_info, right_chunks[chunk_idx]);
             chunk_idx += 1;
 
-            if show_engine_in_right {
-                let is_selected = selected_panel == Some(PaneId::EngineAnalysis);
-                if let Some(ref rs) = state.review_state {
-                    let widget = MoveAnalysisPanel::new(rs, engine_scroll, is_selected);
-                    f.render_widget(widget, right_chunks[chunk_idx]);
-                } else {
+            if is_review_mode {
+                // In review mode: all analysis is in ReviewTabsPanel (left column)
+                // MoveHistoryPanel will be rendered below
+            } else {
+                // In normal game: conditionally render EngineAnalysisPanel
+                if show_engine_in_right {
+                    let is_selected = selected_panel == Some(PaneId::EngineAnalysis);
                     let engine_panel = EngineAnalysisPanel::new(
                         state.ui.engine_info.as_ref(),
                         state.ui.is_engine_thinking,
@@ -609,8 +665,8 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
                         is_selected,
                     );
                     f.render_widget(engine_panel, right_chunks[chunk_idx]);
+                    chunk_idx += 1;
                 }
-                chunk_idx += 1;
             }
 
             if show_history_in_right {
@@ -620,25 +676,18 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
                     .as_ref()
                     .map(|rs| rs.review.positions.as_slice());
                 let current_ply = state.review_state.as_ref().map(|rs| rs.current_ply);
-                let history_widget =
-                    MoveHistoryPanel::new(state.history(), history_scroll, is_selected)
-                        .with_review_positions(review_positions)
-                        .with_current_ply(current_ply);
-                f.render_widget(history_widget, right_chunks[chunk_idx]);
-                chunk_idx += 1;
-            }
-
-            if show_review_in_right {
-                if let Some(ref review_state) = state.review_state {
-                    let is_selected = selected_panel == Some(PaneId::ReviewSummary);
-                    let widget = crate::ui::widgets::ReviewSummaryPanel {
-                        review: &review_state.review,
-                        scroll: review_scroll,
-                        is_selected,
-                        expanded: false,
-                    };
-                    f.render_widget(widget, right_chunks[chunk_idx]);
+                let mut history_panel = MoveHistoryPanel::new(state.history(), history_scroll, is_selected)
+                    .with_review_positions(review_positions)
+                    .with_current_ply(current_ply);
+                
+                // Auto-scroll to keep current ply visible
+                let visible_height = right_chunks[chunk_idx].height.saturating_sub(2);
+                let auto_scroll = history_panel.calculate_scroll(visible_height);
+                if history_scroll == 0 && auto_scroll > 0 {
+                    history_panel.scroll = auto_scroll;
                 }
+                
+                f.render_widget(history_panel, right_chunks[chunk_idx]);
             }
 
             if show_debug_panel {
@@ -647,10 +696,12 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
                 f.render_widget(uci_panel, content_chunks[1]);
             }
 
-            // Always render tab input widget (below board, left column only)
+            // Render tab input widget only in non-review modes (below board, left column only)
             let status_area_idx = 1;
-            let tab_widget = TabInputWidget::new(state);
-            f.render_widget(tab_widget, tab_input_area);
+            if !matches!(state.mode, GameMode::ReviewMode) {
+                let tab_widget = TabInputWidget::new(state);
+                f.render_widget(tab_widget, tab_input_area);
+            }
 
             // Controls line
             let mut controls_spans = vec![];
@@ -704,20 +755,22 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
                 let key_style = Style::default()
                     .fg(Color::Cyan)
                     .add_modifier(Modifier::BOLD);
-                controls_spans.push(Span::styled("\u{2190}/\u{2192}", key_style));
+                controls_spans.push(Span::styled("h/l \u{2190}/\u{2192}", key_style));
                 controls_spans.push(Span::raw(" Nav | "));
+                controls_spans.push(Span::styled("Tab", key_style));
+                controls_spans.push(Span::raw(" Tabs | "));
+                controls_spans.push(Span::styled("j/k", key_style));
+                controls_spans.push(Span::raw(" Moves | "));
                 controls_spans.push(Span::styled("n/p", key_style));
                 controls_spans.push(Span::raw(" Critical | "));
                 controls_spans.push(Span::styled("Space", key_style));
-                controls_spans.push(Span::raw(" Auto-play | "));
+                controls_spans.push(Span::raw(" Auto | "));
                 controls_spans.push(Span::styled("Home/End", key_style));
                 controls_spans.push(Span::raw(" Jump | "));
                 controls_spans.push(Span::styled("s", key_style));
-                controls_spans.push(Span::raw(" Snapshot | "));
+                controls_spans.push(Span::raw(" Snap | "));
                 controls_spans.push(Span::styled("Esc", key_style));
-                controls_spans.push(Span::raw(" Menu | "));
-                controls_spans.push(Span::styled("Tab", key_style));
-                controls_spans.push(Span::raw(" Panels"));
+                controls_spans.push(Span::raw(" Menu"));
             } else {
                 // Standard game controls
                 if !input_buffer.is_empty() {

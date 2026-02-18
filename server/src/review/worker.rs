@@ -1,9 +1,11 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
+use analysis::AnalysisConfig;
 use engine::{EngineCommand, EngineEvent, GoParams, StockfishConfig, StockfishEngine};
 use tokio::sync::{mpsc, Mutex, RwLock};
 
+use super::advanced::{compute_advanced_analysis, AdvancedAnalysisStore};
 use super::store::ReviewStore;
 use super::types::*;
 
@@ -13,8 +15,10 @@ pub async fn run_review_worker(
     worker_id: usize,
     job_rx: Arc<Mutex<mpsc::Receiver<ReviewJob>>>,
     store: Arc<ReviewStore>,
+    advanced_store: Arc<AdvancedAnalysisStore>,
     enqueued: Arc<RwLock<HashSet<String>>>,
     analysis_depth: u32,
+    analysis_config: AnalysisConfig,
 ) {
     tracing::info!(worker_id, "Review worker started");
 
@@ -34,7 +38,15 @@ pub async fn run_review_worker(
 
         tracing::info!(worker_id, game_id = %job.game_id, plies = job.game_data.moves.len(), "Starting review analysis");
 
-        let result = analyze_game(worker_id, &job, &store, analysis_depth).await;
+        let result = analyze_game(
+            worker_id,
+            &job,
+            &store,
+            &advanced_store,
+            analysis_depth,
+            &analysis_config,
+        )
+        .await;
 
         match result {
             Ok(()) => {
@@ -53,6 +65,7 @@ pub async fn run_review_worker(
                     analysis_depth,
                     started_at: None,
                     completed_at: None,
+                    winner: None,
                 };
                 let _ = store.save(&failed_review);
             }
@@ -64,11 +77,17 @@ pub async fn run_review_worker(
 }
 
 /// Analyze all positions in a finished game.
+///
+/// Pipeline:
+///   Phase 1 — Engine analysis of each position (at configured depth)
+///   Phase 2+4 — Board geometry metrics + psychological profiling (via analysis crate)
 async fn analyze_game(
     worker_id: usize,
     job: &ReviewJob,
     store: &ReviewStore,
+    advanced_store: &AdvancedAnalysisStore,
     analysis_depth: u32,
+    analysis_config: &AnalysisConfig,
 ) -> Result<(), String> {
     let game = &job.game_data;
     let total_plies = game.moves.len() as u32;
@@ -98,10 +117,13 @@ async fn analyze_game(
             analysis_depth,
             started_at: Some(crate::persistence::now_timestamp()),
             completed_at: None,
+            winner: None,
         },
     };
 
-    // Spawn engine for this analysis job (full strength, bounded resources)
+    // =====================================================================
+    // Phase 1: Engine analysis of each position
+    // =====================================================================
     tracing::info!(worker_id, game_id = %job.game_id, "Spawning Stockfish for analysis");
     let sf_config = StockfishConfig {
         skill_level: None, // Full strength for analysis
@@ -235,6 +257,15 @@ async fn analyze_game(
     // Compute accuracy scores
     review.white_accuracy = Some(compute_accuracy(&review.positions, true));
     review.black_accuracy = Some(compute_accuracy(&review.positions, false));
+    
+    // Set winner from game result
+    review.winner = match job.game_data.result.as_str() {
+        "WhiteWins" => Some("White".to_string()),
+        "BlackWins" => Some("Black".to_string()),
+        "Draw" => Some("Draw".to_string()),
+        _ => None,
+    };
+    
     review.status = ReviewStatus::Complete;
     review.completed_at = Some(crate::persistence::now_timestamp());
 
@@ -250,6 +281,34 @@ async fn analyze_game(
     store
         .save(&review)
         .map_err(|e| format!("Failed to save completed review: {}", e))?;
+
+    // =====================================================================
+    // Phase 2+4: Advanced analysis (board geometry + psychological profiling)
+    // =====================================================================
+    if analysis_config.compute_advanced {
+        tracing::info!(
+            worker_id,
+            game_id = %job.game_id,
+            "Computing advanced analysis"
+        );
+
+        let advanced = compute_advanced_analysis(
+            &review,
+            analysis_config,
+            crate::persistence::now_timestamp(),
+        );
+
+        tracing::info!(
+            worker_id,
+            game_id = %job.game_id,
+            critical_positions = advanced.critical_positions_count,
+            "Advanced analysis complete, saving"
+        );
+
+        advanced_store
+            .save(&advanced)
+            .map_err(|e| format!("Failed to save advanced analysis: {}", e))?;
+    }
 
     // Shutdown engine
     tracing::debug!(worker_id, game_id = %job.game_id, "Shutting down Stockfish");
