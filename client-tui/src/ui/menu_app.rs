@@ -13,6 +13,7 @@ use ratatui::{backend::CrosstermBackend, layout::Constraint, Terminal};
 use std::io;
 use std::time::Duration;
 
+#[derive(Clone, Debug)]
 pub struct GameConfig {
     pub mode: GameMode,
     pub skill_level: u8,

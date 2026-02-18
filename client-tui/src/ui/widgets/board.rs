@@ -162,7 +162,7 @@ impl Widget for BoardWidget<'_> {
         // Pre-compute arrow paths for BFS rendering
         let arrow_paths = compute_arrow_paths(self.overlay, board_size, self.flipped);
 
-        // First pass: Draw all square backgrounds (base colors + highlight tints)
+        // Draw each square
         for rank_idx in 0..8 {
             for file_idx in 0..8 {
                 let file = if self.flipped {
@@ -182,6 +182,7 @@ impl Widget for BoardWidget<'_> {
 
                 let is_light_square = (file_idx + rank_idx) % 2 == 0;
 
+                // Resolve background color from overlay (or default board color)
                 let bg_color = match self.overlay.square_tint(square) {
                     Some(color) => color.resolve(is_light_square),
                     None => {
@@ -193,56 +194,14 @@ impl Widget for BoardWidget<'_> {
                     }
                 };
 
+                // Draw the square background
                 render_square(buf, x, y, bg_color, board_size, inner);
-            }
-        }
 
-        // Second pass: Draw all arrow paths (on top of square backgrounds)
-        for arrow_path in &arrow_paths {
-            render_arrow_path(
-                buf,
-                arrow_path,
-                board_start_x,
-                board_start_y,
-                board_size,
-                inner,
-            );
-        }
-
-        // Third pass: Draw all pieces (always on top of highlights and arrows)
-        for rank_idx in 0..8 {
-            for file_idx in 0..8 {
-                let file = if self.flipped {
-                    File::index(7 - file_idx)
-                } else {
-                    File::index(file_idx)
-                };
-                let rank = if self.flipped {
-                    Rank::index(rank_idx)
-                } else {
-                    Rank::index(7 - rank_idx)
-                };
-                let square = Square::new(file, rank);
-
-                let x = board_start_x + (file_idx as u16 * board_size.square_width);
-                let y = board_start_y + (rank_idx as u16 * board_size.square_height);
-
-                let is_light_square = (file_idx + rank_idx) % 2 == 0;
-
-                let bg_color = match self.overlay.square_tint(square) {
-                    Some(color) => color.resolve(is_light_square),
-                    None => {
-                        if is_light_square {
-                            LIGHT_SQUARE
-                        } else {
-                            DARK_SQUARE
-                        }
-                    }
-                };
-
+                // Get piece at this square
                 let piece = self.board.piece_on(square);
                 let piece_color = self.board.color_on(square);
 
+                // Draw piece
                 if let (Some(piece), Some(piece_color)) = (piece, piece_color) {
                     render_piece(
                         buf,
@@ -260,37 +219,16 @@ impl Widget for BoardWidget<'_> {
             }
         }
 
-        // Fourth pass: Draw all square outlines (on top of pieces)
-        for rank_idx in 0..8 {
-            for file_idx in 0..8 {
-                let file = if self.flipped {
-                    File::index(7 - file_idx)
-                } else {
-                    File::index(file_idx)
-                };
-                let rank = if self.flipped {
-                    Rank::index(rank_idx)
-                } else {
-                    Rank::index(7 - rank_idx)
-                };
-                let square = Square::new(file, rank);
-
-                let x = board_start_x + (file_idx as u16 * board_size.square_width);
-                let y = board_start_y + (rank_idx as u16 * board_size.square_height);
-
-                let is_light_square = (file_idx + rank_idx) % 2 == 0;
-
-                if let Some(outline_color) = self.overlay.square_outline(square) {
-                    draw_square_outline(
-                        buf,
-                        x,
-                        y,
-                        outline_color.resolve(is_light_square),
-                        board_size,
-                        inner,
-                    );
-                }
-            }
+        // Draw arrow paths on top of everything
+        for arrow_path in &arrow_paths {
+            render_arrow_path(
+                buf,
+                arrow_path,
+                board_start_x,
+                board_start_y,
+                board_size,
+                inner,
+            );
         }
     }
 }

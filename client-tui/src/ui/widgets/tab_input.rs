@@ -1,4 +1,5 @@
-use crate::state::ClientState;
+use crate::state::GameSession;
+use crate::ui::fsm::UiStateMachine;
 use crate::ui::widgets::mini_board::piece_to_unicode;
 use chess::{format_square, parse_square};
 use ratatui::{
@@ -10,19 +11,20 @@ use ratatui::{
 };
 
 pub struct TabInputWidget<'a> {
-    pub client_state: &'a ClientState,
+    pub client_state: &'a GameSession,
+    pub fsm: &'a UiStateMachine,
 }
 
 impl<'a> TabInputWidget<'a> {
-    pub fn new(client_state: &'a ClientState) -> Self {
-        Self { client_state }
+    pub fn new(client_state: &'a GameSession, fsm: &'a UiStateMachine) -> Self {
+        Self { client_state, fsm }
     }
 }
 
 impl<'a> Widget for TabInputWidget<'a> {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        let active = self.client_state.ui.tab_input.active;
-        let current_tab = self.client_state.ui.tab_input.current_tab;
+        let active = self.fsm.tab_input.active;
+        let current_tab = self.fsm.tab_input.current_tab;
 
         let border_style = if active {
             Style::default().fg(Color::Yellow)
@@ -70,20 +72,20 @@ impl<'a> Widget for TabInputWidget<'a> {
 
         // Render content
         if current_tab == 0 {
-            render_piece_content(self.client_state, buf, content_area);
+            render_piece_content(self.client_state, self.fsm, buf, content_area);
         } else {
-            render_destination_content(self.client_state, buf, content_area);
+            render_destination_content(self.client_state, self.fsm, buf, content_area);
         }
     }
 }
 
-fn render_piece_content(state: &ClientState, buf: &mut Buffer, area: Rect) {
+fn render_piece_content(state: &GameSession, fsm: &UiStateMachine, buf: &mut Buffer, area: Rect) {
     if area.height == 0 {
         return;
     }
 
-    let typeahead = &state.ui.tab_input.typeahead_buffer;
-    let selectable_squares = &state.ui.selectable_squares;
+    let typeahead = &fsm.tab_input.typeahead_buffer;
+    let selectable_squares = &state.selectable_squares;
 
     let mut spans: Vec<Span> = vec![
         Span::styled("> ", Style::default().fg(Color::Yellow)),
@@ -111,15 +113,19 @@ fn render_piece_content(state: &ClientState, buf: &mut Buffer, area: Rect) {
     Paragraph::new(Line::from(spans)).render(area, buf);
 }
 
-fn render_destination_content(state: &ClientState, buf: &mut Buffer, area: Rect) {
+fn render_destination_content(
+    state: &GameSession,
+    fsm: &UiStateMachine,
+    buf: &mut Buffer,
+    area: Rect,
+) {
     if area.height == 0 {
         return;
     }
 
-    let typeahead = &state.ui.tab_input.typeahead_buffer;
+    let typeahead = &fsm.tab_input.typeahead_buffer;
 
-    let moves = state
-        .ui
+    let moves = fsm
         .tab_input
         .from_square
         .and_then(|sq| state.legal_moves_from(sq))

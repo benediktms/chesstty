@@ -1,5 +1,6 @@
 use crate::review_state::ReviewState;
 use crate::ui::context::FocusStack;
+use crate::ui::fsm::render_spec::{InputPhase, TabInputState};
 use crate::ui::pane::PaneManager;
 use crate::ui::widgets::popup_menu::PopupMenuState;
 use crate::ui::widgets::snapshot_dialog::SnapshotDialogState;
@@ -30,13 +31,39 @@ pub fn game_mode_from_proto(proto: &GameModeProto) -> GameMode {
     }
 }
 
-/// Client-side application state. The server is the source of truth —
-/// the client stores the latest snapshot and renders it.
-pub struct ClientState {
+/// A game session - connection to the server and current game state.
+/// The server is the source of truth — the client stores the latest 
+/// snapshot and renders it.
+pub struct GameSession {
     pub client: ChessClient,
     pub mode: GameMode,
     pub skill_level: u8,
-    pub ui: UiState,
+
+    /// Engine analysis info from the server
+    pub engine_info: Option<EngineInfo>,
+    /// Whether the engine is currently thinking
+    pub is_engine_thinking: bool,
+    /// UCI log entries
+    pub uci_log: Vec<UciLogEntry>,
+    /// Game paused state (from server)
+    pub paused: bool,
+    /// Paused state before entering menu
+    pub paused_before_menu: bool,
+
+    /// Selected square during move input
+    pub selected_square: Option<Square>,
+    /// Highlighted squares (e.g., last move, legal moves)
+    pub highlighted_squares: Vec<Square>,
+    /// Selectable squares for current input phase
+    pub selectable_squares: Vec<Square>,
+    /// Last move made
+    pub last_move: Option<(Square, Square)>,
+    /// Best move squares (from engine analysis)
+    pub best_move_squares: Option<(Square, Square)>,
+    /// Selected promotion piece
+    pub selected_promotion_piece: Piece,
+    /// Status message to display
+    pub status_message: Option<String>,
 
     /// The latest snapshot from the server — single source of truth.
     pub snapshot: SessionSnapshot,
@@ -57,8 +84,9 @@ pub struct ClientState {
 }
 
 /// Game mode determines how the app behaves
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub enum GameMode {
+    #[default]
     HumanVsHuman,
     HumanVsEngine { human_side: PlayerColor },
     EngineVsEngine,
@@ -72,29 +100,13 @@ pub enum PlayerColor {
     Black,
 }
 
-/// UI-specific ephemeral state (not game state)
-pub struct UiState {
-    pub selected_square: Option<Square>,
-    pub highlighted_squares: Vec<Square>,
-    pub selectable_squares: Vec<Square>,
-    pub last_move: Option<(Square, Square)>,
-    pub best_move_squares: Option<(Square, Square)>,
-    pub engine_info: Option<EngineInfo>,
-    pub is_engine_thinking: bool,
-    pub status_message: Option<String>,
-    pub input_phase: InputPhase,
-    pub uci_log: Vec<UciLogEntry>,
-    pub selected_promotion_piece: Piece,
-    pub pane_manager: PaneManager,
-    pub focus_stack: FocusStack,
-    pub popup_menu: Option<PopupMenuState>,
-    pub snapshot_dialog: Option<SnapshotDialogState>,
-    pub paused: bool,
-    pub paused_before_menu: bool,
-    pub tab_input: TabInputState,
-    pub review_tab: u8,
-    pub review_moves_selection: Option<u32>,
-}
+/// Render state - all UI state needed to render the interface.
+/// This is produced by the FSM and consumed by the renderer.
+/// 
+/// NOTE: This struct contains both game state (from server) and UI state.
+/// Over time, UI state should move to UiStateMachine.
+/// 
+/// EDIT: Now deleted - UI state is in UiStateMachine, game state is in GameSession.
 
 #[derive(Debug, Clone)]
 pub struct UciLogEntry {
@@ -110,56 +122,7 @@ pub enum UciDirection {
     FromEngine,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum InputPhase {
-    SelectPiece,
-    SelectDestination,
-    SelectPromotion { from: Square, to: Square },
-}
-
-#[derive(Debug, Clone)]
-pub struct TabInputState {
-    pub active: bool,
-    pub current_tab: usize, // 0 = Select Piece, 1 = Select Destination
-    pub typeahead_buffer: String,
-    pub from_square: Option<Square>,
-}
-
-impl TabInputState {
-    pub fn new() -> Self {
-        Self {
-            active: false,
-            current_tab: 0,
-            typeahead_buffer: String::new(),
-            from_square: None,
-        }
-    }
-
-    pub fn activate(&mut self) {
-        self.active = true;
-        self.current_tab = 0;
-        self.typeahead_buffer.clear();
-        self.from_square = None;
-    }
-
-    pub fn deactivate(&mut self) {
-        *self = Self::new();
-    }
-
-    pub fn advance_to_destination(&mut self, from: Square) {
-        self.current_tab = 1;
-        self.from_square = Some(from);
-        self.typeahead_buffer.clear();
-    }
-}
-
-impl Default for TabInputState {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl ClientState {
+impl GameSession {
     /// Create a new client state and session on the server.
     pub async fn new(
         server_addr: &str,
@@ -185,28 +148,21 @@ impl ClientState {
             client,
             mode,
             skill_level: 10,
-            ui: UiState {
-                selected_square: None,
-                highlighted_squares: Vec::new(),
-                selectable_squares: Vec::new(),
-                last_move: None,
-                best_move_squares: None,
-                engine_info: None,
-                is_engine_thinking: false,
-                status_message: None,
-                input_phase: InputPhase::SelectPiece,
-                uci_log: Vec::new(),
-                selected_promotion_piece: Piece::Queen,
-                pane_manager: PaneManager::new(),
-                focus_stack: FocusStack::new(),
-                popup_menu: None,
-                snapshot_dialog: None,
-                paused: false,
-                paused_before_menu: false,
-                tab_input: TabInputState::new(),
-                review_tab: 0,
-                review_moves_selection: None,
-            },
+            // Engine state
+            engine_info: None,
+            is_engine_thinking: false,
+            uci_log: Vec::new(),
+            paused: false,
+            paused_before_menu: false,
+            // Board state
+            selected_square: None,
+            highlighted_squares: Vec::new(),
+            selectable_squares: Vec::new(),
+            last_move: None,
+            best_move_squares: None,
+            selected_promotion_piece: Piece::Queen,
+            status_message: None,
+            // Snapshot and board
             snapshot,
             board,
             legal_moves_cache: HashMap::new(),
@@ -232,43 +188,25 @@ impl ClientState {
         let board = Board::default();
         let snapshot = SessionSnapshot::default();
 
-        let mut pane_manager = PaneManager::new();
-        // In review mode: hide GameInfo and EngineAnalysis, show ReviewSummary
-        pane_manager.toggle_visibility(crate::ui::pane::PaneId::GameInfo); // hide
-        pane_manager.toggle_visibility(crate::ui::pane::PaneId::EngineAnalysis); // hide
-        pane_manager.toggle_visibility(crate::ui::pane::PaneId::ReviewSummary); // show
-
-        // Auto-show AdvancedAnalysis pane if advanced data is available
-        if advanced.is_some() {
-            pane_manager.toggle_visibility(crate::ui::pane::PaneId::AdvancedAnalysis);
-        }
-
         Ok(Self {
             client,
             mode: GameMode::ReviewMode,
             skill_level: 0,
-            ui: UiState {
-                selected_square: None,
-                highlighted_squares: Vec::new(),
-                selectable_squares: Vec::new(),
-                last_move: None,
-                best_move_squares: None,
-                engine_info: None,
-                is_engine_thinking: false,
-                status_message: Some("Review mode - use arrow keys to navigate".to_string()),
-                input_phase: InputPhase::SelectPiece,
-                uci_log: Vec::new(),
-                selected_promotion_piece: Piece::Queen,
-                pane_manager,
-                focus_stack: FocusStack::new(),
-                popup_menu: None,
-                snapshot_dialog: None,
-                paused: false,
-                paused_before_menu: false,
-                tab_input: TabInputState::new(),
-                review_tab: 1,
-                review_moves_selection: None,
-            },
+            // Engine state - not used in review
+            engine_info: None,
+            is_engine_thinking: false,
+            uci_log: Vec::new(),
+            paused: false,
+            paused_before_menu: false,
+            // Board state
+            selected_square: None,
+            highlighted_squares: Vec::new(),
+            selectable_squares: Vec::new(),
+            last_move: None,
+            best_move_squares: None,
+            selected_promotion_piece: Piece::Queen,
+            status_message: Some("Review mode - use arrow keys to navigate".to_string()),
+            // Snapshot and board
             snapshot,
             board,
             legal_moves_cache: HashMap::new(),
@@ -346,7 +284,7 @@ impl ClientState {
         from_squares.sort_by_key(|sq| (sq.rank() as u8, sq.file() as u8));
         from_squares.dedup();
 
-        self.ui.selectable_squares = from_squares;
+        self.selectable_squares = from_squares;
 
         self.legal_moves_cache.clear();
         for mv in moves {
@@ -364,8 +302,7 @@ impl ClientState {
         if input.is_empty() {
             return vec![];
         }
-        self.ui
-            .selectable_squares
+        self.selectable_squares
             .iter()
             .filter(|sq| format_square(**sq).starts_with(input))
             .copied()
@@ -381,29 +318,29 @@ impl ClientState {
     pub fn select_square(&mut self, square: Square) {
         use ::chess::{format_square, parse_square};
 
-        if !self.ui.selectable_squares.contains(&square) {
-            self.ui.status_message = Some("No piece on that square or not your turn".to_string());
+        if !self.selectable_squares.contains(&square) {
+            self.status_message = Some("No piece on that square or not your turn".to_string());
             return;
         }
 
         let square_str = format_square(square);
         if let Some(moves) = self.legal_moves_cache.get(&square_str) {
-            self.ui.selected_square = Some(square);
-            self.ui.highlighted_squares =
+            self.selected_square = Some(square);
+            self.highlighted_squares =
                 moves.iter().filter_map(|m| parse_square(&m.to)).collect();
-            self.ui.input_phase = InputPhase::SelectDestination;
-            self.ui.status_message = Some(format!("Selected {}", square_str));
+            // input_phase now handled by FSM
+            self.status_message = Some(format!("Selected {}", square_str));
         } else {
-            self.ui.status_message = Some("No legal moves from that square".to_string());
+            self.status_message = Some("No legal moves from that square".to_string());
         }
     }
 
     pub async fn try_move_to(&mut self, to_square: Square) -> Result<(), String> {
         use ::chess::format_square;
 
-        let from_square = self.ui.selected_square.ok_or("No piece selected")?;
+        let from_square = self.selected_square.ok_or("No piece selected")?;
 
-        if !self.ui.highlighted_squares.contains(&to_square) {
+        if !self.highlighted_squares.contains(&to_square) {
             return Err("Illegal move".to_string());
         }
 
@@ -421,12 +358,9 @@ impl ClientState {
         };
 
         if needs_promotion {
-            self.ui.input_phase = InputPhase::SelectPromotion {
-                from: from_square,
-                to: to_square,
-            };
-            self.ui.selected_promotion_piece = Piece::Queen;
-            self.ui.status_message = Some("Select promotion piece".to_string());
+            // input_phase now handled by FSM - select promotion piece in FSM
+            self.selected_promotion_piece = Piece::Queen;
+            self.status_message = Some("Select promotion piece".to_string());
             return Ok(());
         }
 
@@ -438,11 +372,11 @@ impl ClientState {
 
         self.apply_snapshot(snapshot);
 
-        self.ui.last_move = Some((from_square, to_square));
-        self.ui.selected_square = None;
-        self.ui.highlighted_squares.clear();
-        self.ui.input_phase = InputPhase::SelectPiece;
-        self.ui.status_message = Some(format!("Moved {} to {}", from_str, to_str));
+        self.last_move = Some((from_square, to_square));
+        self.selected_square = None;
+        self.highlighted_squares.clear();
+        // input_phase now handled by FSM
+        self.status_message = Some(format!("Moved {} to {}", from_str, to_str));
 
         self.update_selectable_squares()
             .await
@@ -471,11 +405,11 @@ impl ClientState {
 
         self.apply_snapshot(snapshot);
 
-        self.ui.last_move = Some((from, to));
-        self.ui.selected_square = None;
-        self.ui.highlighted_squares.clear();
-        self.ui.input_phase = InputPhase::SelectPiece;
-        self.ui.status_message = Some(format!("Promoted to {:?}", piece));
+        self.last_move = Some((from, to));
+        self.selected_square = None;
+        self.highlighted_squares.clear();
+        // input_phase now handled by FSM
+        self.status_message = Some(format!("Promoted to {:?}", piece));
 
         self.update_selectable_squares()
             .await
@@ -485,10 +419,10 @@ impl ClientState {
     }
 
     pub fn clear_selection(&mut self) {
-        self.ui.selected_square = None;
-        self.ui.highlighted_squares.clear();
-        self.ui.input_phase = InputPhase::SelectPiece;
-        self.ui.status_message = None;
+        self.selected_square = None;
+        self.highlighted_squares.clear();
+        // input_phase now handled by FSM
+        self.status_message = None;
     }
 
     // --- Event streaming ---
@@ -511,7 +445,7 @@ impl ClientState {
                     Ok(())
                 }
                 Some(Err(e)) => {
-                    self.ui.status_message = Some(format!("Stream error: {}", e));
+                    self.status_message = Some(format!("Stream error: {}", e));
                     self.event_stream = None;
                     Err(e.into())
                 }
@@ -537,7 +471,7 @@ impl ClientState {
                         Ok(true)
                     }
                     Err(e) => {
-                        self.ui.status_message = Some(format!("Stream error: {}", e));
+                        self.status_message = Some(format!("Stream error: {}", e));
                         self.event_stream = None;
                         Err(e.into())
                     }
@@ -564,11 +498,11 @@ impl ClientState {
                         if let (Some(from), Some(to)) =
                             (parse_square(&last_move.from), parse_square(&last_move.to))
                         {
-                            self.ui.last_move = Some((from, to));
+                            self.last_move = Some((from, to));
                         }
                     }
 
-                    self.ui.is_engine_thinking = snapshot.engine_thinking;
+                    self.is_engine_thinking = snapshot.engine_thinking;
                     self.apply_snapshot(snapshot);
 
                     if let Err(e) = self.update_selectable_squares().await {
@@ -588,8 +522,8 @@ impl ClientState {
                         pv: analysis.pv.clone(),
                         nps: analysis.nps,
                     };
-                    self.ui.engine_info = Some(info);
-                    self.ui.is_engine_thinking = true;
+                    self.engine_info = Some(info);
+                    self.is_engine_thinking = true;
                 }
                 session_stream_event::Event::UciMessage(uci_msg) => {
                     let direction = match uci_msg.direction {
@@ -602,8 +536,8 @@ impl ClientState {
                 session_stream_event::Event::Error(err_string) => {
                     let error_msg = format!("Server error: {}", err_string);
                     tracing::error!("{}", error_msg);
-                    self.ui.status_message = Some(error_msg);
-                    self.ui.is_engine_thinking = false;
+                    self.status_message = Some(error_msg);
+                    self.is_engine_thinking = false;
                 }
             }
         }
@@ -615,14 +549,14 @@ impl ClientState {
         message: String,
         move_context: Option<String>,
     ) {
-        self.ui.uci_log.push(UciLogEntry {
+        self.uci_log.push(UciLogEntry {
             direction,
             message,
             timestamp: std::time::Instant::now(),
             move_context,
         });
-        if self.ui.uci_log.len() > 100 {
-            self.ui.uci_log.remove(0);
+        if self.uci_log.len() > 100 {
+            self.uci_log.remove(0);
         }
     }
 
@@ -634,7 +568,7 @@ impl ClientState {
         self.update_selectable_squares()
             .await
             .map_err(|e| e.to_string())?;
-        self.ui.status_message = Some("Move undone".to_string());
+        self.status_message = Some("Move undone".to_string());
         Ok(())
     }
 
@@ -649,7 +583,7 @@ impl ClientState {
             .await
             .map_err(|e| e.to_string())?;
         self.clear_selection();
-        self.ui.status_message = Some("Game reset".to_string());
+        self.status_message = Some("Game reset".to_string());
         Ok(())
     }
 
@@ -688,7 +622,7 @@ impl ClientState {
         }
 
         // Update pause state from phase
-        self.ui.paused = matches!(
+        self.paused = matches!(
             GamePhase::try_from(snapshot.phase).ok(),
             Some(GamePhase::Paused)
         );
@@ -697,7 +631,7 @@ impl ClientState {
     }
 }
 
-impl Drop for ClientState {
+impl Drop for GameSession {
     fn drop(&mut self) {
         // Best effort — can't await in drop
     }

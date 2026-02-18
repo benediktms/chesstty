@@ -12,6 +12,7 @@ pub enum FocusContext {
 }
 
 /// Manages the context stack. The bottom is always Board.
+#[derive(Clone, Debug)]
 pub struct FocusStack {
     stack: Vec<FocusContext>,
 }
@@ -62,6 +63,12 @@ impl FocusStack {
             FocusContext::PaneExpanded { pane_id } => Some(*pane_id),
             _ => None,
         }
+    }
+}
+
+impl Default for FocusStack {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

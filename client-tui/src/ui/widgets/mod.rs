@@ -19,7 +19,7 @@ pub mod uci_debug_panel;
 
 pub use board::BoardWidget;
 #[allow(unused_imports)]
-pub use board_overlay::{build_game_overlay, build_review_overlay, BoardOverlay};
+pub use board_overlay::{build_review_overlay, BoardOverlay};
 pub use engine_panel::EngineAnalysisPanel;
 pub use fen_dialog::{FenDialogState, FenDialogWidget};
 pub use game_info_panel::GameInfoPanel;

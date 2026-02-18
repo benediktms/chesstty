@@ -1,5 +1,7 @@
-use crate::state::{ClientState, GameMode, InputPhase};
+use crate::state::{GameMode, GameSession};
 use crate::ui::context::FocusContext;
+use crate::ui::fsm::render_spec::InputPhase;
+use crate::ui::fsm::UiStateMachine;
 use crate::ui::menu_app::GameConfig;
 use crate::ui::pane::PaneId;
 use crate::ui::widgets::popup_menu::{PopupMenuItem, PopupMenuState};
@@ -27,28 +29,29 @@ pub fn should_disable_input(mode: &GameMode) -> bool {
 
 /// Main key dispatch function. Routes input to the appropriate context handler.
 pub async fn handle_key(
-    state: &mut ClientState,
+    state: &mut GameSession,
+    fsm: &mut UiStateMachine,
     input_buffer: &mut String,
     key: KeyEvent,
 ) -> AppAction {
     // Tab input mode takes priority (modal overlay)
-    if state.ui.tab_input.active {
-        return handle_tab_input(state, key).await;
+    if fsm.tab_input.active {
+        return handle_tab_input(state, fsm, key).await;
     }
 
     // Popup menu takes highest priority (modal overlay)
-    if state.ui.popup_menu.is_some() {
-        return handle_popup_input(state, key).await;
+    if fsm.popup_menu.is_some() {
+        return handle_popup_input(state, fsm, key).await;
     }
 
     // Snapshot dialog takes priority (modal overlay)
-    if state.ui.snapshot_dialog.is_some() {
-        return handle_snapshot_dialog_input(state, key).await;
+    if fsm.snapshot_dialog.is_some() {
+        return handle_snapshot_dialog_input(state, fsm, key).await;
     }
 
     // Promotion dialog takes priority (modal overlay)
-    if matches!(state.ui.input_phase, InputPhase::SelectPromotion { .. }) {
-        return handle_promotion_input(state, input_buffer, key);
+    if matches!(fsm.input_phase, InputPhase::SelectPromotion { .. }) {
+        return handle_promotion_input(state, fsm, input_buffer, key);
     }
 
     // Ctrl+C always quits
@@ -59,40 +62,33 @@ pub async fn handle_key(
     // Global toggles that work in any context
     match key.code {
         KeyCode::Char('@') => {
-            state.ui.pane_manager.toggle_visibility(PaneId::UciDebug);
+            fsm.pane_manager.toggle_visibility(PaneId::UciDebug);
             return AppAction::Continue;
         }
         KeyCode::Char('#') => {
-            state
-                .ui
-                .pane_manager
-                .toggle_visibility(PaneId::EngineAnalysis);
+            fsm.pane_manager.toggle_visibility(PaneId::EngineAnalysis);
             return AppAction::Continue;
         }
         KeyCode::Char('$') => {
-            if !matches!(state.mode, GameMode::ReviewMode) {
-                state
-                    .ui
-                    .pane_manager
-                    .toggle_visibility(PaneId::AdvancedAnalysis);
-            }
+            fsm.pane_manager.toggle_visibility(PaneId::AdvancedAnalysis);
             return AppAction::Continue;
         }
         _ => {}
     }
 
     // Dispatch by context
-    let context = state.ui.focus_stack.current().clone();
+    let context = fsm.focus_stack.current().clone();
     match context {
-        FocusContext::Board => handle_board_context(state, input_buffer, key).await,
-        FocusContext::PaneSelected { pane_id } => handle_pane_selected_context(state, pane_id, key),
-        FocusContext::PaneExpanded { pane_id } => handle_pane_expanded_context(state, pane_id, key),
+        FocusContext::Board => handle_board_context(state, fsm, input_buffer, key).await,
+        FocusContext::PaneSelected { pane_id } => handle_pane_selected_context(state, fsm, pane_id, key),
+        FocusContext::PaneExpanded { pane_id } => handle_pane_expanded_context(state, fsm, pane_id, key),
     }
 }
 
 /// Handle keys in Board context (default — user is interacting with the chess board).
 async fn handle_board_context(
-    state: &mut ClientState,
+    state: &mut GameSession,
+    fsm: &mut UiStateMachine,
     input_buffer: &mut String,
     key: KeyEvent,
 ) -> AppAction {
@@ -144,38 +140,38 @@ async fn handle_board_context(
                     let current_ply = review.current_ply;
                     let game_id = review.review.game_id.clone();
                     let positions = &review.review.positions;
-                    state.ui.snapshot_dialog =
+                    fsm.snapshot_dialog =
                         Some(SnapshotDialogState::new(current_ply, &game_id, positions));
                     return AppAction::Continue;
                 }
                 KeyCode::Tab => {
                     // Tab cycles to next pane (clockwise), Shift+Tab cycles previous (anti-clockwise)
-                    let current = state.ui.focus_stack.selected_pane();
+                    let current = fsm.focus_stack.selected_pane();
                     if key.modifiers.contains(KeyModifiers::SHIFT) {
                         // Shift+Tab: previous pane
                         if let Some(curr) = current {
-                            if let Some(prev) = state.ui.pane_manager.prev_selectable(curr) {
-                                state.ui.focus_stack.pop();
-                                state.ui.focus_stack.push(FocusContext::PaneSelected { pane_id: prev });
+                            if let Some(prev) = fsm.pane_manager.prev_selectable(curr) {
+                                fsm.focus_stack.pop();
+                                fsm.focus_stack.push(FocusContext::PaneSelected { pane_id: prev });
                             }
-                        } else if let Some(first) = state.ui.pane_manager.first_selectable() {
-                            state.ui.focus_stack.push(FocusContext::PaneSelected { pane_id: first });
+                        } else if let Some(first) = fsm.pane_manager.first_selectable() {
+                            fsm.focus_stack.push(FocusContext::PaneSelected { pane_id: first });
                         }
                     } else {
                         // Tab: next pane
                         if let Some(curr) = current {
-                            if let Some(next) = state.ui.pane_manager.next_selectable(curr) {
-                                state.ui.focus_stack.pop();
-                                state.ui.focus_stack.push(FocusContext::PaneSelected { pane_id: next });
+                            if let Some(next) = fsm.pane_manager.next_selectable(curr) {
+                                fsm.focus_stack.pop();
+                                fsm.focus_stack.push(FocusContext::PaneSelected { pane_id: next });
                             }
-                        } else if let Some(first) = state.ui.pane_manager.first_selectable() {
-                            state.ui.focus_stack.push(FocusContext::PaneSelected { pane_id: first });
+                        } else if let Some(first) = fsm.pane_manager.first_selectable() {
+                            fsm.focus_stack.push(FocusContext::PaneSelected { pane_id: first });
                         }
                     }
                     return AppAction::Continue;
                 }
                 KeyCode::Esc => {
-                    state.ui.popup_menu = Some(PopupMenuState::new(&state.mode));
+                    fsm.popup_menu = Some(PopupMenuState::new(&state.mode));
                     return AppAction::Continue;
                 }
                 _ => return AppAction::Continue,
@@ -186,31 +182,31 @@ async fn handle_board_context(
     match key.code {
         // Tab input mode activation
         KeyCode::Char('i') if !should_disable_input(&state.mode) => {
-            state.ui.tab_input.activate();
+            fsm.tab_input.activate();
             return AppAction::Continue;
         }
         KeyCode::Tab => {
             // Tab cycles to next pane (clockwise), Shift+Tab cycles previous (anti-clockwise)
-            let current = state.ui.focus_stack.selected_pane();
+            let current = fsm.focus_stack.selected_pane();
             if key.modifiers.contains(KeyModifiers::SHIFT) {
                 // Shift+Tab: previous pane
                 if let Some(curr) = current {
-                    if let Some(prev) = state.ui.pane_manager.prev_selectable(curr) {
-                        state.ui.focus_stack.pop();
-                        state.ui.focus_stack.push(FocusContext::PaneSelected { pane_id: prev });
+                    if let Some(prev) = fsm.pane_manager.prev_selectable(curr) {
+                        fsm.focus_stack.pop();
+                        fsm.focus_stack.push(FocusContext::PaneSelected { pane_id: prev });
                     }
-                } else if let Some(first) = state.ui.pane_manager.first_selectable() {
-                    state.ui.focus_stack.push(FocusContext::PaneSelected { pane_id: first });
+                } else if let Some(first) = fsm.pane_manager.first_selectable() {
+                    fsm.focus_stack.push(FocusContext::PaneSelected { pane_id: first });
                 }
             } else {
                 // Tab: next pane
                 if let Some(curr) = current {
-                    if let Some(next) = state.ui.pane_manager.next_selectable(curr) {
-                        state.ui.focus_stack.pop();
-                        state.ui.focus_stack.push(FocusContext::PaneSelected { pane_id: next });
+                    if let Some(next) = fsm.pane_manager.next_selectable(curr) {
+                        fsm.focus_stack.pop();
+                        fsm.focus_stack.push(FocusContext::PaneSelected { pane_id: next });
                     }
-                } else if let Some(first) = state.ui.pane_manager.first_selectable() {
-                    state.ui.focus_stack.push(FocusContext::PaneSelected { pane_id: first });
+                } else if let Some(first) = fsm.pane_manager.first_selectable() {
+                    fsm.focus_stack.push(FocusContext::PaneSelected { pane_id: first });
                 }
             }
         }
@@ -221,24 +217,24 @@ async fn handle_board_context(
                 GameMode::HumanVsEngine { .. } | GameMode::EngineVsEngine
             ) =>
         {
-            if state.ui.paused {
+            if state.paused {
                 match state.client.resume().await {
                     Ok(()) => {
-                        state.ui.paused = false;
-                        state.ui.status_message = Some("Playing".to_string());
+                        state.paused = false;
+                        state.status_message = Some("Playing".to_string());
                     }
                     Err(e) => {
-                        state.ui.status_message = Some(format!("Resume error: {}", e));
+                        state.status_message = Some(format!("Resume error: {}", e));
                     }
                 }
             } else {
                 match state.client.pause().await {
                     Ok(()) => {
-                        state.ui.paused = true;
-                        state.ui.status_message = Some("Paused".to_string());
+                        state.paused = true;
+                        state.status_message = Some("Paused".to_string());
                     }
                     Err(e) => {
-                        state.ui.status_message = Some(format!("Pause error: {}", e));
+                        state.status_message = Some(format!("Pause error: {}", e));
                     }
                 }
             }
@@ -253,12 +249,12 @@ async fn handle_board_context(
         }
         KeyCode::Enter => {
             if !input_buffer.is_empty() {
-                super::full_ui::handle_input(state, input_buffer).await;
+                crate::ui::render_loop::handle_input(state, fsm, input_buffer).await;
                 input_buffer.clear();
             }
         }
         KeyCode::Esc => {
-            if state.ui.selected_square.is_some() {
+            if state.selected_square.is_some() {
                 state.clear_selection();
                 input_buffer.clear();
             } else {
@@ -269,14 +265,14 @@ async fn handle_board_context(
                     GameMode::HumanVsEngine { .. } | GameMode::EngineVsEngine
                 );
                 if has_engine {
-                    state.ui.paused_before_menu = state.ui.paused;
-                    if !state.ui.paused {
+                    state.paused_before_menu = state.paused;
+                    if !state.paused {
                         let _ = state.client.pause().await;
-                        state.ui.paused = true;
-                        state.ui.status_message = Some("Paused".to_string());
+                        state.paused = true;
+                        state.status_message = Some("Paused".to_string());
                     }
                 }
-                state.ui.popup_menu = Some(PopupMenuState::new(&state.mode));
+                fsm.popup_menu = Some(PopupMenuState::new(&state.mode));
             }
         }
         _ => {}
@@ -285,46 +281,45 @@ async fn handle_board_context(
 }
 
 /// Restore pause state after popup menu is dismissed.
-async fn restore_pause_state(state: &mut ClientState) {
+async fn restore_pause_state(state: &mut GameSession) {
     let has_engine = matches!(
         state.mode,
         GameMode::HumanVsEngine { .. } | GameMode::EngineVsEngine
     );
-    if has_engine && !state.ui.paused_before_menu && state.ui.paused {
+    if has_engine && !state.paused_before_menu && state.paused {
         // Was not paused before menu — resume on server
         let _ = state.client.resume().await;
-        state.ui.paused = false;
+        state.paused = false;
     }
 }
 
 /// Handle keys when the popup menu is active.
-async fn handle_popup_input(state: &mut ClientState, key: KeyEvent) -> AppAction {
+async fn handle_popup_input(state: &mut GameSession, fsm: &mut UiStateMachine, key: KeyEvent) -> AppAction {
     match key.code {
         KeyCode::Up | KeyCode::Char('k') => {
-            if let Some(ref mut menu) = state.ui.popup_menu {
+            if let Some(ref mut menu) = fsm.popup_menu {
                 menu.move_up();
             }
         }
         KeyCode::Down | KeyCode::Char('j') => {
-            if let Some(ref mut menu) = state.ui.popup_menu {
+            if let Some(ref mut menu) = fsm.popup_menu {
                 menu.move_down();
             }
         }
         KeyCode::Enter => {
-            let selected = state
-                .ui
+            let selected = fsm
                 .popup_menu
                 .as_ref()
                 .map(|m| m.selected_item().clone());
 
-            state.ui.popup_menu = None;
+            fsm.popup_menu = None;
             restore_pause_state(state).await;
 
             if let Some(item) = selected {
                 match item {
                     PopupMenuItem::Restart => {
                         if let Err(e) = state.reset(None).await {
-                            state.ui.status_message = Some(format!("Reset error: {}", e));
+                            state.status_message = Some(format!("Reset error: {}", e));
                         }
                     }
                     PopupMenuItem::AdjustDifficulty => {
@@ -335,7 +330,7 @@ async fn handle_popup_input(state: &mut ClientState, key: KeyEvent) -> AppAction
                             _ => 3,
                         };
                         if let Err(e) = state.set_engine(true, new_level).await {
-                            state.ui.status_message = Some(format!("Engine error: {}", e));
+                            state.status_message = Some(format!("Engine error: {}", e));
                         } else {
                             let label = match new_level {
                                 3 => "Beginner",
@@ -344,7 +339,7 @@ async fn handle_popup_input(state: &mut ClientState, key: KeyEvent) -> AppAction
                                 20 => "Master",
                                 _ => "Custom",
                             };
-                            state.ui.status_message = Some(format!("Difficulty set to {}", label));
+                            state.status_message = Some(format!("Difficulty set to {}", label));
                         }
                     }
                     PopupMenuItem::SuspendSession => {
@@ -357,7 +352,7 @@ async fn handle_popup_input(state: &mut ClientState, key: KeyEvent) -> AppAction
             }
         }
         KeyCode::Esc => {
-            state.ui.popup_menu = None;
+            fsm.popup_menu = None;
             restore_pause_state(state).await;
         }
         _ => {}
@@ -366,7 +361,7 @@ async fn handle_popup_input(state: &mut ClientState, key: KeyEvent) -> AppAction
 }
 
 /// Handle keys when the snapshot dialog is active (modal overlay).
-async fn handle_snapshot_dialog_input(state: &mut ClientState, key: KeyEvent) -> AppAction {
+async fn handle_snapshot_dialog_input(state: &mut GameSession, fsm: &mut UiStateMachine, key: KeyEvent) -> AppAction {
     // Get positions slice for terminal checks during navigation
     let positions: Vec<_> = state
         .review_state
@@ -374,14 +369,14 @@ async fn handle_snapshot_dialog_input(state: &mut ClientState, key: KeyEvent) ->
         .map(|rs| rs.review.positions.clone())
         .unwrap_or_default();
 
-    let dialog = match state.ui.snapshot_dialog.as_mut() {
+    let dialog = match fsm.snapshot_dialog.as_mut() {
         Some(d) => d,
         None => return AppAction::Continue,
     };
 
     match key.code {
         KeyCode::Esc => {
-            state.ui.snapshot_dialog = None;
+            fsm.snapshot_dialog = None;
         }
         KeyCode::Tab => {
             dialog.next_focus();
@@ -413,13 +408,13 @@ async fn handle_snapshot_dialog_input(state: &mut ClientState, key: KeyEvent) ->
         KeyCode::Enter => {
             // Block confirm if target position is terminal
             if dialog.is_target_terminal {
-                state.ui.status_message =
+                state.status_message =
                     Some("Cannot create snapshot at a terminal position".to_string());
                 return AppAction::Continue;
             }
 
             // Confirm: extract dialog state and execute
-            let dialog = state.ui.snapshot_dialog.take().unwrap();
+            let dialog = fsm.snapshot_dialog.take().unwrap();
             let target_ply = dialog.target_ply();
 
             // Get FEN at target ply from review state
@@ -492,10 +487,10 @@ async fn handle_snapshot_dialog_input(state: &mut ClientState, key: KeyEvent) ->
                     .await
                 {
                     Ok(_) => {
-                        state.ui.status_message = Some("Snapshot saved".to_string());
+                        state.status_message = Some("Snapshot saved".to_string());
                     }
                     Err(e) => {
-                        state.ui.status_message = Some(format!("Failed to save snapshot: {}", e));
+                        state.status_message = Some(format!("Failed to save snapshot: {}", e));
                     }
                 }
             }
@@ -507,7 +502,8 @@ async fn handle_snapshot_dialog_input(state: &mut ClientState, key: KeyEvent) ->
 
 /// Handle keys in PaneSelected context (a pane is highlighted, user navigates/scrolls).
 fn handle_pane_selected_context(
-    state: &mut ClientState,
+    state: &mut GameSession,
+    fsm: &mut UiStateMachine,
     pane_id: PaneId,
     key: KeyEvent,
 ) -> AppAction {
@@ -553,56 +549,66 @@ fn handle_pane_selected_context(
 
     match key.code {
         KeyCode::Left | KeyCode::Char('h') => {
-            if let Some(prev) = state.ui.pane_manager.prev_selectable(pane_id) {
-                state.ui.focus_stack.pop();
-                state
-                    .ui
-                    .focus_stack
-                    .push(FocusContext::PaneSelected { pane_id: prev });
+            if let Some(prev) = fsm.pane_manager.prev_selectable(pane_id) {
+                fsm.focus_stack.pop();
+                fsm.focus_stack.push(FocusContext::PaneSelected { pane_id: prev });
             }
         }
         KeyCode::Right | KeyCode::Char('l') => {
-            if let Some(next) = state.ui.pane_manager.next_selectable(pane_id) {
-                state.ui.focus_stack.pop();
-                state
-                    .ui
-                    .focus_stack
-                    .push(FocusContext::PaneSelected { pane_id: next });
+            if let Some(next) = fsm.pane_manager.next_selectable(pane_id) {
+                fsm.focus_stack.pop();
+                fsm.focus_stack.push(FocusContext::PaneSelected { pane_id: next });
+            }
+        }
+        KeyCode::Tab => {
+            if key.modifiers.contains(KeyModifiers::SHIFT) {
+                // Shift+Tab: previous selectable pane (backward)
+                if let Some(prev) = fsm.pane_manager.prev_selectable(pane_id) {
+                    fsm.focus_stack.pop();
+                    fsm
+                        .focus_stack
+                        .push(FocusContext::PaneSelected { pane_id: prev });
+                }
+            } else {
+                // Tab: next selectable pane (forward)
+                if let Some(next) = fsm.pane_manager.next_selectable(pane_id) {
+                    fsm.focus_stack.pop();
+                    fsm
+                        .focus_stack
+                        .push(FocusContext::PaneSelected { pane_id: next });
+                }
             }
         }
         // Tab switching for ReviewTabsPanel (only when that pane is selected)
         KeyCode::Char('1') if pane_id == PaneId::ReviewSummary => {
-            state.ui.review_tab = 0;
+            fsm.review_tab = 0;
         }
         KeyCode::Char('2') if pane_id == PaneId::ReviewSummary => {
-            state.ui.review_tab = 1;
+            fsm.review_tab = 1;
         }
         KeyCode::Up | KeyCode::Char('k') => {
-            let scroll = state.ui.pane_manager.scroll_mut(pane_id);
+            let scroll = fsm.pane_manager.scroll_mut(pane_id);
             *scroll = scroll.saturating_sub(5);
         }
         KeyCode::Down | KeyCode::Char('j') => {
-            let scroll = state.ui.pane_manager.scroll_mut(pane_id);
+            let scroll = fsm.pane_manager.scroll_mut(pane_id);
             *scroll = scroll.saturating_add(5);
         }
         KeyCode::PageUp => {
-            *state.ui.pane_manager.scroll_mut(pane_id) = 0;
+            *fsm.pane_manager.scroll_mut(pane_id) = 0;
         }
         KeyCode::PageDown => {
-            *state.ui.pane_manager.scroll_mut(pane_id) = u16::MAX;
+            *fsm.pane_manager.scroll_mut(pane_id) = u16::MAX;
         }
         KeyCode::Enter => {
             use crate::ui::pane::pane_properties;
             let props = pane_properties(pane_id);
             if props.is_expandable {
-                state
-                    .ui
-                    .focus_stack
-                    .push(FocusContext::PaneExpanded { pane_id });
+                fsm.focus_stack.push(FocusContext::PaneExpanded { pane_id });
             }
         }
         KeyCode::Esc => {
-            state.ui.focus_stack.pop();
+            fsm.focus_stack.pop();
         }
         _ => {}
     }
@@ -611,7 +617,8 @@ fn handle_pane_selected_context(
 
 /// Handle keys in PaneExpanded context (a pane fills the board area).
 fn handle_pane_expanded_context(
-    state: &mut ClientState,
+    state: &mut GameSession,
+    fsm: &mut UiStateMachine,
     pane_id: PaneId,
     key: KeyEvent,
 ) -> AppAction {
@@ -657,21 +664,21 @@ fn handle_pane_expanded_context(
 
     match key.code {
         KeyCode::Up | KeyCode::Char('k') => {
-            let scroll = state.ui.pane_manager.scroll_mut(pane_id);
+            let scroll = fsm.pane_manager.scroll_mut(pane_id);
             *scroll = scroll.saturating_sub(5);
         }
         KeyCode::Down | KeyCode::Char('j') => {
-            let scroll = state.ui.pane_manager.scroll_mut(pane_id);
+            let scroll = fsm.pane_manager.scroll_mut(pane_id);
             *scroll = scroll.saturating_add(5);
         }
         KeyCode::PageUp => {
-            *state.ui.pane_manager.scroll_mut(pane_id) = 0;
+            *fsm.pane_manager.scroll_mut(pane_id) = 0;
         }
         KeyCode::PageDown => {
-            *state.ui.pane_manager.scroll_mut(pane_id) = u16::MAX;
+            *fsm.pane_manager.scroll_mut(pane_id) = u16::MAX;
         }
         KeyCode::Esc => {
-            state.ui.focus_stack.pop();
+            fsm.focus_stack.pop();
         }
         _ => {}
     }
@@ -680,7 +687,8 @@ fn handle_pane_expanded_context(
 
 /// Handle keys when the promotion dialog is active (modal overlay).
 fn handle_promotion_input(
-    state: &mut ClientState,
+    state: &mut GameSession,
+    fsm: &mut UiStateMachine,
     input_buffer: &mut String,
     key: KeyEvent,
 ) -> AppAction {
@@ -701,31 +709,31 @@ fn handle_promotion_input(
 }
 
 /// Handle keys when tab input mode is active (modal overlay).
-async fn handle_tab_input(state: &mut ClientState, key: KeyEvent) -> AppAction {
+async fn handle_tab_input(state: &mut GameSession, fsm: &mut UiStateMachine, key: KeyEvent) -> AppAction {
     use chess::parse_square;
 
     match key.code {
         KeyCode::Esc => {
-            state.ui.tab_input.deactivate();
+            fsm.tab_input.deactivate();
             state.clear_selection();
         }
 
         KeyCode::Backspace => {
-            if state.ui.tab_input.typeahead_buffer.is_empty() {
+            if fsm.tab_input.typeahead_buffer.is_empty() {
                 // In tab 2 with empty buffer: go back to tab 1
-                if state.ui.tab_input.current_tab == 1 {
+                if fsm.tab_input.current_tab == 1 {
                     state.clear_selection();
-                    state.ui.tab_input.current_tab = 0;
-                    state.ui.tab_input.from_square = None;
-                    state.ui.tab_input.typeahead_buffer.clear();
+                    fsm.tab_input.current_tab = 0;
+                    fsm.tab_input.from_square = None;
+                    fsm.tab_input.typeahead_buffer.clear();
                 }
             } else {
-                state.ui.tab_input.typeahead_buffer.pop();
+                fsm.tab_input.typeahead_buffer.pop();
             }
         }
 
         KeyCode::Char(c) => {
-            let buf_len = state.ui.tab_input.typeahead_buffer.len();
+            let buf_len = fsm.tab_input.typeahead_buffer.len();
             // Restrict: first char a-h, second char 1-8, max 2
             let valid = match buf_len {
                 0 => c.is_ascii_lowercase() && ('a'..='h').contains(&c),
@@ -736,39 +744,39 @@ async fn handle_tab_input(state: &mut ClientState, key: KeyEvent) -> AppAction {
                 return AppAction::Continue;
             }
 
-            state.ui.tab_input.typeahead_buffer.push(c);
+            fsm.tab_input.typeahead_buffer.push(c);
 
             // Tab 1: auto-advance on valid 2-char piece square
-            if state.ui.tab_input.current_tab == 0 && state.ui.tab_input.typeahead_buffer.len() == 2
+            if fsm.tab_input.current_tab == 0 && fsm.tab_input.typeahead_buffer.len() == 2
             {
-                if let Some(from_square) = parse_square(&state.ui.tab_input.typeahead_buffer) {
-                    if state.ui.selectable_squares.contains(&from_square) {
+                if let Some(from_square) = parse_square(&fsm.tab_input.typeahead_buffer) {
+                    if state.selectable_squares.contains(&from_square) {
                         state.select_square(from_square);
-                        state.ui.tab_input.advance_to_destination(from_square);
+                        fsm.tab_input.advance_to_destination(from_square);
                     } else {
                         // Invalid piece — clear buffer
-                        state.ui.tab_input.typeahead_buffer.clear();
+                        fsm.tab_input.typeahead_buffer.clear();
                     }
                 } else {
-                    state.ui.tab_input.typeahead_buffer.clear();
+                    fsm.tab_input.typeahead_buffer.clear();
                 }
             }
         }
 
         KeyCode::Enter => {
             // Only meaningful in tab 2: confirm destination
-            if state.ui.tab_input.current_tab == 1 {
-                let typeahead = state.ui.tab_input.typeahead_buffer.clone();
+            if fsm.tab_input.current_tab == 1 {
+                let typeahead = fsm.tab_input.typeahead_buffer.clone();
                 if typeahead.len() == 2 {
                     if let Some(to_square) = parse_square(&typeahead) {
                         // Verify it's a legal destination
-                        if let Some(from_square) = state.ui.tab_input.from_square {
+                        if let Some(from_square) = fsm.tab_input.from_square {
                             if let Some(moves) = state.legal_moves_from(from_square) {
                                 let to_str = chess::format_square(to_square);
                                 if moves.iter().any(|m| m.to == to_str) {
-                                    state.ui.tab_input.deactivate();
+                                    fsm.tab_input.deactivate();
                                     if let Err(e) = state.try_move_to(to_square).await {
-                                        state.ui.status_message =
+                                        state.status_message =
                                             Some(format!("Move failed: {}", e));
                                     }
                                     return AppAction::Continue;
@@ -778,7 +786,7 @@ async fn handle_tab_input(state: &mut ClientState, key: KeyEvent) -> AppAction {
                     }
                 }
                 // Invalid destination — clear buffer
-                state.ui.tab_input.typeahead_buffer.clear();
+                fsm.tab_input.typeahead_buffer.clear();
             }
         }
 

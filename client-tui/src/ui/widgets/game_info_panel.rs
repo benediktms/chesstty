@@ -1,4 +1,5 @@
-use crate::state::ClientState;
+use crate::state::GameSession;
+use crate::ui::fsm::UiStateMachine;
 use chess_client::{review_score, MoveClassification, ReviewScore};
 use ratatui::{
     buffer::Buffer,
@@ -9,12 +10,13 @@ use ratatui::{
 };
 
 pub struct GameInfoPanel<'a> {
-    pub client_state: &'a ClientState,
+    pub client_state: &'a GameSession,
+    pub fsm: &'a UiStateMachine,
 }
 
 impl<'a> GameInfoPanel<'a> {
-    pub fn new(client_state: &'a ClientState) -> Self {
-        Self { client_state }
+    pub fn new(client_state: &'a GameSession, fsm: &'a UiStateMachine) -> Self {
+        Self { client_state, fsm }
     }
 }
 
@@ -29,9 +31,9 @@ impl Widget for GameInfoPanel<'_> {
         block.render(area, buf);
 
         let lines = if self.client_state.review_state.is_some() {
-            self.build_review_lines()
+            self.brender_stateld_review_lines()
         } else {
-            self.build_game_lines()
+            self.brender_stateld_game_lines()
         };
 
         let paragraph = Paragraph::new(lines);
@@ -40,7 +42,7 @@ impl Widget for GameInfoPanel<'_> {
 }
 
 impl GameInfoPanel<'_> {
-    fn build_review_lines(&self) -> Vec<Line<'static>> {
+    fn brender_stateld_review_lines(&self) -> Vec<Line<'static>> {
         use ratatui::text::Span;
 
         let mut lines = vec![];
@@ -131,7 +133,7 @@ impl GameInfoPanel<'_> {
         lines
     }
 
-    fn build_game_lines(&self) -> Vec<Line<'static>> {
+    fn brender_stateld_game_lines(&self) -> Vec<Line<'static>> {
         use ratatui::text::Span;
 
         let mut lines = vec![];
@@ -150,15 +152,17 @@ impl GameInfoPanel<'_> {
         lines.push(Line::raw(""));
 
         // Input phase
-        let phase_text = match self.client_state.ui.input_phase {
-            crate::state::InputPhase::SelectPiece => "Select Piece",
-            crate::state::InputPhase::SelectDestination => "Select Destination",
-            crate::state::InputPhase::SelectPromotion { .. } => "Select Promotion (q/r/b/n)",
+        let phase_text = match self.fsm.input_phase {
+            crate::ui::fsm::render_spec::InputPhase::SelectPiece => "Select Piece",
+            crate::ui::fsm::render_spec::InputPhase::SelectDestination => "Select Destination",
+            crate::ui::fsm::render_spec::InputPhase::SelectPromotion { .. } => {
+                "Select Promotion (q/r/b/n)"
+            }
         };
-        let phase_color = match self.client_state.ui.input_phase {
-            crate::state::InputPhase::SelectPiece => Color::Green,
-            crate::state::InputPhase::SelectDestination => Color::Cyan,
-            crate::state::InputPhase::SelectPromotion { .. } => Color::Magenta,
+        let phase_color = match self.fsm.input_phase {
+            crate::ui::fsm::render_spec::InputPhase::SelectPiece => Color::Green,
+            crate::ui::fsm::render_spec::InputPhase::SelectDestination => Color::Cyan,
+            crate::ui::fsm::render_spec::InputPhase::SelectPromotion { .. } => Color::Magenta,
         };
         lines.push(Line::from(vec![
             Span::styled(
@@ -260,7 +264,7 @@ impl GameInfoPanel<'_> {
         }
 
         // Add selection indicator
-        if let Some(selected) = self.client_state.ui.selected_square {
+        if let Some(selected) = self.client_state.selected_square {
             lines.push(Line::raw(""));
             lines.push(Line::from(vec![
                 Span::styled(
@@ -278,7 +282,7 @@ impl GameInfoPanel<'_> {
             ]));
 
             // List legal move destinations
-            if !self.client_state.ui.highlighted_squares.is_empty() {
+            if !self.client_state.highlighted_squares.is_empty() {
                 lines.push(Line::from(vec![Span::styled(
                     "Legal: ",
                     Style::default()
@@ -289,7 +293,6 @@ impl GameInfoPanel<'_> {
                 // Format squares as comma-separated list
                 let moves_str: String = self
                     .client_state
-                    .ui
                     .highlighted_squares
                     .iter()
                     .map(|&sq| format_square(sq))
@@ -304,7 +307,7 @@ impl GameInfoPanel<'_> {
         }
 
         // Add status message
-        if let Some(ref msg) = self.client_state.ui.status_message {
+        if let Some(ref msg) = self.client_state.status_message {
             lines.push(Line::raw(""));
             lines.push(Line::from(vec![
                 Span::styled(

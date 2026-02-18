@@ -4,7 +4,8 @@ mod ui;
 
 // Re-export app types for compatibility
 pub mod app {
-    pub use crate::state::{GameMode, InputPhase, PlayerColor, UciDirection, UciLogEntry, UiState};
+    pub use crate::state::{GameMode, PlayerColor, UciDirection, UciLogEntry};
+    pub use crate::ui::fsm::render_spec::InputPhase;
 }
 
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
@@ -33,21 +34,9 @@ async fn main() -> anyhow::Result<()> {
     println!("ChessTTY - Terminal Chess Client");
     println!("Connecting to server at http://[::1]:50051");
     println!();
-
-    // Check for --simple flag to use simplified UI
-    let use_simple_ui = std::env::args().any(|arg| arg == "--simple");
-
-    if use_simple_ui {
-        println!("Using simplified text-based UI");
-        println!("Commands: m <from> <to> | u (undo) | r (reset) | q (quit)");
-        println!();
-        println!("Debug logs: logs/chesstty-client-tui.YYYY-MM-DD");
-        ui::run_simple_app().await?;
-    } else {
-        println!("ChessTTY - Starting menu...");
-        println!("Debug logs: logs/chesstty-client-tui.YYYY-MM-DD");
-        ui::run_app().await?;
-    }
+    println!("ChessTTY - Starting menu...");
+    println!("Debug logs: logs/chesstty-client-tui.YYYY-MM-DD");
+    ui::run_app().await?;
 
     tracing::info!("ChessTTY Client shutting down");
     Ok(())

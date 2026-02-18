@@ -1,8 +1,9 @@
 use ratatui::style::Color;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// Identifies a pane by type.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum PaneId {
     GameInfo,
     MoveHistory,
@@ -91,6 +92,8 @@ pub struct PaneManager {
     visibility: HashMap<PaneId, bool>,
     /// Scroll position per pane.
     scroll_positions: HashMap<PaneId, u16>,
+    /// Currently expanded pane (if any).
+    expanded: Option<PaneId>,
 }
 
 impl PaneManager {
@@ -122,9 +125,18 @@ impl PaneManager {
             pane_order,
             visibility,
             scroll_positions,
+            expanded: None,
         }
     }
+}
 
+impl Default for PaneManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl PaneManager {
     /// Returns all currently visible panes in render order.
     pub fn visible_panes(&self) -> Vec<PaneId> {
         self.pane_order
@@ -148,6 +160,11 @@ impl PaneManager {
         self.visibility.get(&id).copied().unwrap_or(false)
     }
 
+    /// Set visibility of a pane directly.
+    pub fn set_visible(&mut self, id: PaneId, visible: bool) {
+        self.visibility.insert(id, visible);
+    }
+
     /// Toggle visibility of a pane.
     pub fn toggle_visibility(&mut self, id: PaneId) {
         let entry = self.visibility.entry(id).or_insert(false);
@@ -162,6 +179,16 @@ impl PaneManager {
     /// Get a mutable reference to the scroll position for a pane.
     pub fn scroll_mut(&mut self, id: PaneId) -> &mut u16 {
         self.scroll_positions.entry(id).or_insert(0)
+    }
+
+    /// Get the currently expanded pane, if any.
+    pub fn expanded(&self) -> Option<PaneId> {
+        self.expanded
+    }
+
+    /// Set the expanded pane (None to collapse).
+    pub fn set_expanded(&mut self, pane: Option<PaneId>) {
+        self.expanded = pane;
     }
 
     /// Get the next selectable pane after `current`, wrapping around.

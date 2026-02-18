@@ -1,5 +1,4 @@
 use crate::review_state::ReviewState;
-use crate::state::UiState;
 use chess_client;
 use cozy_chess::Square;
 use ratatui::style::Color;
@@ -299,44 +298,6 @@ impl BoardOverlay {
     pub fn layers(&self) -> impl Iterator<Item = &Layer> {
         self.layers.keys()
     }
-}
-
-/// Build a board overlay for normal game modes (HvH, HvE, EvE, Analysis).
-///
-/// Reproduces the existing highlight priority: LastMove < Typeahead < BestMove < LegalMove < Selected.
-/// Earlier layers are overridden by later ones for the same square.
-pub fn build_game_overlay(ui: &UiState, typeahead_squares: &[Square]) -> BoardOverlay {
-    let mut overlay = BoardOverlay::new();
-
-    // Layer 1: Last move (lowest priority)
-    if let Some((from, to)) = ui.last_move {
-        overlay.tint(from, OverlayColor::LastMove);
-        overlay.tint(to, OverlayColor::LastMove);
-    }
-
-    // Layer 2: Typeahead matches
-    for &sq in typeahead_squares {
-        overlay.tint(sq, OverlayColor::Typeahead);
-    }
-
-    // Layer 3: Best move (engine recommendation) - arrow and outline squares
-    if let Some((from, to)) = ui.best_move_squares {
-        overlay.arrow(from, to, OverlayColor::BestMove);
-        overlay.outline(from, OverlayColor::BestMove);
-        overlay.outline(to, OverlayColor::BestMove);
-    }
-
-    // Layer 4: Legal move destinations (highlighted squares)
-    for &sq in &ui.highlighted_squares {
-        overlay.tint(sq, OverlayColor::LegalMove);
-    }
-
-    // Layer 5: Selected piece (highest priority)
-    if let Some(sq) = ui.selected_square {
-        overlay.tint(sq, OverlayColor::Selected);
-    }
-
-    overlay
 }
 
 /// Build a board overlay for review mode.

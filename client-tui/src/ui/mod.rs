@@ -1,14 +1,12 @@
 // UI modules
 pub mod context;
-mod full_ui;
-mod input;
-mod menu_app;
+pub mod fsm;
+pub mod menu_app;
 pub mod pane;
-mod simple_ui;
 pub mod widgets;
 
-// Main entry point - use full UI by default
-pub use full_ui::run_app;
+// Main entry points
+pub mod input;
+pub mod render_loop;
 
-// Also export simple UI for those who prefer it
-pub use simple_ui::run_simple_app;
+pub use render_loop::run_app;

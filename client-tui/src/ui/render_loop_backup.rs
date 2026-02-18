@@ -455,8 +455,9 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
         let history_scroll = state.ui.pane_manager.scroll(PaneId::MoveHistory);
         let debug_scroll = state.ui.pane_manager.scroll(PaneId::UciDebug);
         let review_scroll = state.ui.pane_manager.scroll(PaneId::ReviewSummary);
-        let _advanced_scroll = state.ui.pane_manager.scroll(PaneId::AdvancedAnalysis);
-        let is_review_mode = matches!(state.mode, GameMode::ReviewMode);
+        let show_review = state.ui.pane_manager.is_visible(PaneId::ReviewSummary);
+        let advanced_scroll = state.ui.pane_manager.scroll(PaneId::AdvancedAnalysis);
+        let show_advanced = state.ui.pane_manager.is_visible(PaneId::AdvancedAnalysis);
 
         // Draw UI
         terminal.draw(|f| {
@@ -510,8 +511,21 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
             }
 
             let show_history_in_right = expanded_panel != Some(PaneId::MoveHistory);
+            let show_review_in_right = show_review && expanded_panel != Some(PaneId::ReviewSummary);
+            let show_advanced_in_right = show_advanced && expanded_panel != Some(PaneId::AdvancedAnalysis);
             if show_history_in_right {
-                right_constraints.push(Constraint::Min(10));
+                // If review panel is also shown, give history a fixed size
+                if show_review_in_right || show_advanced_in_right {
+                    right_constraints.push(Constraint::Min(10));
+                } else {
+                    right_constraints.push(Constraint::Min(15));
+                }
+            }
+            if show_review_in_right {
+                right_constraints.push(Constraint::Min(15));
+            }
+            if show_advanced_in_right {
+                right_constraints.push(Constraint::Min(15));
             }
 
             let right_chunks = Layout::default()
@@ -589,17 +603,14 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
                         }
                     }
                     PaneId::AdvancedAnalysis => {
-                        // Skip in review mode - we use ReviewTabsPanel instead
-                        if !is_review_mode {
-                            if let Some(ref review_state) = state.review_state {
-                                let widget = AdvancedAnalysisPanel {
-                                    review_state,
-                                    scroll: *state.ui.pane_manager.scroll_mut(PaneId::AdvancedAnalysis),
-                                    is_selected: true,
-                                    expanded: true,
-                                };
-                                f.render_widget(widget, board_area);
-                            }
+                        if let Some(ref review_state) = state.review_state {
+                            let widget = AdvancedAnalysisPanel {
+                                review_state,
+                                scroll: *state.ui.pane_manager.scroll_mut(PaneId::AdvancedAnalysis),
+                                is_selected: true,
+                                expanded: true,
+                            };
+                            f.render_widget(widget, left_area);
                         }
                     }
                 }
@@ -688,6 +699,19 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
                 }
                 
                 f.render_widget(history_panel, right_chunks[chunk_idx]);
+            }
+
+            if show_advanced_in_right {
+                if let Some(ref review_state) = state.review_state {
+                    let is_selected = selected_panel == Some(PaneId::AdvancedAnalysis);
+                    let widget = AdvancedAnalysisPanel {
+                        review_state,
+                        scroll: advanced_scroll,
+                        is_selected,
+                        expanded: false,
+                    };
+                    f.render_widget(widget, right_chunks[chunk_idx]);
+                }
             }
 
             if show_debug_panel {

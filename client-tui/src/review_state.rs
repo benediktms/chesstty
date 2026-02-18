@@ -6,6 +6,7 @@ use cozy_chess::{Board, Square};
 
 /// Local review navigation state. All data is fetched once from the server
 /// and then navigated entirely client-side (no further server calls).
+#[derive(Clone)]
 pub struct ReviewState {
     /// The full game review data from the server.
     pub review: GameReviewProto,
