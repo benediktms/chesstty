@@ -610,6 +610,12 @@ fn handle_component_selected_context(
         }
         KeyCode::Esc => {
             fsm.component_manager.clear_focus();
+            // Also transition FSM state back to regular board
+            if matches!(state.mode, GameMode::ReviewMode) {
+                fsm.current_state = UiState::review_board();
+            } else {
+                fsm.current_state = UiState::game_board();
+            }
         }
         _ => {}
     }
@@ -680,6 +686,12 @@ fn handle_component_expanded_context(
         }
         KeyCode::Esc => {
             fsm.component_manager.clear_focus();
+            // Also transition FSM state back to regular board
+            if matches!(state.mode, GameMode::ReviewMode) {
+                fsm.current_state = UiState::review_board();
+            } else {
+                fsm.current_state = UiState::game_board();
+            }
         }
         _ => {}
     }
