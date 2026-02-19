@@ -1,12 +1,10 @@
-use crate::ui::context::FocusStack;
 use crate::ui::fsm::render_spec::{
-    Column, ColumnContent, Component, Constraint, Control, Layout, Overlay, PaneState, RenderSpec,
+    Column, ColumnContent, Component, Constraint, Control, Layout, Overlay, RenderSpec,
     ReviewUIState, Row,
 };
 
 #[derive(Clone, Debug)]
 pub struct ReviewBoardState {
-    pub pane_state: PaneState,
     pub review_tab: u8,
     pub review_moves_selection: Option<u32>,
     pub input_buffer: String,
@@ -14,14 +12,11 @@ pub struct ReviewBoardState {
     pub total_plies: u32,
     pub render_spec: RenderSpec,
     pub controls: Vec<Control>,
-    // UI state moved from RenderState
-    pub focus_stack: FocusStack,
 }
 
 impl Default for ReviewBoardState {
     fn default() -> Self {
         let mut state = Self {
-            pane_state: PaneState::review_board(),
             review_tab: 0,
             review_moves_selection: None,
             input_buffer: String::new(),
@@ -29,8 +24,6 @@ impl Default for ReviewBoardState {
             total_plies: 0,
             render_spec: RenderSpec::review_board(),
             controls: Vec::new(),
-            // UI state defaults
-            focus_stack: FocusStack::default(),
         };
         state.controls = state.derive_controls();
         state
@@ -41,15 +34,12 @@ impl ReviewBoardState {
     pub fn new(total_plies: u32) -> Self {
         let mut state = Self {
             total_plies,
-            pane_state: PaneState::review_board(),
             review_ui: ReviewUIState::new(),
             render_spec: RenderSpec::review_board(),
             review_tab: 0,
             review_moves_selection: None,
             input_buffer: String::new(),
             controls: Vec::new(),
-            // UI state defaults
-            focus_stack: FocusStack::default(),
         };
         state.controls = state.derive_controls();
         state
@@ -92,7 +82,7 @@ impl ReviewBoardState {
     }
 
     /// Derive layout based on current state
-    /// Takes shared UiStateMachine for accessing pane_manager, focus_stack, etc.
+    /// Takes shared UiStateMachine for accessing component_manager
     pub fn layout(&self, _shared: &crate::ui::fsm::UiStateMachine) -> Layout {
         // Left column: Advanced Analysis (35%) on top, Review Summary below
         let left_columns = vec![

@@ -6,8 +6,6 @@ pub mod ui;
 pub use review_state::ReviewState;
 pub use state::{GameMode, PlayerColor, UciDirection, UciLogEntry};
 
-pub use ui::context;
 pub use ui::fsm;
 pub use ui::menu_app;
-pub use ui::pane;
 pub use ui::widgets;

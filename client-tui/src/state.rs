@@ -1,9 +1,4 @@
 use crate::review_state::ReviewState;
-use crate::ui::context::FocusStack;
-use crate::ui::fsm::render_spec::{InputPhase, TabInputState};
-use crate::ui::pane::PaneManager;
-use crate::ui::widgets::popup_menu::PopupMenuState;
-use crate::ui::widgets::snapshot_dialog::SnapshotDialogState;
 use chess_client::ChessClient;
 use chess_client::*;
 use cozy_chess::{Board, Piece, Square};
@@ -32,7 +27,7 @@ pub fn game_mode_from_proto(proto: &GameModeProto) -> GameMode {
 }
 
 /// A game session - connection to the server and current game state.
-/// The server is the source of truth — the client stores the latest 
+/// The server is the source of truth — the client stores the latest
 /// snapshot and renders it.
 pub struct GameSession {
     pub client: ChessClient,
@@ -88,7 +83,9 @@ pub struct GameSession {
 pub enum GameMode {
     #[default]
     HumanVsHuman,
-    HumanVsEngine { human_side: PlayerColor },
+    HumanVsEngine {
+        human_side: PlayerColor,
+    },
     EngineVsEngine,
     AnalysisMode,
     ReviewMode,
@@ -102,10 +99,10 @@ pub enum PlayerColor {
 
 /// Render state - all UI state needed to render the interface.
 /// This is produced by the FSM and consumed by the renderer.
-/// 
+///
 /// NOTE: This struct contains both game state (from server) and UI state.
 /// Over time, UI state should move to UiStateMachine.
-/// 
+///
 /// EDIT: Now deleted - UI state is in UiStateMachine, game state is in GameSession.
 
 #[derive(Debug, Clone)]
@@ -326,8 +323,7 @@ impl GameSession {
         let square_str = format_square(square);
         if let Some(moves) = self.legal_moves_cache.get(&square_str) {
             self.selected_square = Some(square);
-            self.highlighted_squares =
-                moves.iter().filter_map(|m| parse_square(&m.to)).collect();
+            self.highlighted_squares = moves.iter().filter_map(|m| parse_square(&m.to)).collect();
             // input_phase now handled by FSM
             self.status_message = Some(format!("Selected {}", square_str));
         } else {

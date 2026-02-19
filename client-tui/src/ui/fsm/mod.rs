@@ -2,12 +2,14 @@ pub mod states;
 
 pub use states::*;
 
+pub mod component;
+pub use component::Component;
+pub mod component_manager;
+pub use component_manager::{ComponentManager, FocusMode};
 pub mod hooks;
 pub mod render_spec;
 pub mod renderer;
 
-use crate::ui::context::FocusStack;
-use crate::ui::pane::PaneManager;
 use render_spec::{InputPhase, Layout, RenderSpec, TabInputState};
 use statig::prelude::*;
 
@@ -105,18 +107,14 @@ impl Default for UiEvent {
 
 pub struct UiStateMachine {
     pub context: AppContext,
-    // Current state indicator for layout delegation
     pub current_state: UiState,
-    // UI state - shared across all FSM states (statig shared storage)
-    pub pane_manager: PaneManager,
+    pub component_manager: ComponentManager,
     pub tab_input: TabInputState,
     pub input_phase: InputPhase,
-    pub focus_stack: FocusStack,
     pub popup_menu: Option<crate::ui::widgets::popup_menu::PopupMenuState>,
     pub snapshot_dialog: Option<crate::ui::widgets::snapshot_dialog::SnapshotDialogState>,
     pub review_tab: u8,
     pub review_moves_selection: Option<u32>,
-    // Promotion dialog UI state
     pub selected_promotion_piece: cozy_chess::Piece,
 }
 
@@ -125,10 +123,9 @@ impl Default for UiStateMachine {
         Self {
             context: AppContext::default(),
             current_state: UiState::StartScreen(StartScreenState::new()),
-            pane_manager: PaneManager::default(),
+            component_manager: ComponentManager::default(),
             tab_input: TabInputState::default(),
             input_phase: InputPhase::default(),
-            focus_stack: FocusStack::default(),
             popup_menu: None,
             snapshot_dialog: None,
             review_tab: 0,
@@ -227,27 +224,30 @@ impl UiStateMachine {
 impl UiStateMachine {
     /// Set up pane visibility for game mode
     pub fn setup_game_mode(&mut self) {
-        use crate::ui::pane::PaneId;
-        // Game mode: show GameInfo, EngineAnalysis, MoveHistory
-        self.pane_manager.set_visible(PaneId::GameInfo, true);
-        self.pane_manager.set_visible(PaneId::EngineAnalysis, true);
-        self.pane_manager.set_visible(PaneId::MoveHistory, true);
-        self.pane_manager.set_visible(PaneId::ReviewSummary, false);
-        self.pane_manager
-            .set_visible(PaneId::AdvancedAnalysis, false);
+        self.component_manager
+            .set_visible(Component::InfoPanel, true);
+        self.component_manager
+            .set_visible(Component::EnginePanel, true);
+        self.component_manager
+            .set_visible(Component::HistoryPanel, true);
+        self.component_manager
+            .set_visible(Component::ReviewSummary, false);
+        self.component_manager
+            .set_visible(Component::AdvancedAnalysis, false);
     }
 
     /// Set up pane visibility for review mode
     pub fn setup_review_mode(&mut self) {
-        use crate::ui::pane::PaneId;
-        // Review mode: show GameInfo, MoveHistory, ReviewSummary, AdvancedAnalysis
-        // (GameInfo and MoveHistory are on the right, ReviewSummary and AdvancedAnalysis on left)
-        self.pane_manager.set_visible(PaneId::GameInfo, true);
-        self.pane_manager.set_visible(PaneId::EngineAnalysis, false);
-        self.pane_manager.set_visible(PaneId::MoveHistory, true);
-        self.pane_manager.set_visible(PaneId::ReviewSummary, true);
-        self.pane_manager
-            .set_visible(PaneId::AdvancedAnalysis, true);
+        self.component_manager
+            .set_visible(Component::InfoPanel, true);
+        self.component_manager
+            .set_visible(Component::EnginePanel, false);
+        self.component_manager
+            .set_visible(Component::HistoryPanel, true);
+        self.component_manager
+            .set_visible(Component::ReviewSummary, true);
+        self.component_manager
+            .set_visible(Component::AdvancedAnalysis, true);
     }
 
     /// Derive layout from current UI state
@@ -288,19 +288,9 @@ impl UiStateMachine {
             return Overlay::SnapshotDialog;
         }
 
-        // Check for expanded panel via pane_manager
-        if let Some(component) = self.pane_manager.expanded() {
-            let comp = match component {
-                crate::ui::pane::PaneId::GameInfo => render_spec::Component::InfoPanel,
-                crate::ui::pane::PaneId::MoveHistory => render_spec::Component::HistoryPanel,
-                crate::ui::pane::PaneId::EngineAnalysis => render_spec::Component::EnginePanel,
-                crate::ui::pane::PaneId::UciDebug => render_spec::Component::DebugPanel,
-                crate::ui::pane::PaneId::ReviewSummary => render_spec::Component::ReviewSummary,
-                crate::ui::pane::PaneId::AdvancedAnalysis => {
-                    render_spec::Component::AdvancedAnalysis
-                }
-            };
-            return Overlay::ExpandedPanel { component: comp };
+        // Check for expanded panel via component_manager
+        if let Some(component) = self.component_manager.expanded_component() {
+            return Overlay::ExpandedPanel { component };
         }
 
         Overlay::None

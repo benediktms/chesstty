@@ -254,54 +254,195 @@ mod render_spec_tests {
     }
 }
 
-mod tab_selection_tests {
+mod tab_order_tests {
     use super::*;
 
     #[test]
-    fn pane_manager_next_selectable_wraps_around() {
-        let pm = PaneManager::new();
+    fn component_manager_game_board_first_component() {
+        let cm = ComponentManager::game_board();
+        let layout = Layout::game_board();
 
-        let next = pm.next_selectable(PaneId::MoveHistory);
-        assert_eq!(next, Some(PaneId::GameInfo));
+        // Should return InfoPanel as first selectable component
+        assert_eq!(cm.first_component(&layout), Some(Component::InfoPanel));
     }
 
     #[test]
-    fn pane_manager_prev_selectable_wraps_around() {
-        let pm = PaneManager::new();
+    fn component_manager_game_board_tab_order() {
+        let cm = ComponentManager::game_board();
+        let layout = Layout::game_board();
 
-        let prev = pm.prev_selectable(PaneId::GameInfo);
-        assert_eq!(prev, Some(PaneId::MoveHistory));
+        // Tab order should be left-to-right: InfoPanel -> EnginePanel -> HistoryPanel
+        assert_eq!(
+            cm.tab_order(&layout),
+            vec![
+                Component::InfoPanel,
+                Component::EnginePanel,
+                Component::HistoryPanel,
+            ]
+        );
     }
 
     #[test]
-    fn pane_manager_cycles_through_all_selectable() {
-        let pm = PaneManager::new();
+    fn component_manager_tab_wraps_around() {
+        let cm = ComponentManager::game_board();
+        let layout = Layout::game_board();
 
-        let mut current = Some(PaneId::GameInfo);
-        let mut visited = Vec::new();
+        // After HistoryPanel, should wrap to InfoPanel
+        assert_eq!(
+            cm.next_component(Component::HistoryPanel, &layout),
+            Some(Component::InfoPanel)
+        );
 
-        for _ in 0..4 {
-            let next = current.and_then(|p| pm.next_selectable(p));
-            if let Some(p) = next {
-                visited.push(p);
-                current = Some(p);
+        // Before InfoPanel, should wrap to HistoryPanel
+        assert_eq!(
+            cm.prev_component(Component::InfoPanel, &layout),
+            Some(Component::HistoryPanel)
+        );
+    }
+
+    #[test]
+    fn component_manager_hidden_panels_excluded_from_tab_order() {
+        let mut cm = ComponentManager::new();
+        cm.set_visible(Component::InfoPanel, true);
+        cm.set_visible(Component::EnginePanel, false); // hidden
+        cm.set_visible(Component::HistoryPanel, true);
+
+        let layout = Layout::game_board();
+
+        // EnginePanel should be excluded
+        assert_eq!(
+            cm.tab_order(&layout),
+            vec![Component::InfoPanel, Component::HistoryPanel,]
+        );
+    }
+
+    #[test]
+    fn component_manager_next_navigates_forward() {
+        let cm = ComponentManager::game_board();
+        let layout = Layout::game_board();
+
+        assert_eq!(
+            cm.next_component(Component::InfoPanel, &layout),
+            Some(Component::EnginePanel)
+        );
+        assert_eq!(
+            cm.next_component(Component::EnginePanel, &layout),
+            Some(Component::HistoryPanel)
+        );
+    }
+
+    #[test]
+    fn component_manager_prev_navigates_backward() {
+        let cm = ComponentManager::game_board();
+        let layout = Layout::game_board();
+
+        assert_eq!(
+            cm.prev_component(Component::HistoryPanel, &layout),
+            Some(Component::EnginePanel)
+        );
+        assert_eq!(
+            cm.prev_component(Component::EnginePanel, &layout),
+            Some(Component::InfoPanel)
+        );
+    }
+}
+
+mod review_tab_order_tests {
+    use super::*;
+
+    #[test]
+    fn review_board_tab_order() {
+        let cm = ComponentManager::review_board();
+        let layout = Layout::review_board();
+
+        // Tab order: AdvancedAnalysis -> ReviewSummary -> InfoPanel -> HistoryPanel
+        assert_eq!(
+            cm.tab_order(&layout),
+            vec![
+                Component::AdvancedAnalysis,
+                Component::ReviewSummary,
+                Component::InfoPanel,
+                Component::HistoryPanel,
+            ]
+        );
+    }
+
+    #[test]
+    fn review_board_next_navigates_correctly() {
+        let cm = ComponentManager::review_board();
+        let layout = Layout::review_board();
+
+        assert_eq!(
+            cm.next_component(Component::AdvancedAnalysis, &layout),
+            Some(Component::ReviewSummary)
+        );
+        assert_eq!(
+            cm.next_component(Component::ReviewSummary, &layout),
+            Some(Component::InfoPanel)
+        );
+        assert_eq!(
+            cm.next_component(Component::HistoryPanel, &layout),
+            Some(Component::AdvancedAnalysis) // wraps
+        );
+    }
+}
+
+mod focus_mode_tests {
+    use super::*;
+
+    #[test]
+    fn default_focus_is_board() {
+        let cm = ComponentManager::new();
+        assert!(matches!(cm.focus_mode, FocusMode::Board));
+    }
+
+    #[test]
+    fn select_component_changes_focus() {
+        let mut cm = ComponentManager::new();
+        cm.select_component(Component::InfoPanel);
+        assert!(matches!(
+            cm.focus_mode,
+            FocusMode::ComponentSelected {
+                component: Component::InfoPanel
             }
-        }
+        ));
+    }
 
-        assert!(
-            visited.contains(&PaneId::GameInfo),
-            "Should cycle back to GameInfo, visited: {:?}",
-            visited
-        );
-        assert!(
-            visited.contains(&PaneId::EngineAnalysis),
-            "Should visit EngineAnalysis, visited: {:?}",
-            visited
-        );
-        assert!(
-            visited.contains(&PaneId::MoveHistory),
-            "Should visit MoveHistory, visited: {:?}",
-            visited
-        );
+    #[test]
+    fn expand_component_changes_focus() {
+        let mut cm = ComponentManager::new();
+        cm.expand_component(Component::HistoryPanel);
+        assert!(matches!(
+            cm.focus_mode,
+            FocusMode::ComponentExpanded {
+                component: Component::HistoryPanel
+            }
+        ));
+    }
+
+    #[test]
+    fn clear_focus_returns_to_board() {
+        let mut cm = ComponentManager::new();
+        cm.select_component(Component::InfoPanel);
+        cm.clear_focus();
+        assert!(matches!(cm.focus_mode, FocusMode::Board));
+    }
+
+    #[test]
+    fn selected_component_returns_correct_component() {
+        let mut cm = ComponentManager::new();
+        assert_eq!(cm.selected_component(), None);
+
+        cm.select_component(Component::EnginePanel);
+        assert_eq!(cm.selected_component(), Some(Component::EnginePanel));
+    }
+
+    #[test]
+    fn expanded_component_returns_correct_component() {
+        let mut cm = ComponentManager::new();
+        assert_eq!(cm.expanded_component(), None);
+
+        cm.expand_component(Component::HistoryPanel);
+        assert_eq!(cm.expanded_component(), Some(Component::HistoryPanel));
     }
 }

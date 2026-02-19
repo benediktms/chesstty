@@ -1,7 +1,6 @@
 use crate::state::{GameMode, GameSession, PlayerColor};
 use crate::ui::fsm::render_spec::{Component, Constraint, Layout, Overlay, Row};
 use crate::ui::fsm::UiStateMachine;
-use crate::ui::pane::PaneId;
 use crate::ui::widgets::{
     advanced_analysis_panel::AdvancedAnalysisPanel, board_overlay::build_review_overlay,
     review_summary_panel::ReviewSummaryPanel, review_tabs_panel::ReviewTabsPanel, BoardWidget,
@@ -226,8 +225,9 @@ impl Renderer {
                 frame.render_widget(widget, area);
             }
             Component::HistoryPanel => {
-                let scroll = fsm.pane_manager.scroll(PaneId::MoveHistory);
-                let is_selected = fsm.focus_stack.selected_pane() == Some(PaneId::MoveHistory);
+                let scroll = fsm.component_manager.scroll(&Component::HistoryPanel);
+                let is_selected =
+                    fsm.component_manager.selected_component() == Some(Component::HistoryPanel);
                 let review_positions = game_session
                     .review_state
                     .as_ref()
@@ -239,8 +239,9 @@ impl Renderer {
                 frame.render_widget(widget, area);
             }
             Component::EnginePanel => {
-                let scroll = fsm.pane_manager.scroll(PaneId::EngineAnalysis);
-                let is_selected = fsm.focus_stack.selected_pane() == Some(PaneId::EngineAnalysis);
+                let scroll = fsm.component_manager.scroll(&Component::EnginePanel);
+                let is_selected =
+                    fsm.component_manager.selected_component() == Some(Component::EnginePanel);
                 let widget = EngineAnalysisPanel::new(
                     game_session.engine_info.as_ref(),
                     game_session.is_engine_thinking,
@@ -250,16 +251,17 @@ impl Renderer {
                 frame.render_widget(widget, area);
             }
             Component::DebugPanel => {
-                let scroll = fsm.pane_manager.scroll(PaneId::UciDebug);
-                let is_selected = fsm.focus_stack.selected_pane() == Some(PaneId::UciDebug);
+                let scroll = fsm.component_manager.scroll(&Component::DebugPanel);
+                let is_selected =
+                    fsm.component_manager.selected_component() == Some(Component::DebugPanel);
                 let widget = UciDebugPanel::new(&game_session.uci_log, scroll, is_selected);
                 frame.render_widget(widget, area);
             }
             Component::ReviewTabs => {
                 if let Some(ref review_state) = game_session.review_state {
-                    let is_selected =
-                        fsm.focus_stack.selected_pane() == Some(PaneId::ReviewSummary);
-                    let scroll = fsm.pane_manager.scroll(PaneId::ReviewSummary);
+                    let is_selected = fsm.component_manager.selected_component()
+                        == Some(Component::ReviewSummary);
+                    let scroll = fsm.component_manager.scroll(&Component::ReviewSummary);
                     let widget = ReviewTabsPanel {
                         review_state,
                         current_tab: fsm.review_tab,
@@ -273,9 +275,9 @@ impl Renderer {
             }
             Component::ReviewSummary => {
                 if let Some(ref review_state) = game_session.review_state {
-                    let is_selected =
-                        fsm.focus_stack.selected_pane() == Some(PaneId::ReviewSummary);
-                    let scroll = fsm.pane_manager.scroll(PaneId::ReviewSummary);
+                    let is_selected = fsm.component_manager.selected_component()
+                        == Some(Component::ReviewSummary);
+                    let scroll = fsm.component_manager.scroll(&Component::ReviewSummary);
                     let widget = ReviewSummaryPanel {
                         review_state,
                         scroll,
@@ -287,9 +289,9 @@ impl Renderer {
             }
             Component::AdvancedAnalysis => {
                 if let Some(ref review_state) = game_session.review_state {
-                    let is_selected =
-                        fsm.focus_stack.selected_pane() == Some(PaneId::AdvancedAnalysis);
-                    let scroll = fsm.pane_manager.scroll(PaneId::AdvancedAnalysis);
+                    let is_selected = fsm.component_manager.selected_component()
+                        == Some(Component::AdvancedAnalysis);
+                    let scroll = fsm.component_manager.scroll(&Component::AdvancedAnalysis);
                     let widget = AdvancedAnalysisPanel {
                         review_state,
                         scroll,
@@ -336,33 +338,23 @@ impl Renderer {
                 frame.render_widget(widget, area);
             }
             Overlay::ExpandedPanel { component } => {
-                // Convert Component back to PaneId for now
-                let pane_id = match component {
-                    Component::InfoPanel => PaneId::GameInfo,
-                    Component::HistoryPanel => PaneId::MoveHistory,
-                    Component::EnginePanel => PaneId::EngineAnalysis,
-                    Component::DebugPanel => PaneId::UciDebug,
-                    Component::ReviewSummary => PaneId::ReviewSummary,
-                    Component::AdvancedAnalysis => PaneId::AdvancedAnalysis,
-                    _ => return, // Not expandable
-                };
-                match pane_id {
-                    PaneId::MoveHistory => {
+                match component {
+                    Component::HistoryPanel => {
                         let review_positions = game_session
                             .review_state
                             .as_ref()
                             .map(|rs| rs.review.positions.as_slice());
                         let current_ply =
                             game_session.review_state.as_ref().map(|rs| rs.current_ply);
-                        let scroll = fsm.pane_manager.scroll(PaneId::MoveHistory);
+                        let scroll = fsm.component_manager.scroll(&component);
                         let widget = MoveHistoryPanel::expanded(game_session.history(), scroll)
                             .with_review_positions(review_positions)
                             .with_current_ply(current_ply);
                         frame.render_widget(widget, area);
                     }
-                    PaneId::EngineAnalysis => {
+                    Component::EnginePanel => {
                         if let Some(ref rs) = game_session.review_state {
-                            let scroll = fsm.pane_manager.scroll(PaneId::EngineAnalysis);
+                            let scroll = fsm.component_manager.scroll(&component);
                             let widget = MoveAnalysisPanel {
                                 review_state: rs,
                                 scroll,
@@ -371,7 +363,7 @@ impl Renderer {
                             };
                             frame.render_widget(widget, area);
                         } else {
-                            let scroll = fsm.pane_manager.scroll(PaneId::EngineAnalysis);
+                            let scroll = fsm.component_manager.scroll(&component);
                             let widget = EngineAnalysisPanel::new(
                                 game_session.engine_info.as_ref(),
                                 game_session.is_engine_thinking,
@@ -381,18 +373,18 @@ impl Renderer {
                             frame.render_widget(widget, area);
                         }
                     }
-                    PaneId::UciDebug => {
-                        let scroll = fsm.pane_manager.scroll(PaneId::UciDebug);
+                    Component::DebugPanel => {
+                        let scroll = fsm.component_manager.scroll(&component);
                         let widget = UciDebugPanel::new(&game_session.uci_log, scroll, true);
                         frame.render_widget(widget, area);
                     }
-                    PaneId::GameInfo => {
+                    Component::InfoPanel => {
                         let widget = GameInfoPanel::new(game_session, fsm);
                         frame.render_widget(widget, area);
                     }
-                    PaneId::ReviewSummary => {
+                    Component::ReviewSummary => {
                         if let Some(ref review_state) = game_session.review_state {
-                            let scroll = fsm.pane_manager.scroll(PaneId::ReviewSummary);
+                            let scroll = fsm.component_manager.scroll(&component);
                             let widget = ReviewSummaryPanel {
                                 review_state,
                                 scroll,
@@ -402,8 +394,8 @@ impl Renderer {
                             frame.render_widget(widget, area);
                         }
                     }
-                    PaneId::AdvancedAnalysis => {
-                        // Skip - not expanded in review mode
+                    _ => {
+                        // Skip - not expandable
                     }
                 }
 

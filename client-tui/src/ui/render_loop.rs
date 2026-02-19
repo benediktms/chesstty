@@ -465,8 +465,7 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
         };
 
         // Snapshot pane state for rendering (avoids borrow conflicts)
-        let selected_panel = fsm.focus_stack.selected_pane();
-        let expanded_panel = fsm.focus_stack.expanded_pane();
+        // Note: renderer now gets this info directly from fsm.component_manager
         let is_review_mode = matches!(state.mode, GameMode::ReviewMode);
 
         // Draw UI using FSM-based renderer

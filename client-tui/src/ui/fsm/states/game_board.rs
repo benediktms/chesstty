@@ -1,15 +1,13 @@
 use crate::state::GameMode;
-use crate::ui::context::FocusStack;
 use crate::ui::fsm::render_spec::{
-    Column, ColumnContent, Component, Constraint, Control, InputPhase, Layout, Overlay, PaneState,
-    RenderSpec, Row, TabInputState,
+    Column, ColumnContent, Component, Constraint, Control, InputPhase, Layout, Overlay, RenderSpec,
+    Row, TabInputState,
 };
 use crate::ui::widgets::popup_menu::PopupMenuState;
 use crate::ui::widgets::snapshot_dialog::SnapshotDialogState;
 
 #[derive(Clone, Debug)]
 pub struct GameBoardState {
-    pub pane_state: PaneState,
     pub tab_input: TabInputState,
     pub input_phase: InputPhase,
     pub input_buffer: String,
@@ -17,8 +15,6 @@ pub struct GameBoardState {
     pub move_count: u32,
     pub render_spec: RenderSpec,
     pub controls: Vec<Control>,
-    // UI state moved from RenderState
-    pub focus_stack: FocusStack,
     pub popup_menu: Option<PopupMenuState>,
     pub snapshot_dialog: Option<SnapshotDialogState>,
     pub paused: bool,
@@ -27,7 +23,6 @@ pub struct GameBoardState {
 impl Default for GameBoardState {
     fn default() -> Self {
         let mut state = Self {
-            pane_state: PaneState::game_board(),
             tab_input: TabInputState::new(),
             input_phase: InputPhase::SelectPiece,
             input_buffer: String::new(),
@@ -35,8 +30,6 @@ impl Default for GameBoardState {
             move_count: 0,
             render_spec: RenderSpec::game_board(),
             controls: Vec::new(),
-            // UI state defaults
-            focus_stack: FocusStack::default(),
             popup_menu: None,
             snapshot_dialog: None,
             paused: false,
@@ -50,15 +43,12 @@ impl GameBoardState {
     pub fn new(game_mode: GameMode) -> Self {
         let mut state = Self {
             game_mode,
-            pane_state: PaneState::game_board(),
             tab_input: TabInputState::new(),
             input_phase: InputPhase::SelectPiece,
             render_spec: RenderSpec::game_board(),
             input_buffer: String::new(),
             move_count: 0,
             controls: Vec::new(),
-            // UI state defaults
-            focus_stack: FocusStack::default(),
             popup_menu: None,
             snapshot_dialog: None,
             paused: false,
@@ -127,10 +117,7 @@ impl GameBoardState {
         )];
 
         // Only include EnginePanel if visible (from shared state)
-        if shared
-            .pane_manager
-            .is_visible(crate::ui::pane::PaneId::EngineAnalysis)
-        {
+        if shared.component_manager.is_visible(&Component::EnginePanel) {
             right_columns.push(Column::component(
                 Constraint::Length(12),
                 Component::EnginePanel,
@@ -164,35 +151,5 @@ impl GameBoardState {
             ],
             overlay: Overlay::None, // Set by UiStateMachine
         }
-    }
-
-    /// Derive overlay based on current state
-    fn derive_overlay(&self) -> Overlay {
-        // Check for promotion dialog first
-        if let InputPhase::SelectPromotion { from, to } = &self.input_phase {
-            return Overlay::PromotionDialog {
-                from: *from,
-                to: *to,
-            };
-        }
-
-        // Check for popup menu
-        if self.popup_menu.is_some() {
-            return Overlay::PopupMenu;
-        }
-
-        // Check for snapshot dialog
-        if self.snapshot_dialog.is_some() {
-            return Overlay::SnapshotDialog;
-        }
-
-        // Check for expanded panel
-        if let Some(component) = &self.pane_state.expanded {
-            return Overlay::ExpandedPanel {
-                component: component.clone(),
-            };
-        }
-
-        Overlay::None
     }
 }

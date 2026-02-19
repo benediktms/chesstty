@@ -1,9 +1,8 @@
 use crate::state::{GameMode, GameSession};
-use crate::ui::context::FocusContext;
+use crate::ui::fsm::component_manager::FocusMode;
 use crate::ui::fsm::render_spec::InputPhase;
-use crate::ui::fsm::UiStateMachine;
+use crate::ui::fsm::{Component, UiStateMachine};
 use crate::ui::menu_app::GameConfig;
-use crate::ui::pane::PaneId;
 use crate::ui::widgets::popup_menu::{PopupMenuItem, PopupMenuState};
 use crate::ui::widgets::snapshot_dialog::{SnapshotDialogFocus, SnapshotDialogState};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -62,26 +61,25 @@ pub async fn handle_key(
     // Global toggles that work in any context
     match key.code {
         KeyCode::Char('@') => {
-            fsm.pane_manager.toggle_visibility(PaneId::UciDebug);
+            fsm.component_manager.toggle_visibility(Component::DebugPanel);
             return AppAction::Continue;
         }
         KeyCode::Char('#') => {
-            fsm.pane_manager.toggle_visibility(PaneId::EngineAnalysis);
+            fsm.component_manager.toggle_visibility(Component::EnginePanel);
             return AppAction::Continue;
         }
         KeyCode::Char('$') => {
-            fsm.pane_manager.toggle_visibility(PaneId::AdvancedAnalysis);
+            fsm.component_manager.toggle_visibility(Component::AdvancedAnalysis);
             return AppAction::Continue;
         }
         _ => {}
     }
 
     // Dispatch by context
-    let context = fsm.focus_stack.current().clone();
-    match context {
-        FocusContext::Board => handle_board_context(state, fsm, input_buffer, key).await,
-        FocusContext::PaneSelected { pane_id } => handle_pane_selected_context(state, fsm, pane_id, key),
-        FocusContext::PaneExpanded { pane_id } => handle_pane_expanded_context(state, fsm, pane_id, key),
+    match &fsm.component_manager.focus_mode {
+        FocusMode::Board => handle_board_context(state, fsm, input_buffer, key).await,
+        FocusMode::ComponentSelected { component } => handle_component_selected_context(state, fsm, *component, key),
+        FocusMode::ComponentExpanded { component } => handle_component_expanded_context(state, fsm, *component, key),
     }
 }
 
@@ -145,27 +143,23 @@ async fn handle_board_context(
                     return AppAction::Continue;
                 }
                 KeyCode::Tab => {
-                    // Tab cycles to next pane (clockwise), Shift+Tab cycles previous (anti-clockwise)
-                    let current = fsm.focus_stack.selected_pane();
+                    let layout = fsm.layout(state);
+                    let current = fsm.component_manager.selected_component();
                     if key.modifiers.contains(KeyModifiers::SHIFT) {
-                        // Shift+Tab: previous pane
                         if let Some(curr) = current {
-                            if let Some(prev) = fsm.pane_manager.prev_selectable(curr) {
-                                fsm.focus_stack.pop();
-                                fsm.focus_stack.push(FocusContext::PaneSelected { pane_id: prev });
+                            if let Some(prev) = fsm.component_manager.prev_component(curr, &layout) {
+                                fsm.component_manager.select_component(prev);
                             }
-                        } else if let Some(first) = fsm.pane_manager.first_selectable() {
-                            fsm.focus_stack.push(FocusContext::PaneSelected { pane_id: first });
+                        } else if let Some(first) = fsm.component_manager.first_component(&layout) {
+                            fsm.component_manager.select_component(first);
                         }
                     } else {
-                        // Tab: next pane
                         if let Some(curr) = current {
-                            if let Some(next) = fsm.pane_manager.next_selectable(curr) {
-                                fsm.focus_stack.pop();
-                                fsm.focus_stack.push(FocusContext::PaneSelected { pane_id: next });
+                            if let Some(next) = fsm.component_manager.next_component(curr, &layout) {
+                                fsm.component_manager.select_component(next);
                             }
-                        } else if let Some(first) = fsm.pane_manager.first_selectable() {
-                            fsm.focus_stack.push(FocusContext::PaneSelected { pane_id: first });
+                        } else if let Some(first) = fsm.component_manager.first_component(&layout) {
+                            fsm.component_manager.select_component(first);
                         }
                     }
                     return AppAction::Continue;
@@ -186,27 +180,23 @@ async fn handle_board_context(
             return AppAction::Continue;
         }
         KeyCode::Tab => {
-            // Tab cycles to next pane (clockwise), Shift+Tab cycles previous (anti-clockwise)
-            let current = fsm.focus_stack.selected_pane();
+            let layout = fsm.layout(state);
+            let current = fsm.component_manager.selected_component();
             if key.modifiers.contains(KeyModifiers::SHIFT) {
-                // Shift+Tab: previous pane
                 if let Some(curr) = current {
-                    if let Some(prev) = fsm.pane_manager.prev_selectable(curr) {
-                        fsm.focus_stack.pop();
-                        fsm.focus_stack.push(FocusContext::PaneSelected { pane_id: prev });
+                    if let Some(prev) = fsm.component_manager.prev_component(curr, &layout) {
+                        fsm.component_manager.select_component(prev);
                     }
-                } else if let Some(first) = fsm.pane_manager.first_selectable() {
-                    fsm.focus_stack.push(FocusContext::PaneSelected { pane_id: first });
+                } else if let Some(first) = fsm.component_manager.first_component(&layout) {
+                    fsm.component_manager.select_component(first);
                 }
             } else {
-                // Tab: next pane
                 if let Some(curr) = current {
-                    if let Some(next) = fsm.pane_manager.next_selectable(curr) {
-                        fsm.focus_stack.pop();
-                        fsm.focus_stack.push(FocusContext::PaneSelected { pane_id: next });
+                    if let Some(next) = fsm.component_manager.next_component(curr, &layout) {
+                        fsm.component_manager.select_component(next);
                     }
-                } else if let Some(first) = fsm.pane_manager.first_selectable() {
-                    fsm.focus_stack.push(FocusContext::PaneSelected { pane_id: first });
+                } else if let Some(first) = fsm.component_manager.first_component(&layout) {
+                    fsm.component_manager.select_component(first);
                 }
             }
         }
@@ -500,14 +490,14 @@ async fn handle_snapshot_dialog_input(state: &mut GameSession, fsm: &mut UiState
     AppAction::Continue
 }
 
-/// Handle keys in PaneSelected context (a pane is highlighted, user navigates/scrolls).
-fn handle_pane_selected_context(
+/// Handle keys in ComponentSelected context (a component is highlighted, user navigates/scrolls).
+fn handle_component_selected_context(
     state: &mut GameSession,
     fsm: &mut UiStateMachine,
-    pane_id: PaneId,
+    component: Component,
     key: KeyEvent,
 ) -> AppAction {
-    // Forward review navigation keys (n/p/Space/Home/End) from pane context
+    // Forward review navigation keys (n/p/Space/Home/End) from component context
     if matches!(state.mode, GameMode::ReviewMode) {
         if let Some(ref mut review) = state.review_state {
             match key.code {
@@ -542,84 +532,72 @@ fn handle_pane_selected_context(
                     review.go_to_end();
                     return AppAction::Continue;
                 }
-                _ => {} // Fall through to normal pane handling
+                _ => {}
             }
         }
     }
 
+    let layout = fsm.layout(state);
     match key.code {
         KeyCode::Left | KeyCode::Char('h') => {
-            if let Some(prev) = fsm.pane_manager.prev_selectable(pane_id) {
-                fsm.focus_stack.pop();
-                fsm.focus_stack.push(FocusContext::PaneSelected { pane_id: prev });
+            if let Some(prev) = fsm.component_manager.prev_component(component, &layout) {
+                fsm.component_manager.select_component(prev);
             }
         }
         KeyCode::Right | KeyCode::Char('l') => {
-            if let Some(next) = fsm.pane_manager.next_selectable(pane_id) {
-                fsm.focus_stack.pop();
-                fsm.focus_stack.push(FocusContext::PaneSelected { pane_id: next });
+            if let Some(next) = fsm.component_manager.next_component(component, &layout) {
+                fsm.component_manager.select_component(next);
             }
         }
         KeyCode::Tab => {
             if key.modifiers.contains(KeyModifiers::SHIFT) {
-                // Shift+Tab: previous selectable pane (backward)
-                if let Some(prev) = fsm.pane_manager.prev_selectable(pane_id) {
-                    fsm.focus_stack.pop();
-                    fsm
-                        .focus_stack
-                        .push(FocusContext::PaneSelected { pane_id: prev });
+                if let Some(prev) = fsm.component_manager.prev_component(component, &layout) {
+                    fsm.component_manager.select_component(prev);
                 }
             } else {
-                // Tab: next selectable pane (forward)
-                if let Some(next) = fsm.pane_manager.next_selectable(pane_id) {
-                    fsm.focus_stack.pop();
-                    fsm
-                        .focus_stack
-                        .push(FocusContext::PaneSelected { pane_id: next });
+                if let Some(next) = fsm.component_manager.next_component(component, &layout) {
+                    fsm.component_manager.select_component(next);
                 }
             }
         }
-        // Tab switching for ReviewTabsPanel (only when that pane is selected)
-        KeyCode::Char('1') if pane_id == PaneId::ReviewSummary => {
+        KeyCode::Char('1') if component == Component::ReviewSummary => {
             fsm.review_tab = 0;
         }
-        KeyCode::Char('2') if pane_id == PaneId::ReviewSummary => {
+        KeyCode::Char('2') if component == Component::ReviewSummary => {
             fsm.review_tab = 1;
         }
         KeyCode::Up | KeyCode::Char('k') => {
-            let scroll = fsm.pane_manager.scroll_mut(pane_id);
+            let scroll = fsm.component_manager.scroll_mut(&component);
             *scroll = scroll.saturating_sub(5);
         }
         KeyCode::Down | KeyCode::Char('j') => {
-            let scroll = fsm.pane_manager.scroll_mut(pane_id);
+            let scroll = fsm.component_manager.scroll_mut(&component);
             *scroll = scroll.saturating_add(5);
         }
         KeyCode::PageUp => {
-            *fsm.pane_manager.scroll_mut(pane_id) = 0;
+            *fsm.component_manager.scroll_mut(&component) = 0;
         }
         KeyCode::PageDown => {
-            *fsm.pane_manager.scroll_mut(pane_id) = u16::MAX;
+            *fsm.component_manager.scroll_mut(&component) = u16::MAX;
         }
         KeyCode::Enter => {
-            use crate::ui::pane::pane_properties;
-            let props = pane_properties(pane_id);
-            if props.is_expandable {
-                fsm.focus_stack.push(FocusContext::PaneExpanded { pane_id });
+            if component.is_expandable() {
+                fsm.component_manager.expand_component(component);
             }
         }
         KeyCode::Esc => {
-            fsm.focus_stack.pop();
+            fsm.component_manager.clear_focus();
         }
         _ => {}
     }
     AppAction::Continue
 }
 
-/// Handle keys in PaneExpanded context (a pane fills the board area).
-fn handle_pane_expanded_context(
+/// Handle keys in ComponentExpanded context (a component fills the board area).
+fn handle_component_expanded_context(
     state: &mut GameSession,
     fsm: &mut UiStateMachine,
-    pane_id: PaneId,
+    component: Component,
     key: KeyEvent,
 ) -> AppAction {
     // Forward review navigation keys (n/p/Space/Home/End) from expanded pane
@@ -657,28 +635,28 @@ fn handle_pane_expanded_context(
                     review.go_to_end();
                     return AppAction::Continue;
                 }
-                _ => {} // Fall through to normal expanded handling
+                _ => {}
             }
         }
     }
 
     match key.code {
         KeyCode::Up | KeyCode::Char('k') => {
-            let scroll = fsm.pane_manager.scroll_mut(pane_id);
+            let scroll = fsm.component_manager.scroll_mut(&component);
             *scroll = scroll.saturating_sub(5);
         }
         KeyCode::Down | KeyCode::Char('j') => {
-            let scroll = fsm.pane_manager.scroll_mut(pane_id);
+            let scroll = fsm.component_manager.scroll_mut(&component);
             *scroll = scroll.saturating_add(5);
         }
         KeyCode::PageUp => {
-            *fsm.pane_manager.scroll_mut(pane_id) = 0;
+            *fsm.component_manager.scroll_mut(&component) = 0;
         }
         KeyCode::PageDown => {
-            *fsm.pane_manager.scroll_mut(pane_id) = u16::MAX;
+            *fsm.component_manager.scroll_mut(&component) = u16::MAX;
         }
         KeyCode::Esc => {
-            fsm.focus_stack.pop();
+            fsm.component_manager.clear_focus();
         }
         _ => {}
     }

@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+
+pub use super::component::Component;
 
 use chess_client::MoveRecord;
 use cozy_chess::{Board, Square};
@@ -67,108 +68,6 @@ impl TabInputState {
     }
 }
 
-// ============================================================================
-// Pane State - tracks panel visibility, scroll, selection, expansion
-// ============================================================================
-
-#[derive(Clone, Debug, Default)]
-pub struct PaneState {
-    pub visible: HashSet<Component>,
-    pub scroll: HashMap<Component, u16>,
-    pub selected: Option<Component>,
-    pub expanded: Option<Component>,
-}
-
-impl PaneState {
-    pub fn game_board() -> Self {
-        let mut visible = HashSet::new();
-        visible.insert(Component::InfoPanel);
-        visible.insert(Component::HistoryPanel);
-        visible.insert(Component::EnginePanel);
-
-        let mut scroll = HashMap::new();
-        scroll.insert(Component::InfoPanel, 0);
-        scroll.insert(Component::HistoryPanel, 0);
-        scroll.insert(Component::EnginePanel, 0);
-        scroll.insert(Component::DebugPanel, 0);
-        scroll.insert(Component::ReviewSummary, 0);
-        scroll.insert(Component::AdvancedAnalysis, 0);
-
-        Self {
-            visible,
-            scroll,
-            selected: None,
-            expanded: None,
-        }
-    }
-
-    pub fn review_board() -> Self {
-        let mut visible = HashSet::new();
-        visible.insert(Component::ReviewTabs);
-        visible.insert(Component::HistoryPanel);
-        visible.insert(Component::AdvancedAnalysis);
-
-        let mut scroll = HashMap::new();
-        scroll.insert(Component::InfoPanel, 0);
-        scroll.insert(Component::HistoryPanel, 0);
-        scroll.insert(Component::EnginePanel, 0);
-        scroll.insert(Component::DebugPanel, 0);
-        scroll.insert(Component::ReviewSummary, 0);
-        scroll.insert(Component::AdvancedAnalysis, 0);
-
-        Self {
-            visible,
-            scroll,
-            selected: None,
-            expanded: None,
-        }
-    }
-
-    pub fn match_summary() -> Self {
-        Self::default()
-    }
-
-    pub fn start_screen() -> Self {
-        Self::default()
-    }
-
-    pub fn is_visible(&self, component: &Component) -> bool {
-        self.visible.contains(component)
-    }
-
-    pub fn scroll(&self, component: &Component) -> u16 {
-        *self.scroll.get(component).unwrap_or(&0)
-    }
-
-    pub fn scroll_mut(&mut self, component: &Component) -> &mut u16 {
-        self.scroll.entry(component.clone()).or_insert(0)
-    }
-
-    pub fn toggle_visibility(&mut self, component: &Component) {
-        if self.visible.contains(component) {
-            self.visible.remove(component);
-        } else {
-            self.visible.insert(component.clone());
-        }
-    }
-
-    pub fn select(&mut self, component: Component) {
-        self.selected = Some(component);
-    }
-
-    pub fn expand(&mut self, component: Component) {
-        self.expanded = Some(component);
-    }
-
-    pub fn collapse(&mut self) {
-        self.expanded = None;
-    }
-
-    pub fn visible_panes(&self) -> Vec<Component> {
-        self.visible.iter().cloned().collect()
-    }
-}
-
 #[derive(Clone, Debug, PartialEq, Default, Serialize, Deserialize)]
 pub enum View {
     #[default]
@@ -188,40 +87,6 @@ pub struct Control {
 impl Control {
     pub fn new(key: &'static str, label: &'static str) -> Self {
         Self { key, label }
-    }
-}
-
-/// Unified component enum - replaces both PaneId and previous Component enum
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum Component {
-    // Core components
-    Board,
-    TabInput,
-    Controls,
-
-    // Panels (replaces PaneId)
-    InfoPanel,
-    HistoryPanel,
-    EnginePanel,
-    DebugPanel,
-    ReviewTabs,
-    ReviewSummary,
-    AdvancedAnalysis,
-}
-
-impl Component {
-    /// Convert Component to PaneId for widget compatibility
-    pub fn to_pane_id(&self) -> Option<crate::ui::pane::PaneId> {
-        use crate::ui::pane::PaneId;
-        match self {
-            Component::InfoPanel => Some(PaneId::GameInfo),
-            Component::HistoryPanel => Some(PaneId::MoveHistory),
-            Component::EnginePanel => Some(PaneId::EngineAnalysis),
-            Component::DebugPanel => Some(PaneId::UciDebug),
-            Component::ReviewSummary => Some(PaneId::ReviewSummary),
-            Component::AdvancedAnalysis => Some(PaneId::AdvancedAnalysis),
-            _ => None,
-        }
     }
 }
 
@@ -504,7 +369,7 @@ impl Layout {
 pub struct RenderSpec {
     pub view: View,
     pub layout: Layout,
-    pub expanded_panel: Option<crate::ui::pane::PaneId>,
+    pub expanded_panel: Option<Component>,
 }
 
 impl RenderSpec {
@@ -543,7 +408,7 @@ impl RenderSpec {
     /// Create RenderSpec based on game mode
     pub fn from_game_mode(
         mode: &crate::state::GameMode,
-        expanded_panel: Option<crate::ui::pane::PaneId>,
+        expanded_panel: Option<Component>,
     ) -> Self {
         let mut spec = match mode {
             crate::state::GameMode::ReviewMode => Self::review_board(),
