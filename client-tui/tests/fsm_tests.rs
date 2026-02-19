@@ -345,6 +345,89 @@ mod tab_order_tests {
             Some(Component::InfoPanel)
         );
     }
+
+    #[test]
+    fn tab_navigation_from_info_panel_to_engine_panel() {
+        let cm = ComponentManager::game_board();
+        let layout = Layout::game_board();
+
+        let next = cm.next_component(Component::InfoPanel, &layout);
+
+        assert_eq!(next, Some(Component::EnginePanel));
+    }
+
+    #[test]
+    fn tab_navigation_from_engine_panel_to_history_panel() {
+        let cm = ComponentManager::game_board();
+        let layout = Layout::game_board();
+
+        let next = cm.next_component(Component::EnginePanel, &layout);
+
+        assert_eq!(next, Some(Component::HistoryPanel));
+    }
+
+    #[test]
+    fn tab_navigation_wraps_from_history_to_info() {
+        let cm = ComponentManager::game_board();
+        let layout = Layout::game_board();
+
+        let next = cm.next_component(Component::HistoryPanel, &layout);
+
+        assert_eq!(next, Some(Component::InfoPanel));
+    }
+
+    #[test]
+    fn shift_tab_navigation_from_engine_to_info() {
+        let cm = ComponentManager::game_board();
+        let layout = Layout::game_board();
+
+        let prev = cm.prev_component(Component::EnginePanel, &layout);
+
+        assert_eq!(prev, Some(Component::InfoPanel));
+    }
+
+    #[test]
+    fn shift_tab_navigation_wraps_from_info_to_history() {
+        let cm = ComponentManager::game_board();
+        let layout = Layout::game_board();
+
+        let prev = cm.prev_component(Component::InfoPanel, &layout);
+
+        assert_eq!(prev, Some(Component::HistoryPanel));
+    }
+
+    #[test]
+    fn select_component_persists_focus_mode() {
+        let mut cm = ComponentManager::game_board();
+
+        cm.select_component(Component::InfoPanel);
+
+        assert!(matches!(
+            cm.focus_mode,
+            FocusMode::ComponentSelected {
+                component: Component::InfoPanel
+            }
+        ));
+
+        assert_eq!(cm.selected_component(), Some(Component::InfoPanel));
+    }
+
+    #[test]
+    fn multiple_select_calls_persist() {
+        let mut cm = ComponentManager::game_board();
+        let layout = Layout::game_board();
+
+        cm.select_component(Component::InfoPanel);
+        assert_eq!(cm.selected_component(), Some(Component::InfoPanel));
+
+        let next = cm.next_component(Component::InfoPanel, &layout).unwrap();
+        cm.select_component(next);
+        assert_eq!(cm.selected_component(), Some(Component::EnginePanel));
+
+        let next = cm.next_component(Component::EnginePanel, &layout).unwrap();
+        cm.select_component(next);
+        assert_eq!(cm.selected_component(), Some(Component::HistoryPanel));
+    }
 }
 
 mod review_tab_order_tests {

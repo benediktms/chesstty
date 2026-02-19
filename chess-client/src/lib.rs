@@ -19,9 +19,17 @@
 
 mod client;
 mod error;
+mod traits;
 
 pub use client::ChessClient;
 pub use error::{ClientError, ClientResult};
+pub use traits::ChessService;
 
 // Re-export proto types for convenience
 pub use chess_proto::*;
+
+// Mock implementation - only available in test mode or with mock feature
+#[cfg(any(test, feature = "mock"))]
+pub mod mock;
+#[cfg(any(test, feature = "mock"))]
+pub use mock::{MockCall, MockChessService};

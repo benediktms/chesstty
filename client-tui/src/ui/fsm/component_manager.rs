@@ -40,6 +40,11 @@ impl ComponentManager {
         scroll.insert(Component::ReviewSummary, 0);
         scroll.insert(Component::AdvancedAnalysis, 0);
 
+        tracing::debug!(
+            "ComponentManager::new() created at {:p}",
+            &visibility as *const _
+        );
+
         Self {
             visibility,
             scroll,
@@ -95,10 +100,16 @@ impl ComponentManager {
     }
 
     pub fn selected_component(&self) -> Option<Component> {
-        match &self.focus_mode {
+        let result = match &self.focus_mode {
             FocusMode::ComponentSelected { component } => Some(*component),
             _ => None,
-        }
+        };
+        tracing::debug!(
+            "ComponentManager::selected_component() -> {:?} (focus_mode: {:?})",
+            result,
+            self.focus_mode
+        );
+        result
     }
 
     pub fn expanded_component(&self) -> Option<Component> {
@@ -109,7 +120,9 @@ impl ComponentManager {
     }
 
     pub fn select_component(&mut self, component: Component) {
+        tracing::debug!("ComponentManager::select_component({:?}) called", component);
         self.focus_mode = FocusMode::ComponentSelected { component };
+        tracing::debug!("  focus_mode is now: {:?}", self.focus_mode);
     }
 
     pub fn expand_component(&mut self, component: Component) {

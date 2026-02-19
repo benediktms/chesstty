@@ -143,23 +143,32 @@ async fn handle_board_context(
                     return AppAction::Continue;
                 }
                 KeyCode::Tab => {
+                    tracing::debug!("Tab pressed (review mode) - focus_mode: {:?}", fsm.component_manager.focus_mode);
                     let layout = fsm.layout(state);
+                    tracing::debug!("Layout rows: {}", layout.rows.len());
                     let current = fsm.component_manager.selected_component();
+                    tracing::debug!("Current selected: {:?}", current);
+                    let first = fsm.component_manager.first_component(&layout);
+                    tracing::debug!("First component: {:?}", first);
                     if key.modifiers.contains(KeyModifiers::SHIFT) {
                         if let Some(curr) = current {
                             if let Some(prev) = fsm.component_manager.prev_component(curr, &layout) {
                                 fsm.component_manager.select_component(prev);
+                                tracing::debug!("Selected prev (shift): {:?}", prev);
                             }
                         } else if let Some(first) = fsm.component_manager.first_component(&layout) {
                             fsm.component_manager.select_component(first);
+                            tracing::debug!("Selected first (shift): {:?}", first);
                         }
                     } else {
                         if let Some(curr) = current {
                             if let Some(next) = fsm.component_manager.next_component(curr, &layout) {
                                 fsm.component_manager.select_component(next);
+                                tracing::debug!("Selected next: {:?}", next);
                             }
                         } else if let Some(first) = fsm.component_manager.first_component(&layout) {
                             fsm.component_manager.select_component(first);
+                            tracing::debug!("Selected first: {:?}", first);
                         }
                     }
                     return AppAction::Continue;
@@ -180,23 +189,32 @@ async fn handle_board_context(
             return AppAction::Continue;
         }
         KeyCode::Tab => {
+            tracing::debug!("Tab pressed - focus_mode: {:?}", fsm.component_manager.focus_mode);
             let layout = fsm.layout(state);
+            tracing::debug!("Layout rows: {}", layout.rows.len());
             let current = fsm.component_manager.selected_component();
+            tracing::debug!("Current selected: {:?}", current);
+            let first = fsm.component_manager.first_component(&layout);
+            tracing::debug!("First component: {:?}", first);
             if key.modifiers.contains(KeyModifiers::SHIFT) {
                 if let Some(curr) = current {
                     if let Some(prev) = fsm.component_manager.prev_component(curr, &layout) {
                         fsm.component_manager.select_component(prev);
+                        tracing::debug!("Selected prev: {:?}", prev);
                     }
                 } else if let Some(first) = fsm.component_manager.first_component(&layout) {
                     fsm.component_manager.select_component(first);
+                    tracing::debug!("Selected first (shift): {:?}", first);
                 }
             } else {
                 if let Some(curr) = current {
                     if let Some(next) = fsm.component_manager.next_component(curr, &layout) {
                         fsm.component_manager.select_component(next);
+                        tracing::debug!("Selected next: {:?}", next);
                     }
                 } else if let Some(first) = fsm.component_manager.first_component(&layout) {
                     fsm.component_manager.select_component(first);
+                    tracing::debug!("Selected first: {:?}", first);
                 }
             }
         }

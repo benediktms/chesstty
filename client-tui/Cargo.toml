@@ -7,6 +7,10 @@ edition = "2021"
 name = "chesstty-tui"
 path = "src/main.rs"
 
+[features]
+default = []
+mock = ["chess-client/mock"]
+
 [dependencies]
 chess-client = { path = "../chess-client" }
 chess = { path = "../chess" }

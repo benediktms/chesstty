@@ -402,3 +402,162 @@ impl ChessClient {
             .ok_or_else(|| ClientError::InvalidData("missing advanced analysis".into()))
     }
 }
+
+// ================================================================================
+// ChessService trait implementation
+// ================================================================================
+
+use crate::traits::ChessService;
+use async_trait::async_trait;
+
+#[async_trait]
+impl ChessService for ChessClient {
+    async fn create_session(
+        &mut self,
+        fen: Option<String>,
+        game_mode: Option<GameModeProto>,
+        timer: Option<TimerState>,
+    ) -> ClientResult<SessionSnapshot> {
+        let request = CreateSessionRequest {
+            fen,
+            game_mode,
+            timer,
+        };
+        let response = self.client.create_session(request).await?;
+        let snapshot = response.into_inner();
+        self.session_id = Some(snapshot.session_id.clone());
+        Ok(snapshot)
+    }
+
+    async fn get_session(&mut self) -> ClientResult<SessionSnapshot> {
+        let session_id = self
+            .session_id
+            .as_ref()
+            .ok_or(ClientError::NoActiveSession)?;
+
+        let request = GetSessionRequest {
+            session_id: session_id.clone(),
+        };
+
+        let response = self.client.get_session(request).await?;
+        Ok(response.into_inner())
+    }
+
+    async fn close_session(&mut self) -> ClientResult<()> {
+        if let Some(session_id) = self.session_id.take() {
+            let request = CloseSessionRequest { session_id };
+            self.client.close_session(request).await?;
+        }
+        Ok(())
+    }
+
+    async fn make_move(
+        &mut self,
+        from: &str,
+        to: &str,
+        promotion: Option<String>,
+    ) -> ClientResult<SessionSnapshot> {
+        let session_id = self
+            .session_id
+            .as_ref()
+            .ok_or(ClientError::NoActiveSession)?;
+
+        let request = MakeMoveRequest {
+            session_id: session_id.clone(),
+            r#move: Some(MoveRepr {
+                from: from.to_string(),
+                to: to.to_string(),
+                promotion,
+            }),
+        };
+
+        let response = self.client.make_move(request).await?;
+        Ok(response.into_inner())
+    }
+
+    async fn get_legal_moves(
+        &mut self,
+        from_square: Option<String>,
+    ) -> ClientResult<Vec<MoveDetail>> {
+        let session_id = self
+            .session_id
+            .as_ref()
+            .ok_or(ClientError::NoActiveSession)?;
+
+        let request = GetLegalMovesRequest {
+            session_id: session_id.clone(),
+            from_square,
+        };
+
+        let response = self.client.get_legal_moves(request).await?;
+        Ok(response.into_inner().moves)
+    }
+
+    async fn pause_session(&mut self) -> ClientResult<()> {
+        let session_id = self
+            .session_id
+            .as_ref()
+            .ok_or(ClientError::NoActiveSession)?;
+
+        let request = PauseSessionRequest {
+            session_id: session_id.clone(),
+        };
+
+        self.client.pause_session(request).await?;
+        Ok(())
+    }
+
+    async fn resume_session(&mut self) -> ClientResult<()> {
+        let session_id = self
+            .session_id
+            .as_ref()
+            .ok_or(ClientError::NoActiveSession)?;
+
+        let request = ResumeSessionRequest {
+            session_id: session_id.clone(),
+        };
+
+        self.client.resume_session(request).await?;
+        Ok(())
+    }
+
+    async fn set_engine(
+        &mut self,
+        enabled: bool,
+        skill_level: u8,
+        threads: u32,
+        hash_mb: u32,
+    ) -> ClientResult<()> {
+        let session_id = self
+            .session_id
+            .as_ref()
+            .ok_or(ClientError::NoActiveSession)?;
+
+        let request = SetEngineRequest {
+            session_id: session_id.clone(),
+            enabled,
+            skill_level: skill_level as u32,
+            threads: Some(threads),
+            hash_mb: Some(hash_mb),
+        };
+
+        self.client.set_engine(request).await?;
+        Ok(())
+    }
+
+    async fn stream_session_events(
+        &mut self,
+    ) -> ClientResult<tonic::Streaming<SessionStreamEvent>> {
+        let session_id = self
+            .session_id
+            .as_ref()
+            .ok_or(ClientError::NoActiveSession)?;
+
+        let request = StreamEventsRequest {
+            session_id: session_id.clone(),
+        };
+
+        let response = self.client.stream_events(request).await?;
+        Ok(response.into_inner())
+    }
+}

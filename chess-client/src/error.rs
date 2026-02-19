@@ -20,4 +20,7 @@ pub enum ClientError {
 
     #[error("Server returned invalid data: {0}")]
     InvalidData(String),
+
+    #[error("Mock response not configured for: {0}")]
+    NotConfigured(String),
 }
