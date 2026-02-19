@@ -90,7 +90,7 @@ impl Control {
     }
 }
 
-/// Overlay types - dialogs and expanded panels
+/// Overlay types - dialogs
 /// Note: Dialog state is managed in GameSession, this just tracks what's active
 #[derive(Clone, Debug, PartialEq)]
 pub enum Overlay {
@@ -98,7 +98,6 @@ pub enum Overlay {
     PopupMenu,
     SnapshotDialog,
     PromotionDialog { from: Square, to: Square },
-    ExpandedPanel { component: Component },
 }
 
 impl Default for Overlay {
@@ -349,6 +348,84 @@ impl Layout {
         }
     }
 
+    /// Game board layout with expanded pane replacing board:
+    /// Row 1: [Expanded Pane 75%] [Info/Engine/History 25%]
+    /// Row 2: [Controls 100%]
+    pub fn game_board_with_pane(component: Component) -> Self {
+        Self {
+            rows: vec![
+                Row::new(
+                    Constraint::Percentage(95),
+                    vec![
+                        // Left column: expanded pane (takes 75% that board normally occupies)
+                        Column::component(Constraint::Percentage(75), component),
+                        // Right panel stays in same position (25%)
+                        Column::nested(
+                            Constraint::Percentage(25),
+                            vec![
+                                Column::component(Constraint::Length(8), Component::InfoPanel),
+                                Column::component(Constraint::Length(12), Component::EnginePanel),
+                                Column::component(Constraint::Min(10), Component::HistoryPanel),
+                            ],
+                        ),
+                    ],
+                ),
+                Row::new(
+                    Constraint::Length(1),
+                    vec![Column::component(
+                        Constraint::Percentage(100),
+                        Component::Controls,
+                    )],
+                ),
+            ],
+            overlay: Overlay::None,
+        }
+    }
+
+    /// Review board layout with expanded pane replacing board:
+    /// Row 1: [Advanced/ReviewSummary 20%] [Expanded Pane 55%] [Info/History 25%]
+    /// Row 2: [Controls 100%]
+    pub fn review_board_with_pane(component: Component) -> Self {
+        Self {
+            rows: vec![
+                Row::new(
+                    Constraint::Percentage(95),
+                    vec![
+                        // Left: Advanced Analysis (35%) + Review Summary
+                        Column::nested(
+                            Constraint::Percentage(20),
+                            vec![
+                                Column::component(
+                                    Constraint::Percentage(35),
+                                    Component::AdvancedAnalysis,
+                                ),
+                                Column::component(Constraint::Min(10), Component::ReviewSummary),
+                            ],
+                        ),
+                        // Center: expanded pane (takes 55% that board normally occupies)
+                        Column::component(Constraint::Percentage(55), component),
+                        // Right: Game Info + Move History
+                        Column::nested(
+                            Constraint::Percentage(25),
+                            vec![
+                                Column::component(Constraint::Length(8), Component::InfoPanel),
+                                Column::component(Constraint::Min(10), Component::HistoryPanel),
+                            ],
+                        ),
+                    ],
+                ),
+                Row::new(
+                    Constraint::Length(1),
+                    vec![Column::component(
+                        Constraint::Percentage(100),
+                        Component::Controls,
+                    )],
+                ),
+            ],
+            overlay: Overlay::None,
+        }
+    }
+
     /// Match summary layout - just controls at bottom
     pub fn match_summary() -> Self {
         Self {
@@ -416,5 +493,23 @@ impl RenderSpec {
         };
         spec.expanded_panel = expanded_panel;
         spec
+    }
+
+    /// Game board layout with expanded pane (pane replaces board in center column)
+    pub fn game_board_with_pane(component: Component) -> Self {
+        Self {
+            view: View::GameBoard,
+            layout: Layout::game_board_with_pane(component),
+            expanded_panel: Some(component),
+        }
+    }
+
+    /// Review board layout with expanded pane (pane replaces board in center column)
+    pub fn review_board_with_pane(component: Component) -> Self {
+        Self {
+            view: View::ReviewBoard,
+            layout: Layout::review_board_with_pane(component),
+            expanded_panel: Some(component),
+        }
     }
 }

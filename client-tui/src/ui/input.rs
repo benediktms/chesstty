@@ -1,7 +1,7 @@
 use crate::state::{GameMode, GameSession};
 use crate::ui::fsm::component_manager::FocusMode;
 use crate::ui::fsm::render_spec::InputPhase;
-use crate::ui::fsm::{Component, UiStateMachine};
+use crate::ui::fsm::{Component, UiState, UiStateMachine};
 use crate::ui::menu_app::GameConfig;
 use crate::ui::widgets::popup_menu::{PopupMenuItem, PopupMenuState};
 use crate::ui::widgets::snapshot_dialog::{SnapshotDialogFocus, SnapshotDialogState};
@@ -600,6 +600,11 @@ fn handle_component_selected_context(
         }
         KeyCode::Enter => {
             if component.is_expandable() {
+                if matches!(state.mode, GameMode::ReviewMode) {
+                    fsm.current_state = UiState::review_board_pane_focused(component);
+                } else {
+                    fsm.current_state = UiState::game_board_pane_focused(component);
+                }
                 fsm.component_manager.expand_component(component);
             }
         }

@@ -31,7 +31,9 @@ impl Default for AppContext {
 pub enum UiState {
     StartScreen(StartScreenState),
     GameBoard(GameBoardState),
+    GameBoardPaneFocused(GameBoardPaneFocusedState),
     ReviewBoard(ReviewBoardState),
+    ReviewBoardPaneFocused(ReviewBoardPaneFocusedState),
     MatchSummary(MatchSummaryState),
 }
 
@@ -50,7 +52,9 @@ impl UiState {
         match self {
             UiState::StartScreen(state) => &state.render_spec,
             UiState::GameBoard(state) => &state.render_spec,
+            UiState::GameBoardPaneFocused(state) => &state.render_spec,
             UiState::ReviewBoard(state) => &state.render_spec,
+            UiState::ReviewBoardPaneFocused(state) => &state.render_spec,
             UiState::MatchSummary(state) => &state.render_spec,
         }
     }
@@ -61,7 +65,9 @@ impl UiState {
         match self {
             UiState::StartScreen(state) => state.render_spec.layout.clone(),
             UiState::GameBoard(state) => state.layout(shared),
+            UiState::GameBoardPaneFocused(state) => state.layout(shared),
             UiState::ReviewBoard(state) => state.layout(shared),
+            UiState::ReviewBoardPaneFocused(state) => state.layout(shared),
             UiState::MatchSummary(state) => state.render_spec.layout.clone(),
         }
     }
@@ -70,7 +76,9 @@ impl UiState {
         match self {
             UiState::StartScreen(state) => &state.controls,
             UiState::GameBoard(state) => &state.controls,
+            UiState::GameBoardPaneFocused(state) => &state.controls,
             UiState::ReviewBoard(state) => &state.controls,
+            UiState::ReviewBoardPaneFocused(state) => &state.controls,
             UiState::MatchSummary(state) => &state.controls,
         }
     }
@@ -79,8 +87,16 @@ impl UiState {
         UiState::GameBoard(GameBoardState::default())
     }
 
+    pub fn game_board_pane_focused(component: Component) -> Self {
+        UiState::GameBoardPaneFocused(GameBoardPaneFocusedState::new(component))
+    }
+
     pub fn review_board() -> Self {
         UiState::ReviewBoard(ReviewBoardState::default())
+    }
+
+    pub fn review_board_pane_focused(component: Component) -> Self {
+        UiState::ReviewBoardPaneFocused(ReviewBoardPaneFocusedState::new(component))
     }
 
     pub fn match_summary() -> Self {
@@ -200,6 +216,98 @@ impl UiStateMachine {
     }
 
     #[state]
+    fn game_board_pane_focused(&mut self, event: &UiEvent) -> Outcome<State> {
+        match event {
+            UiEvent::Key(key) => {
+                use crossterm::event::KeyCode;
+                match key.code {
+                    KeyCode::Up | KeyCode::Char('k') => {
+                        if let UiState::GameBoardPaneFocused(state) = &mut self.current_state {
+                            let scroll =
+                                self.component_manager.scroll_mut(&state.focused_component);
+                            *scroll = scroll.saturating_sub(5);
+                        }
+                        Outcome::Handled
+                    }
+                    KeyCode::Down | KeyCode::Char('j') => {
+                        if let UiState::GameBoardPaneFocused(state) = &mut self.current_state {
+                            let scroll =
+                                self.component_manager.scroll_mut(&state.focused_component);
+                            *scroll = scroll.saturating_add(5);
+                        }
+                        Outcome::Handled
+                    }
+                    KeyCode::PageUp => {
+                        if let UiState::GameBoardPaneFocused(state) = &mut self.current_state {
+                            *self.component_manager.scroll_mut(&state.focused_component) = 0;
+                        }
+                        Outcome::Handled
+                    }
+                    KeyCode::PageDown => {
+                        if let UiState::GameBoardPaneFocused(state) = &mut self.current_state {
+                            *self.component_manager.scroll_mut(&state.focused_component) = u16::MAX;
+                        }
+                        Outcome::Handled
+                    }
+                    KeyCode::Esc => {
+                        self.component_manager.clear_focus();
+                        self.current_state = UiState::game_board();
+                        Outcome::Transition(State::game_board())
+                    }
+                    _ => Outcome::Handled,
+                }
+            }
+            _ => Outcome::Handled,
+        }
+    }
+
+    #[state]
+    fn review_board_pane_focused(&mut self, event: &UiEvent) -> Outcome<State> {
+        match event {
+            UiEvent::Key(key) => {
+                use crossterm::event::KeyCode;
+                match key.code {
+                    KeyCode::Up | KeyCode::Char('k') => {
+                        if let UiState::ReviewBoardPaneFocused(state) = &mut self.current_state {
+                            let scroll =
+                                self.component_manager.scroll_mut(&state.focused_component);
+                            *scroll = scroll.saturating_sub(5);
+                        }
+                        Outcome::Handled
+                    }
+                    KeyCode::Down | KeyCode::Char('j') => {
+                        if let UiState::ReviewBoardPaneFocused(state) = &mut self.current_state {
+                            let scroll =
+                                self.component_manager.scroll_mut(&state.focused_component);
+                            *scroll = scroll.saturating_add(5);
+                        }
+                        Outcome::Handled
+                    }
+                    KeyCode::PageUp => {
+                        if let UiState::ReviewBoardPaneFocused(state) = &mut self.current_state {
+                            *self.component_manager.scroll_mut(&state.focused_component) = 0;
+                        }
+                        Outcome::Handled
+                    }
+                    KeyCode::PageDown => {
+                        if let UiState::ReviewBoardPaneFocused(state) = &mut self.current_state {
+                            *self.component_manager.scroll_mut(&state.focused_component) = u16::MAX;
+                        }
+                        Outcome::Handled
+                    }
+                    KeyCode::Esc => {
+                        self.component_manager.clear_focus();
+                        self.current_state = UiState::review_board();
+                        Outcome::Transition(State::review_board())
+                    }
+                    _ => Outcome::Handled,
+                }
+            }
+            _ => Outcome::Handled,
+        }
+    }
+
+    #[state]
     fn match_summary(&mut self, event: &UiEvent) -> Outcome<State> {
         match event {
             UiEvent::Key(key) => {
@@ -286,11 +394,6 @@ impl UiStateMachine {
         // Check for snapshot dialog
         if self.snapshot_dialog.is_some() {
             return Overlay::SnapshotDialog;
-        }
-
-        // Check for expanded panel via component_manager
-        if let Some(component) = self.component_manager.expanded_component() {
-            return Overlay::ExpandedPanel { component };
         }
 
         Overlay::None
