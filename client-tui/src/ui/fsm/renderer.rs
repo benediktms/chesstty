@@ -21,10 +21,16 @@ impl Renderer {
         let row_areas = Self::split_vertical(area, &layout.rows);
 
         for (row, row_area) in layout.rows.iter().zip(row_areas.iter()) {
-            let col_areas = Self::split_horizontal(*row_area, &row.columns);
+            let section_areas = Self::split_horizontal(*row_area, &row.sections);
 
-            for (col, col_area) in row.columns.iter().zip(col_areas.iter()) {
-                Self::render_column_content(frame, *col_area, &col.content, game_session, fsm);
+            for (section, section_area) in row.sections.iter().zip(section_areas.iter()) {
+                Self::render_section_content(
+                    frame,
+                    *section_area,
+                    &section.content,
+                    game_session,
+                    fsm,
+                );
             }
         }
 
@@ -51,12 +57,15 @@ impl Renderer {
             .to_vec()
     }
 
-    fn split_horizontal(area: Rect, columns: &[crate::ui::fsm::render_spec::Column]) -> Vec<Rect> {
-        if columns.is_empty() {
+    fn split_horizontal(
+        area: Rect,
+        sections: &[crate::ui::fsm::render_spec::Section],
+    ) -> Vec<Rect> {
+        if sections.is_empty() {
             return vec![];
         }
 
-        let constraints: Vec<ratatui::layout::Constraint> = columns
+        let constraints: Vec<ratatui::layout::Constraint> = sections
             .iter()
             .map(|c| Self::to_constraint(&c.constraint))
             .collect();
@@ -70,13 +79,13 @@ impl Renderer {
 
     fn split_vertical_nested(
         area: Rect,
-        columns: &[crate::ui::fsm::render_spec::Column],
+        sections: &[crate::ui::fsm::render_spec::Section],
     ) -> Vec<Rect> {
-        if columns.is_empty() {
+        if sections.is_empty() {
             return vec![];
         }
 
-        let constraints: Vec<ratatui::layout::Constraint> = columns
+        let constraints: Vec<ratatui::layout::Constraint> = sections
             .iter()
             .map(|c| Self::to_constraint(&c.constraint))
             .collect();
@@ -97,21 +106,27 @@ impl Renderer {
         }
     }
 
-    fn render_column_content(
+    fn render_section_content(
         frame: &mut Frame,
         area: Rect,
-        content: &crate::ui::fsm::render_spec::ColumnContent,
+        content: &crate::ui::fsm::render_spec::SectionContent,
         game_session: &GameSession,
         fsm: &UiStateMachine,
     ) {
         match content {
-            crate::ui::fsm::render_spec::ColumnContent::Component(component) => {
+            crate::ui::fsm::render_spec::SectionContent::Component(component) => {
                 Self::render_component(frame, area, component, game_session, fsm);
             }
-            crate::ui::fsm::render_spec::ColumnContent::Nested(columns) => {
-                let col_areas = Self::split_vertical_nested(area, columns);
-                for (col, col_area) in columns.iter().zip(col_areas.iter()) {
-                    Self::render_column_content(frame, *col_area, &col.content, game_session, fsm);
+            crate::ui::fsm::render_spec::SectionContent::Nested(sections) => {
+                let section_areas = Self::split_vertical_nested(area, sections);
+                for (section, section_area) in sections.iter().zip(section_areas.iter()) {
+                    Self::render_section_content(
+                        frame,
+                        *section_area,
+                        &section.content,
+                        game_session,
+                        fsm,
+                    );
                 }
             }
         }

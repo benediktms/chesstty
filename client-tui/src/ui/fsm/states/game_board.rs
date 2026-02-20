@@ -1,7 +1,7 @@
 use crate::state::GameMode;
 use crate::ui::fsm::render_spec::{
-    Column, ColumnContent, Component, Constraint, Control, InputPhase, Layout, Overlay, RenderSpec,
-    Row, TabInputState,
+    Component, Constraint, Control, InputPhase, Layout, Overlay, RenderSpec, Row, Section,
+    SectionContent, TabInputState,
 };
 use crate::ui::widgets::popup_menu::PopupMenuState;
 use crate::ui::widgets::snapshot_dialog::SnapshotDialogState;
@@ -81,8 +81,9 @@ impl GameBoardState {
 
         // Panels navigation
         controls.push(Control::new("Tab", "Panels"));
-        controls.push(Control::new("←→", "Select"));
-        controls.push(Control::new("↑↓", "Scroll"));
+        controls.push(Control::new("h/l", "Section"));
+        controls.push(Control::new("j/k", "Next"));
+        controls.push(Control::new("S+j/k", "Scroll"));
 
         // UCI debug
         controls.push(Control::new("@", "UCI"));
@@ -100,32 +101,32 @@ impl GameBoardState {
     /// Takes shared UiStateMachine for accessing pane_manager, tab_input, etc.
     pub fn layout(&self, shared: &crate::ui::fsm::UiStateMachine) -> Layout {
         // Build center column - board with optional tab input
-        let mut center_columns = vec![Column::component(Constraint::Min(10), Component::Board)];
+        let mut center_columns = vec![Section::component(Constraint::Min(10), Component::Board)];
 
         // Only include TabInput if active (from shared state)
         if shared.tab_input.active {
-            center_columns.push(Column::component(
+            center_columns.push(Section::component(
                 Constraint::Length(3),
                 Component::TabInput,
             ));
         }
 
         // Build right column - stacked: GameInfo → EngineAnalysis → MoveHistory
-        let mut right_columns = vec![Column::component(
+        let mut right_columns = vec![Section::component(
             Constraint::Length(8),
             Component::InfoPanel,
         )];
 
         // Only include EnginePanel if visible (from shared state)
         if shared.component_manager.is_visible(&Component::EnginePanel) {
-            right_columns.push(Column::component(
+            right_columns.push(Section::component(
                 Constraint::Length(12),
                 Component::EnginePanel,
             ));
         }
 
         // Move history takes remaining space
-        right_columns.push(Column::component(
+        right_columns.push(Section::component(
             Constraint::Min(10),
             Component::HistoryPanel,
         ));
@@ -137,13 +138,13 @@ impl GameBoardState {
                     Constraint::Percentage(95),
                     vec![
                         // Left column empty (space redistributed to center/right)
-                        Column::nested(Constraint::Percentage(75), center_columns),
-                        Column::nested(Constraint::Percentage(25), right_columns),
+                        Section::nested(Constraint::Percentage(75), center_columns),
+                        Section::nested(Constraint::Percentage(25), right_columns),
                     ],
                 ),
                 Row::new(
                     Constraint::Length(1),
-                    vec![Column::component(
+                    vec![Section::component(
                         Constraint::Percentage(100),
                         Component::Controls,
                     )],

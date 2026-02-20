@@ -428,6 +428,48 @@ mod tab_order_tests {
         cm.select_component(next);
         assert_eq!(cm.selected_component(), Some(Component::HistoryPanel));
     }
+
+    #[test]
+    fn component_manager_in_section_navigation() {
+        let cm = ComponentManager::game_board();
+        let layout = Layout::game_board();
+
+        // In game_board layout, InfoPanel, EnginePanel, HistoryPanel are all in section 1
+        // Starting from InfoPanel, next_in_section should go to EnginePanel
+        assert_eq!(
+            cm.next_in_section(Component::InfoPanel, &layout),
+            Some(Component::EnginePanel)
+        );
+
+        // From EnginePanel, next_in_section should go to HistoryPanel
+        assert_eq!(
+            cm.next_in_section(Component::EnginePanel, &layout),
+            Some(Component::HistoryPanel)
+        );
+
+        // From HistoryPanel, should wrap to InfoPanel
+        assert_eq!(
+            cm.next_in_section(Component::HistoryPanel, &layout),
+            Some(Component::InfoPanel)
+        );
+
+        // prev_in_section should work in reverse
+        assert_eq!(
+            cm.prev_in_section(Component::HistoryPanel, &layout),
+            Some(Component::EnginePanel)
+        );
+
+        assert_eq!(
+            cm.prev_in_section(Component::EnginePanel, &layout),
+            Some(Component::InfoPanel)
+        );
+
+        // From InfoPanel, should wrap to HistoryPanel
+        assert_eq!(
+            cm.prev_in_section(Component::InfoPanel, &layout),
+            Some(Component::HistoryPanel)
+        );
+    }
 }
 
 mod review_tab_order_tests {

@@ -558,12 +558,12 @@ fn handle_component_selected_context(
     let layout = fsm.layout(state);
     match key.code {
         KeyCode::Left | KeyCode::Char('h') => {
-            if let Some(prev) = fsm.component_manager.prev_component(component, &layout) {
+            if let Some(prev) = fsm.component_manager.prev_section(component, &layout) {
                 fsm.component_manager.select_component(prev);
             }
         }
         KeyCode::Right | KeyCode::Char('l') => {
-            if let Some(next) = fsm.component_manager.next_component(component, &layout) {
+            if let Some(next) = fsm.component_manager.next_section(component, &layout) {
                 fsm.component_manager.select_component(next);
             }
         }
@@ -584,13 +584,31 @@ fn handle_component_selected_context(
         KeyCode::Char('2') if component == Component::ReviewSummary => {
             fsm.review_tab = 1;
         }
-        KeyCode::Up | KeyCode::Char('k') => {
+        KeyCode::Up | KeyCode::Char('j') if key.modifiers.contains(KeyModifiers::SHIFT) => {
             let scroll = fsm.component_manager.scroll_mut(&component);
             *scroll = scroll.saturating_sub(5);
         }
-        KeyCode::Down | KeyCode::Char('j') => {
+        KeyCode::Down | KeyCode::Char('k') if key.modifiers.contains(KeyModifiers::SHIFT) => {
             let scroll = fsm.component_manager.scroll_mut(&component);
             *scroll = scroll.saturating_add(5);
+        }
+        KeyCode::Char('J') => {
+            let scroll = fsm.component_manager.scroll_mut(&component);
+            *scroll = scroll.saturating_sub(5);
+        }
+        KeyCode::Char('K') => {
+            let scroll = fsm.component_manager.scroll_mut(&component);
+            *scroll = scroll.saturating_add(5);
+        }
+        KeyCode::Up | KeyCode::Char('j') => {
+            if let Some(next) = fsm.component_manager.next_in_section(component, &layout) {
+                fsm.component_manager.select_component(next);
+            }
+        }
+        KeyCode::Down | KeyCode::Char('k') => {
+            if let Some(prev) = fsm.component_manager.prev_in_section(component, &layout) {
+                fsm.component_manager.select_component(prev);
+            }
         }
         KeyCode::PageUp => {
             *fsm.component_manager.scroll_mut(&component) = 0;

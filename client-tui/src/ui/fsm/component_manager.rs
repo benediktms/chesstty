@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use super::component::Component;
-use super::render_spec::{Column, ColumnContent, Layout, Row};
+use super::render_spec::{Layout, Section, SectionContent};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum FocusMode {
@@ -138,17 +138,17 @@ impl ComponentManager {
         }
     }
 
-    fn flatten_columns(&self, columns: &[Column]) -> Vec<Component> {
+    fn flatten_sections(&self, sections: &[Section]) -> Vec<Component> {
         let mut result = Vec::new();
-        for column in columns {
-            match &column.content {
-                ColumnContent::Component(component) => {
+        for section in sections {
+            match &section.content {
+                SectionContent::Component(component) => {
                     if component.is_selectable() && self.is_visible(component) {
                         result.push(*component);
                     }
                 }
-                ColumnContent::Nested(nested_columns) => {
-                    result.extend(self.flatten_columns(nested_columns));
+                SectionContent::Nested(nested_sections) => {
+                    result.extend(self.flatten_sections(nested_sections));
                 }
             }
         }
@@ -158,7 +158,7 @@ impl ComponentManager {
     pub fn tab_order(&self, layout: &Layout) -> Vec<Component> {
         let mut result = Vec::new();
         for row in &layout.rows {
-            result.extend(self.flatten_columns(&row.columns));
+            result.extend(self.flatten_sections(&row.sections));
         }
         result
     }
@@ -188,6 +188,110 @@ impl ComponentManager {
         match current_idx {
             Some(idx) => Some(selectable[(idx + selectable.len() - 1) % selectable.len()]),
             None => selectable.last().copied(),
+        }
+    }
+
+    pub fn section_index(&self, component: Component, layout: &Layout) -> Option<usize> {
+        let sections_by_pos = self.sections_by_position(layout);
+        for (section_idx, sections) in sections_by_pos.into_iter().enumerate() {
+            for section in sections {
+                if self.section_contains_component(component, &section) {
+                    return Some(section_idx);
+                }
+            }
+        }
+        None
+    }
+
+    pub fn components_in_section(&self, section_index: usize, layout: &Layout) -> Vec<Component> {
+        let sections_by_pos = self.sections_by_position(layout);
+        sections_by_pos
+            .get(section_index)
+            .map(|sections| self.flatten_sections(sections.as_slice()))
+            .unwrap_or_default()
+    }
+
+    pub fn next_in_section(&self, current: Component, layout: &Layout) -> Option<Component> {
+        let section_idx = self.section_index(current, layout)?;
+        let components = self.components_in_section(section_idx, layout);
+        if components.is_empty() {
+            return None;
+        }
+        let current_idx = components.iter().position(|c| *c == current);
+        match current_idx {
+            Some(idx) => Some(components[(idx + 1) % components.len()]),
+            None => components.first().copied(),
+        }
+    }
+
+    pub fn prev_in_section(&self, current: Component, layout: &Layout) -> Option<Component> {
+        let section_idx = self.section_index(current, layout)?;
+        let components = self.components_in_section(section_idx, layout);
+        if components.is_empty() {
+            return None;
+        }
+        let current_idx = components.iter().position(|c| *c == current);
+        match current_idx {
+            Some(idx) => Some(components[(idx + components.len() - 1) % components.len()]),
+            None => components.last().copied(),
+        }
+    }
+
+    pub fn next_section(&self, current: Component, layout: &Layout) -> Option<Component> {
+        let section_idx = self.section_index(current, layout)?;
+        let sections_by_pos = self.sections_by_position(layout);
+        let num_sections = sections_by_pos.len();
+        if num_sections == 0 {
+            return None;
+        }
+        let next_section_idx = (section_idx + 1) % num_sections;
+        self.components_in_section(next_section_idx, layout)
+            .into_iter()
+            .next()
+    }
+
+    pub fn prev_section(&self, current: Component, layout: &Layout) -> Option<Component> {
+        let section_idx = self.section_index(current, layout)?;
+        let sections_by_pos = self.sections_by_position(layout);
+        let num_sections = sections_by_pos.len();
+        if num_sections == 0 {
+            return None;
+        }
+        let prev_section_idx = if section_idx == 0 {
+            num_sections - 1
+        } else {
+            section_idx - 1
+        };
+        self.components_in_section(prev_section_idx, layout)
+            .into_iter()
+            .next()
+    }
+
+    fn sections_by_position(&self, layout: &Layout) -> Vec<Vec<Section>> {
+        let max_sections = layout
+            .rows
+            .iter()
+            .map(|r| r.sections.len())
+            .max()
+            .unwrap_or(0);
+        let mut result: Vec<Vec<Section>> = vec![Vec::new(); max_sections];
+        let content_rows = layout.rows.len().saturating_sub(1);
+        for row in layout.rows.iter().take(content_rows) {
+            for (section_idx, section) in row.sections.iter().enumerate() {
+                if section_idx < result.len() {
+                    result[section_idx].push(section.clone());
+                }
+            }
+        }
+        result
+    }
+
+    fn section_contains_component(&self, component: Component, section: &Section) -> bool {
+        match &section.content {
+            SectionContent::Component(c) => *c == component,
+            SectionContent::Nested(nested) => nested
+                .iter()
+                .any(|section| self.section_contains_component(component, section)),
         }
     }
 

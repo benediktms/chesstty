@@ -1,6 +1,6 @@
 use crate::ui::fsm::render_spec::{
-    Column, ColumnContent, Component, Constraint, Control, Layout, Overlay, RenderSpec,
-    ReviewUIState, Row,
+    Component, Constraint, Control, Layout, Overlay, RenderSpec, ReviewUIState, Row, Section,
+    SectionContent,
 };
 
 #[derive(Clone, Debug)]
@@ -86,14 +86,14 @@ impl ReviewBoardState {
     pub fn layout(&self, _shared: &crate::ui::fsm::UiStateMachine) -> Layout {
         // Left column: Advanced Analysis (35%) on top, Review Summary below
         let left_columns = vec![
-            Column::component(Constraint::Percentage(35), Component::AdvancedAnalysis),
-            Column::component(Constraint::Min(10), Component::ReviewSummary),
+            Section::component(Constraint::Percentage(35), Component::AdvancedAnalysis),
+            Section::component(Constraint::Min(10), Component::ReviewSummary),
         ];
 
         // Right column: Game Info on top, Move History below taking rest
         let right_columns = vec![
-            Column::component(Constraint::Length(8), Component::InfoPanel),
-            Column::component(Constraint::Min(10), Component::HistoryPanel),
+            Section::component(Constraint::Length(8), Component::InfoPanel),
+            Section::component(Constraint::Min(10), Component::HistoryPanel),
         ];
 
         // Overlay is now set by UiStateMachine::layout()
@@ -102,14 +102,14 @@ impl ReviewBoardState {
                 Row::new(
                     Constraint::Percentage(95),
                     vec![
-                        Column::nested(Constraint::Percentage(20), left_columns),
-                        Column::component(Constraint::Percentage(55), Component::Board),
-                        Column::nested(Constraint::Percentage(25), right_columns),
+                        Section::nested(Constraint::Percentage(20), left_columns),
+                        Section::component(Constraint::Percentage(55), Component::Board),
+                        Section::nested(Constraint::Percentage(25), right_columns),
                     ],
                 ),
                 Row::new(
                     Constraint::Length(1),
-                    vec![Column::component(
+                    vec![Section::component(
                         Constraint::Percentage(100),
                         Component::Controls,
                     )],

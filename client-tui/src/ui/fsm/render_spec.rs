@@ -195,28 +195,28 @@ impl Default for Constraint {
     }
 }
 
-/// Column content - either a component or nested columns
+/// Section content - either a component or nested sections
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum ColumnContent {
+pub enum SectionContent {
     Component(Component),
-    Nested(Vec<Column>),
+    Nested(Vec<Section>),
 }
 
-impl Default for ColumnContent {
+impl Default for SectionContent {
     fn default() -> Self {
-        ColumnContent::Component(Component::Board)
+        SectionContent::Component(Component::Board)
     }
 }
 
-/// A column in a layout row
+/// A section in a layout row
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
-pub struct Column {
+pub struct Section {
     pub constraint: Constraint,
-    pub content: ColumnContent,
+    pub content: SectionContent,
 }
 
-impl Column {
-    pub fn new(constraint: Constraint, content: ColumnContent) -> Self {
+impl Section {
+    pub fn new(constraint: Constraint, content: SectionContent) -> Self {
         Self {
             constraint,
             content,
@@ -226,14 +226,14 @@ impl Column {
     pub fn component(constraint: Constraint, component: Component) -> Self {
         Self {
             constraint,
-            content: ColumnContent::Component(component),
+            content: SectionContent::Component(component),
         }
     }
 
-    pub fn nested(constraint: Constraint, columns: Vec<Column>) -> Self {
+    pub fn nested(constraint: Constraint, sections: Vec<Section>) -> Self {
         Self {
             constraint,
-            content: ColumnContent::Nested(columns),
+            content: SectionContent::Nested(sections),
         }
     }
 }
@@ -242,12 +242,12 @@ impl Column {
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Row {
     pub height: Constraint,
-    pub columns: Vec<Column>,
+    pub sections: Vec<Section>,
 }
 
 impl Row {
-    pub fn new(height: Constraint, columns: Vec<Column>) -> Self {
-        Self { height, columns }
+    pub fn new(height: Constraint, sections: Vec<Section>) -> Self {
+        Self { height, sections }
     }
 }
 
@@ -269,7 +269,7 @@ impl Layout {
     }
 
     /// Game board layout:
-    /// Row 1: [Board 75%] [Info/Engine/History 25%]
+    /// Row 1: [Board 50%] [InfoPanel 12%] [EnginePanel 13%] [HistoryPanel 25%]
     /// Row 2: [Controls 100%]
     pub fn game_board() -> Self {
         Self {
@@ -277,24 +277,15 @@ impl Layout {
                 Row::new(
                     Constraint::Percentage(95),
                     vec![
-                        // Left column empty (space redistributed)
-                        Column::nested(
-                            Constraint::Percentage(75),
-                            vec![Column::component(Constraint::Min(10), Component::Board)],
-                        ),
-                        Column::nested(
-                            Constraint::Percentage(25),
-                            vec![
-                                Column::component(Constraint::Length(8), Component::InfoPanel),
-                                Column::component(Constraint::Length(12), Component::EnginePanel),
-                                Column::component(Constraint::Min(10), Component::HistoryPanel),
-                            ],
-                        ),
+                        Section::component(Constraint::Percentage(50), Component::Board),
+                        Section::component(Constraint::Percentage(12), Component::InfoPanel),
+                        Section::component(Constraint::Percentage(13), Component::EnginePanel),
+                        Section::component(Constraint::Percentage(25), Component::HistoryPanel),
                     ],
                 ),
                 Row::new(
                     Constraint::Length(1),
-                    vec![Column::component(
+                    vec![Section::component(
                         Constraint::Percentage(100),
                         Component::Controls,
                     )],
@@ -305,7 +296,7 @@ impl Layout {
     }
 
     /// Review board layout:
-    /// Row 1: [Advanced/ReviewSummary 20%] [Board 55%] [Info/History 25%]
+    /// Row 1: [AdvancedAnalysis 10%] [ReviewSummary 10%] [Board 45%] [InfoPanel 15%] [HistoryPanel 20%]
     /// Row 2: [Controls 100%]
     pub fn review_board() -> Self {
         Self {
@@ -313,32 +304,16 @@ impl Layout {
                 Row::new(
                     Constraint::Percentage(95),
                     vec![
-                        // Left: Advanced Analysis (35%) + Review Summary
-                        Column::nested(
-                            Constraint::Percentage(20),
-                            vec![
-                                Column::component(
-                                    Constraint::Percentage(35),
-                                    Component::AdvancedAnalysis,
-                                ),
-                                Column::component(Constraint::Min(10), Component::ReviewSummary),
-                            ],
-                        ),
-                        // Center: Board
-                        Column::component(Constraint::Percentage(55), Component::Board),
-                        // Right: Game Info + Move History
-                        Column::nested(
-                            Constraint::Percentage(25),
-                            vec![
-                                Column::component(Constraint::Length(8), Component::InfoPanel),
-                                Column::component(Constraint::Min(10), Component::HistoryPanel),
-                            ],
-                        ),
+                        Section::component(Constraint::Percentage(10), Component::AdvancedAnalysis),
+                        Section::component(Constraint::Percentage(10), Component::ReviewSummary),
+                        Section::component(Constraint::Percentage(45), Component::Board),
+                        Section::component(Constraint::Percentage(15), Component::InfoPanel),
+                        Section::component(Constraint::Percentage(20), Component::HistoryPanel),
                     ],
                 ),
                 Row::new(
                     Constraint::Length(1),
-                    vec![Column::component(
+                    vec![Section::component(
                         Constraint::Percentage(100),
                         Component::Controls,
                     )],
@@ -349,7 +324,7 @@ impl Layout {
     }
 
     /// Game board layout with expanded pane replacing board:
-    /// Row 1: [Expanded Pane 75%] [Info/Engine/History 25%]
+    /// Row 1: [Expanded Pane 50%] [InfoPanel 12%] [EnginePanel 13%] [HistoryPanel 25%]
     /// Row 2: [Controls 100%]
     pub fn game_board_with_pane(component: Component) -> Self {
         Self {
@@ -357,22 +332,15 @@ impl Layout {
                 Row::new(
                     Constraint::Percentage(95),
                     vec![
-                        // Left column: expanded pane (takes 75% that board normally occupies)
-                        Column::component(Constraint::Percentage(75), component),
-                        // Right panel stays in same position (25%)
-                        Column::nested(
-                            Constraint::Percentage(25),
-                            vec![
-                                Column::component(Constraint::Length(8), Component::InfoPanel),
-                                Column::component(Constraint::Length(12), Component::EnginePanel),
-                                Column::component(Constraint::Min(10), Component::HistoryPanel),
-                            ],
-                        ),
+                        Section::component(Constraint::Percentage(50), component),
+                        Section::component(Constraint::Percentage(12), Component::InfoPanel),
+                        Section::component(Constraint::Percentage(13), Component::EnginePanel),
+                        Section::component(Constraint::Percentage(25), Component::HistoryPanel),
                     ],
                 ),
                 Row::new(
                     Constraint::Length(1),
-                    vec![Column::component(
+                    vec![Section::component(
                         Constraint::Percentage(100),
                         Component::Controls,
                     )],
@@ -383,7 +351,7 @@ impl Layout {
     }
 
     /// Review board layout with expanded pane replacing board:
-    /// Row 1: [Advanced/ReviewSummary 20%] [Expanded Pane 55%] [Info/History 25%]
+    /// Row 1: [AdvancedAnalysis 10%] [ReviewSummary 10%] [Expanded Pane 45%] [InfoPanel 15%] [HistoryPanel 20%]
     /// Row 2: [Controls 100%]
     pub fn review_board_with_pane(component: Component) -> Self {
         Self {
@@ -391,32 +359,16 @@ impl Layout {
                 Row::new(
                     Constraint::Percentage(95),
                     vec![
-                        // Left: Advanced Analysis (35%) + Review Summary
-                        Column::nested(
-                            Constraint::Percentage(20),
-                            vec![
-                                Column::component(
-                                    Constraint::Percentage(35),
-                                    Component::AdvancedAnalysis,
-                                ),
-                                Column::component(Constraint::Min(10), Component::ReviewSummary),
-                            ],
-                        ),
-                        // Center: expanded pane (takes 55% that board normally occupies)
-                        Column::component(Constraint::Percentage(55), component),
-                        // Right: Game Info + Move History
-                        Column::nested(
-                            Constraint::Percentage(25),
-                            vec![
-                                Column::component(Constraint::Length(8), Component::InfoPanel),
-                                Column::component(Constraint::Min(10), Component::HistoryPanel),
-                            ],
-                        ),
+                        Section::component(Constraint::Percentage(10), Component::AdvancedAnalysis),
+                        Section::component(Constraint::Percentage(10), Component::ReviewSummary),
+                        Section::component(Constraint::Percentage(45), component),
+                        Section::component(Constraint::Percentage(15), Component::InfoPanel),
+                        Section::component(Constraint::Percentage(20), Component::HistoryPanel),
                     ],
                 ),
                 Row::new(
                     Constraint::Length(1),
-                    vec![Column::component(
+                    vec![Section::component(
                         Constraint::Percentage(100),
                         Component::Controls,
                     )],
@@ -431,7 +383,7 @@ impl Layout {
         Self {
             rows: vec![Row::new(
                 Constraint::Length(1),
-                vec![Column::component(
+                vec![Section::component(
                     Constraint::Percentage(100),
                     Component::Controls,
                 )],
