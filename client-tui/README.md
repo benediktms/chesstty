@@ -1,4 +1,4 @@
-# chesstty-tui - Terminal UI Client
+# client-tui - Terminal UI Client
 
 A ratatui-based terminal chess interface that renders the game board, info panels, and overlays. The TUI is a thin rendering layer; all game logic lives on the server.
 

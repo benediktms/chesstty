@@ -260,7 +260,7 @@ just server
 
 # Terminal 2: Start TUI client
 just tui
-# or: cargo run -p chesstty-tui
+# or: cargo run -p client-tui
 ```
 
 ### Development

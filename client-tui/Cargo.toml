@@ -1,10 +1,10 @@
 [package]
-name = "chesstty-tui"
+name = "client-tui"
 version = "0.1.0"
 edition = "2021"
 
 [[bin]]
-name = "chesstty-tui"
+name = "client-tui"
 path = "src/main.rs"
 
 [features]

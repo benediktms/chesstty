@@ -12,7 +12,7 @@ server:
 # Run the TUI client
 [group('app')]
 tui:
-    cargo run -p chesstty-tui
+    cargo run -p client-tui
 
 # Run all tests
 [group('test')]
