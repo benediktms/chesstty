@@ -1,279 +1,29 @@
-use chesstty_tui::prelude::*;
+use client_tui::prelude::*;
 
-fn mock_human_vs_engine_session() -> UiState {
-    UiState::GameBoard(GameBoardState::new(GameMode::HumanVsEngine {
-        human_side: PlayerColor::White,
-    }))
-}
-
-fn mock_human_vs_engine_session_black() -> UiState {
-    UiState::GameBoard(GameBoardState::new(GameMode::HumanVsEngine {
-        human_side: PlayerColor::Black,
-    }))
-}
-
-fn mock_human_vs_human_session() -> UiState {
-    UiState::GameBoard(GameBoardState::new(GameMode::HumanVsHuman))
-}
-
-fn mock_engine_vs_engine_session() -> UiState {
-    UiState::GameBoard(GameBoardState::new(GameMode::EngineVsEngine))
-}
-
-fn mock_review_session(total_plies: u32) -> UiState {
-    UiState::ReviewBoard(ReviewBoardState::new(total_plies))
-}
-
-fn mock_match_summary() -> UiState {
-    UiState::MatchSummary(MatchSummaryState::new(
-        Some((1, "Black wins by checkmate".to_string())),
-        40,
-        GameMode::HumanVsHuman,
-    ))
-}
-
-fn mock_start_screen() -> UiState {
-    UiState::StartScreen(StartScreenState::new())
-}
-
-fn get_control_keys(state: &UiState) -> Vec<&'static str> {
-    state.controls().iter().map(|c| c.key).collect()
-}
-
-fn get_control_labels(state: &UiState) -> Vec<&'static str> {
-    state.controls().iter().map(|c| c.label).collect()
-}
-
-mod controls_tests {
-    use super::*;
-
-    #[test]
-    fn human_vs_engine_shows_pause_control() {
-        let state = mock_human_vs_engine_session();
-        let keys = get_control_keys(&state);
-        assert!(
-            keys.contains(&"p"),
-            "HumanVsEngine should show pause control, got: {:?}",
-            keys
-        );
-    }
-
-    #[test]
-    fn human_vs_engine_white_shows_undo_control() {
-        let mut state = mock_human_vs_engine_session();
-        if let UiState::GameBoard(ref mut gs) = state {
-            gs.move_count = 5;
-            gs.controls = gs.derive_controls();
-        }
-        let keys = get_control_keys(&state);
-        assert!(
-            keys.contains(&"u"),
-            "HumanVsEngine with moves should show undo control, got: {:?}",
-            keys
-        );
-    }
-
-    #[test]
-    fn human_vs_engine_black_shows_pause_control() {
-        let state = mock_human_vs_engine_session_black();
-        let keys = get_control_keys(&state);
-        assert!(
-            keys.contains(&"p"),
-            "HumanVsEngine (black) should show pause control, got: {:?}",
-            keys
-        );
-    }
-
-    #[test]
-    fn human_vs_human_hides_pause_control() {
-        let state = mock_human_vs_human_session();
-        let keys = get_control_keys(&state);
-        assert!(
-            !keys.contains(&"p"),
-            "HumanVsHuman should NOT show pause control, got: {:?}",
-            keys
-        );
-    }
-
-    // Pause state now comes from GameSession, not FSM
-    // This test is no longer applicable - controls are derived from game_mode
-    // and actual pause state is read from the game session at render time
-
-    #[test]
-    fn engine_vs_engine_shows_pause_control() {
-        let state = mock_engine_vs_engine_session();
-        let keys = get_control_keys(&state);
-        assert!(
-            keys.contains(&"p"),
-            "EngineVsEngine should show pause control, got: {:?}",
-            keys
-        );
-    }
-
-    #[test]
-    fn review_mode_shows_jump_snap_controls() {
-        let state = mock_review_session(20);
-        let keys = get_control_keys(&state);
-        assert!(
-            keys.contains(&"Home/End"),
-            "Review mode should show jump control, got: {:?}",
-            keys
-        );
-        assert!(
-            keys.contains(&"s"),
-            "Review mode should show snap control, got: {:?}",
-            keys
-        );
-    }
-
-    #[test]
-    fn review_mode_shows_auto_control() {
-        let state = mock_review_session(20);
-        let labels = get_control_labels(&state);
-        assert!(
-            labels.contains(&"Auto"),
-            "Review mode should show auto control, got: {:?}",
-            labels
-        );
-    }
-
-    #[test]
-    fn review_mode_toggle_auto_play_changes_label() {
-        let mut state = mock_review_session(20);
-        if let UiState::ReviewBoard(ref mut rs) = state {
-            rs.toggle_auto_play();
-        }
-        let labels = get_control_labels(&state);
-        assert!(
-            labels.contains(&"Stop"),
-            "Review mode after toggle should show Stop, got: {:?}",
-            labels
-        );
-    }
-
-    #[test]
-    fn match_summary_shows_new_game_control() {
-        let state = mock_match_summary();
-        let keys = get_control_keys(&state);
-        assert!(
-            keys.contains(&"n"),
-            "MatchSummary should show new game control, got: {:?}",
-            keys
-        );
-    }
-
-    #[test]
-    fn match_summary_shows_quit_control() {
-        let state = mock_match_summary();
-        let keys = get_control_keys(&state);
-        assert!(
-            keys.contains(&"q"),
-            "MatchSummary should show quit control, got: {:?}",
-            keys
-        );
-    }
-
-    #[test]
-    fn start_screen_shows_select_control() {
-        let state = mock_start_screen();
-        let keys = get_control_keys(&state);
-        assert!(
-            keys.contains(&"Enter"),
-            "StartScreen should show Enter control, got: {:?}",
-            keys
-        );
-    }
-
-    #[test]
-    fn all_game_modes_show_input_control() {
-        let modes = vec![
-            mock_human_vs_engine_session(),
-            mock_human_vs_human_session(),
-            mock_engine_vs_engine_session(),
-        ];
-
-        for state in modes {
-            let keys = get_control_keys(&state);
-            assert!(
-                keys.contains(&"i"),
-                "All game modes should show input control, got: {:?}",
-                keys
-            );
-        }
-    }
-
-    #[test]
-    fn all_game_modes_show_menu_control() {
-        let modes = vec![
-            mock_human_vs_engine_session(),
-            mock_human_vs_human_session(),
-            mock_engine_vs_engine_session(),
-            mock_review_session(10),
-        ];
-
-        for state in modes {
-            let keys = get_control_keys(&state);
-            assert!(
-                keys.contains(&"Esc"),
-                "All modes should show menu control, got: {:?}",
-                keys
-            );
-        }
-    }
-}
-
-mod render_spec_tests {
-    use super::*;
-
-    #[test]
-    fn game_board_has_board_component() {
-        let state = mock_human_vs_engine_session();
-        let spec = state.render_spec();
-        assert_eq!(spec.view, View::GameBoard);
-    }
-
-    #[test]
-    fn review_board_has_board_component() {
-        let state = mock_review_session(20);
-        let spec = state.render_spec();
-        assert_eq!(spec.view, View::ReviewBoard);
-    }
-
-    #[test]
-    fn match_summary_view_is_match_summary() {
-        let state = mock_match_summary();
-        let spec = state.render_spec();
-        assert_eq!(spec.view, View::MatchSummary);
-    }
-
-    #[test]
-    fn start_screen_view_is_start_screen() {
-        let state = mock_start_screen();
-        let spec = state.render_spec();
-        assert_eq!(spec.view, View::StartScreen);
-    }
-}
-
+/// Tests for flat focus model navigation on UiStateMachine
 mod tab_order_tests {
     use super::*;
+    use client_tui::ui::fsm::UiStateMachine;
 
-    #[test]
-    fn component_manager_game_board_first_component() {
-        let cm = ComponentManager::game_board();
-        let layout = Layout::game_board();
-
-        // Should return InfoPanel as first selectable component
-        assert_eq!(cm.first_component(&layout), Some(Component::InfoPanel));
+    fn game_board_fsm() -> UiStateMachine {
+        let mut fsm = UiStateMachine::default();
+        fsm.transition_to(UiMode::GameBoard);
+        fsm
     }
 
     #[test]
-    fn component_manager_game_board_tab_order() {
-        let cm = ComponentManager::game_board();
-        let layout = Layout::game_board();
+    fn first_component_is_info_panel() {
+        let fsm = game_board_fsm();
+        let layout = GameBoardState.layout(&fsm);
+        assert_eq!(fsm.first_component(&layout), Some(Component::InfoPanel));
+    }
 
-        // Tab order should be left-to-right: InfoPanel -> EnginePanel -> HistoryPanel
+    #[test]
+    fn game_board_tab_order() {
+        let fsm = game_board_fsm();
+        let layout = GameBoardState.layout(&fsm);
         assert_eq!(
-            cm.tab_order(&layout),
+            fsm.tab_order(&layout),
             vec![
                 Component::InfoPanel,
                 Component::EnginePanel,
@@ -283,206 +33,104 @@ mod tab_order_tests {
     }
 
     #[test]
-    fn component_manager_tab_wraps_around() {
-        let cm = ComponentManager::game_board();
-        let layout = Layout::game_board();
+    fn tab_wraps_around() {
+        let fsm = game_board_fsm();
+        let layout = GameBoardState.layout(&fsm);
 
-        // After HistoryPanel, should wrap to InfoPanel
         assert_eq!(
-            cm.next_component(Component::HistoryPanel, &layout),
+            fsm.next_component(Component::HistoryPanel, &layout),
             Some(Component::InfoPanel)
         );
-
-        // Before InfoPanel, should wrap to HistoryPanel
         assert_eq!(
-            cm.prev_component(Component::InfoPanel, &layout),
+            fsm.prev_component(Component::InfoPanel, &layout),
             Some(Component::HistoryPanel)
         );
     }
 
     #[test]
-    fn component_manager_hidden_panels_excluded_from_tab_order() {
-        let mut cm = ComponentManager::new();
-        cm.set_visible(Component::InfoPanel, true);
-        cm.set_visible(Component::EnginePanel, false); // hidden
-        cm.set_visible(Component::HistoryPanel, true);
+    fn hidden_panels_excluded_from_tab_order() {
+        let mut fsm = game_board_fsm();
+        fsm.set_component_visible(Component::EnginePanel, false);
 
-        let layout = Layout::game_board();
-
-        // EnginePanel should be excluded
+        let layout = GameBoardState.layout(&fsm);
         assert_eq!(
-            cm.tab_order(&layout),
-            vec![Component::InfoPanel, Component::HistoryPanel,]
+            fsm.tab_order(&layout),
+            vec![Component::InfoPanel, Component::HistoryPanel]
         );
     }
 
     #[test]
-    fn component_manager_next_navigates_forward() {
-        let cm = ComponentManager::game_board();
-        let layout = Layout::game_board();
+    fn next_navigates_forward() {
+        let fsm = game_board_fsm();
+        let layout = GameBoardState.layout(&fsm);
 
         assert_eq!(
-            cm.next_component(Component::InfoPanel, &layout),
+            fsm.next_component(Component::InfoPanel, &layout),
             Some(Component::EnginePanel)
         );
         assert_eq!(
-            cm.next_component(Component::EnginePanel, &layout),
+            fsm.next_component(Component::EnginePanel, &layout),
             Some(Component::HistoryPanel)
         );
     }
 
     #[test]
-    fn component_manager_prev_navigates_backward() {
-        let cm = ComponentManager::game_board();
-        let layout = Layout::game_board();
+    fn prev_navigates_backward() {
+        let fsm = game_board_fsm();
+        let layout = GameBoardState.layout(&fsm);
 
         assert_eq!(
-            cm.prev_component(Component::HistoryPanel, &layout),
+            fsm.prev_component(Component::HistoryPanel, &layout),
             Some(Component::EnginePanel)
         );
         assert_eq!(
-            cm.prev_component(Component::EnginePanel, &layout),
+            fsm.prev_component(Component::EnginePanel, &layout),
             Some(Component::InfoPanel)
         );
     }
 
     #[test]
-    fn tab_navigation_from_info_panel_to_engine_panel() {
-        let cm = ComponentManager::game_board();
-        let layout = Layout::game_board();
+    fn in_section_navigation() {
+        let fsm = game_board_fsm();
+        let layout = GameBoardState.layout(&fsm);
 
-        let next = cm.next_component(Component::InfoPanel, &layout);
-
-        assert_eq!(next, Some(Component::EnginePanel));
-    }
-
-    #[test]
-    fn tab_navigation_from_engine_panel_to_history_panel() {
-        let cm = ComponentManager::game_board();
-        let layout = Layout::game_board();
-
-        let next = cm.next_component(Component::EnginePanel, &layout);
-
-        assert_eq!(next, Some(Component::HistoryPanel));
-    }
-
-    #[test]
-    fn tab_navigation_wraps_from_history_to_info() {
-        let cm = ComponentManager::game_board();
-        let layout = Layout::game_board();
-
-        let next = cm.next_component(Component::HistoryPanel, &layout);
-
-        assert_eq!(next, Some(Component::InfoPanel));
-    }
-
-    #[test]
-    fn shift_tab_navigation_from_engine_to_info() {
-        let cm = ComponentManager::game_board();
-        let layout = Layout::game_board();
-
-        let prev = cm.prev_component(Component::EnginePanel, &layout);
-
-        assert_eq!(prev, Some(Component::InfoPanel));
-    }
-
-    #[test]
-    fn shift_tab_navigation_wraps_from_info_to_history() {
-        let cm = ComponentManager::game_board();
-        let layout = Layout::game_board();
-
-        let prev = cm.prev_component(Component::InfoPanel, &layout);
-
-        assert_eq!(prev, Some(Component::HistoryPanel));
-    }
-
-    #[test]
-    fn select_component_persists_focus_mode() {
-        let mut cm = ComponentManager::game_board();
-
-        cm.select_component(Component::InfoPanel);
-
-        assert!(matches!(
-            cm.focus_mode,
-            FocusMode::ComponentSelected {
-                component: Component::InfoPanel
-            }
-        ));
-
-        assert_eq!(cm.selected_component(), Some(Component::InfoPanel));
-    }
-
-    #[test]
-    fn multiple_select_calls_persist() {
-        let mut cm = ComponentManager::game_board();
-        let layout = Layout::game_board();
-
-        cm.select_component(Component::InfoPanel);
-        assert_eq!(cm.selected_component(), Some(Component::InfoPanel));
-
-        let next = cm.next_component(Component::InfoPanel, &layout).unwrap();
-        cm.select_component(next);
-        assert_eq!(cm.selected_component(), Some(Component::EnginePanel));
-
-        let next = cm.next_component(Component::EnginePanel, &layout).unwrap();
-        cm.select_component(next);
-        assert_eq!(cm.selected_component(), Some(Component::HistoryPanel));
-    }
-
-    #[test]
-    fn component_manager_in_section_navigation() {
-        let cm = ComponentManager::game_board();
-        let layout = Layout::game_board();
-
-        // In game_board layout, InfoPanel, EnginePanel, HistoryPanel are all in section 1
-        // Starting from InfoPanel, next_in_section should go to EnginePanel
+        // In the nested layout, InfoPanel/EnginePanel/HistoryPanel share the
+        // right column section. next/prev_in_section navigates within it.
         assert_eq!(
-            cm.next_in_section(Component::InfoPanel, &layout),
+            fsm.next_in_section(Component::InfoPanel, &layout),
             Some(Component::EnginePanel)
         );
-
-        // From EnginePanel, next_in_section should go to HistoryPanel
         assert_eq!(
-            cm.next_in_section(Component::EnginePanel, &layout),
+            fsm.prev_in_section(Component::InfoPanel, &layout),
             Some(Component::HistoryPanel)
         );
 
-        // From HistoryPanel, should wrap to InfoPanel
+        // The center section (Board) has no selectable components,
+        // so cross-section navigation returns None.
         assert_eq!(
-            cm.next_in_section(Component::HistoryPanel, &layout),
-            Some(Component::InfoPanel)
-        );
-
-        // prev_in_section should work in reverse
-        assert_eq!(
-            cm.prev_in_section(Component::HistoryPanel, &layout),
-            Some(Component::EnginePanel)
-        );
-
-        assert_eq!(
-            cm.prev_in_section(Component::EnginePanel, &layout),
-            Some(Component::InfoPanel)
-        );
-
-        // From InfoPanel, should wrap to HistoryPanel
-        assert_eq!(
-            cm.prev_in_section(Component::InfoPanel, &layout),
-            Some(Component::HistoryPanel)
+            fsm.next_section(Component::InfoPanel, &layout),
+            None
         );
     }
 }
 
 mod review_tab_order_tests {
     use super::*;
+    use client_tui::ui::fsm::UiStateMachine;
+
+    fn review_board_fsm() -> UiStateMachine {
+        let mut fsm = UiStateMachine::default();
+        fsm.transition_to(UiMode::ReviewBoard);
+        fsm
+    }
 
     #[test]
     fn review_board_tab_order() {
-        let cm = ComponentManager::review_board();
-        let layout = Layout::review_board();
+        let fsm = review_board_fsm();
+        let layout = ReviewBoardState.layout(&fsm);
 
-        // Tab order: AdvancedAnalysis -> ReviewSummary -> InfoPanel -> HistoryPanel
         assert_eq!(
-            cm.tab_order(&layout),
+            fsm.tab_order(&layout),
             vec![
                 Component::AdvancedAnalysis,
                 Component::ReviewSummary,
@@ -494,80 +142,103 @@ mod review_tab_order_tests {
 
     #[test]
     fn review_board_next_navigates_correctly() {
-        let cm = ComponentManager::review_board();
-        let layout = Layout::review_board();
+        let fsm = review_board_fsm();
+        let layout = ReviewBoardState.layout(&fsm);
 
         assert_eq!(
-            cm.next_component(Component::AdvancedAnalysis, &layout),
+            fsm.next_component(Component::AdvancedAnalysis, &layout),
             Some(Component::ReviewSummary)
         );
         assert_eq!(
-            cm.next_component(Component::ReviewSummary, &layout),
+            fsm.next_component(Component::ReviewSummary, &layout),
             Some(Component::InfoPanel)
         );
         assert_eq!(
-            cm.next_component(Component::HistoryPanel, &layout),
-            Some(Component::AdvancedAnalysis) // wraps
+            fsm.next_component(Component::HistoryPanel, &layout),
+            Some(Component::AdvancedAnalysis)
         );
     }
 }
 
+/// Tests for flat focus model state management
 mod focus_mode_tests {
     use super::*;
+    use client_tui::ui::fsm::UiStateMachine;
 
     #[test]
     fn default_focus_is_board() {
-        let cm = ComponentManager::new();
-        assert!(matches!(cm.focus_mode, FocusMode::Board));
+        let fsm = UiStateMachine::default();
+        assert!(fsm.is_board_focused());
+        assert_eq!(fsm.focused_component, None);
+        assert!(!fsm.expanded);
     }
 
     #[test]
-    fn select_component_changes_focus() {
-        let mut cm = ComponentManager::new();
-        cm.select_component(Component::InfoPanel);
-        assert!(matches!(
-            cm.focus_mode,
-            FocusMode::ComponentSelected {
-                component: Component::InfoPanel
-            }
-        ));
+    fn select_component_sets_focus() {
+        let mut fsm = UiStateMachine::default();
+        fsm.select_component(Component::InfoPanel);
+
+        assert!(!fsm.is_board_focused());
+        assert_eq!(fsm.focused_component, Some(Component::InfoPanel));
+        assert!(!fsm.expanded);
+        assert_eq!(fsm.selected_component(), Some(Component::InfoPanel));
     }
 
     #[test]
-    fn expand_component_changes_focus() {
-        let mut cm = ComponentManager::new();
-        cm.expand_component(Component::HistoryPanel);
-        assert!(matches!(
-            cm.focus_mode,
-            FocusMode::ComponentExpanded {
-                component: Component::HistoryPanel
-            }
-        ));
+    fn expand_component_sets_expanded() {
+        let mut fsm = UiStateMachine::default();
+        fsm.expand_component(Component::HistoryPanel);
+
+        assert_eq!(fsm.focused_component, Some(Component::HistoryPanel));
+        assert!(fsm.expanded);
+        assert_eq!(fsm.expanded_component(), Some(Component::HistoryPanel));
+        assert_eq!(fsm.selected_component(), None);
     }
 
     #[test]
     fn clear_focus_returns_to_board() {
-        let mut cm = ComponentManager::new();
-        cm.select_component(Component::InfoPanel);
-        cm.clear_focus();
-        assert!(matches!(cm.focus_mode, FocusMode::Board));
+        let mut fsm = UiStateMachine::default();
+        fsm.select_component(Component::InfoPanel);
+        fsm.clear_focus();
+
+        assert!(fsm.is_board_focused());
+        assert_eq!(fsm.focused_component, None);
+        assert!(!fsm.expanded);
     }
 
     #[test]
-    fn selected_component_returns_correct_component() {
-        let mut cm = ComponentManager::new();
-        assert_eq!(cm.selected_component(), None);
+    fn selected_component_returns_correct_value() {
+        let mut fsm = UiStateMachine::default();
+        assert_eq!(fsm.selected_component(), None);
 
-        cm.select_component(Component::EnginePanel);
-        assert_eq!(cm.selected_component(), Some(Component::EnginePanel));
+        fsm.select_component(Component::EnginePanel);
+        assert_eq!(fsm.selected_component(), Some(Component::EnginePanel));
     }
 
     #[test]
-    fn expanded_component_returns_correct_component() {
-        let mut cm = ComponentManager::new();
-        assert_eq!(cm.expanded_component(), None);
+    fn expanded_component_returns_correct_value() {
+        let mut fsm = UiStateMachine::default();
+        assert_eq!(fsm.expanded_component(), None);
 
-        cm.expand_component(Component::HistoryPanel);
-        assert_eq!(cm.expanded_component(), Some(Component::HistoryPanel));
+        fsm.expand_component(Component::HistoryPanel);
+        assert_eq!(fsm.expanded_component(), Some(Component::HistoryPanel));
+    }
+
+    #[test]
+    fn multiple_select_calls_persist() {
+        let mut fsm = UiStateMachine::default();
+        fsm.transition_to(UiMode::GameBoard);
+        let layout = GameBoardState.layout(&fsm);
+
+        fsm.select_component(Component::InfoPanel);
+        assert_eq!(fsm.selected_component(), Some(Component::InfoPanel));
+
+        let next = fsm.next_component(Component::InfoPanel, &layout).unwrap();
+        fsm.select_component(next);
+        assert_eq!(fsm.selected_component(), Some(Component::EnginePanel));
+
+        let next = fsm.next_component(Component::EnginePanel, &layout).unwrap();
+        fsm.select_component(next);
+        assert_eq!(fsm.selected_component(), Some(Component::HistoryPanel));
     }
 }

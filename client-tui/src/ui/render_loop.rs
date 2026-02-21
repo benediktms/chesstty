@@ -208,9 +208,8 @@ async fn run_game<B: ratatui::backend::Backend>(
     config: menu_app::GameConfig,
 ) -> anyhow::Result<ExitReason> {
     // Create FSM
-    use crate::ui::fsm::UiStateMachine;
-    use statig::blocking::IntoStateMachineExt;
-    let mut fsm = UiStateMachine::default().state_machine();
+    use crate::ui::fsm::{UiMode, UiStateMachine};
+    let mut fsm = UiStateMachine::default();
 
     // Review mode: no server session, just local navigation
     if config.mode == GameMode::ReviewMode {
@@ -225,7 +224,7 @@ async fn run_game<B: ratatui::backend::Backend>(
             .await
             .map_err(|e| anyhow::anyhow!("Failed to connect: {}", e))?;
             // Transition FSM to review board
-            fsm.handle(&crate::ui::fsm::UiEvent::StartReview { game_id: config.resume_session_id.unwrap_or_default() });
+            fsm.transition_to(UiMode::ReviewBoard);
             return run_ui_loop(terminal, &mut state, fsm).await;
         }
         return Ok(ExitReason::ReturnToMenu);
@@ -300,10 +299,6 @@ async fn run_game<B: ratatui::backend::Backend>(
         state.mode = config.mode.clone();
     }
 
-    // Clone values for FSM transition before config is moved
-    let game_mode_for_fsm = config.mode.clone();
-    let pre_history_for_fsm = config.pre_history.clone();
-
     // Apply pre-history if starting from a snapshot.
     let is_snapshot = config.pre_history.is_some();
     if let Some(pre_history) = config.pre_history {
@@ -354,23 +349,7 @@ async fn run_game<B: ratatui::backend::Backend>(
     }
 
     // Transition FSM to game board
-    fsm.handle(&crate::ui::fsm::UiEvent::StartGame(crate::ui::menu_app::GameConfig {
-        mode: game_mode_for_fsm,
-        skill_level: config.skill_level,
-        start_fen: config.start_fen.clone(),
-        time_control_seconds: config.time_control_seconds,
-        engine_threads: config.engine_threads,
-        engine_hash_mb: config.engine_hash_mb,
-        resume_session_id: config.resume_session_id.clone(),
-        resume_game_mode: config.resume_game_mode,
-        resume_human_side: config.resume_human_side,
-        resume_skill_level: config.resume_skill_level,
-        review_data: config.review_data,
-        review_game_mode: config.review_game_mode,
-        review_skill_level: config.review_skill_level,
-        pre_history: pre_history_for_fsm,
-        advanced_data: config.advanced_data,
-    }));
+    fsm.transition_to(UiMode::GameBoard);
 
     run_ui_loop(terminal, &mut state, fsm).await
 }
@@ -378,7 +357,7 @@ async fn run_game<B: ratatui::backend::Backend>(
 async fn run_ui_loop<B: ratatui::backend::Backend>(
     terminal: &mut Terminal<B>,
     state: &mut GameSession,
-    mut fsm: statig::blocking::StateMachine<crate::ui::fsm::UiStateMachine>,
+    mut fsm: crate::ui::fsm::UiStateMachine,
 ) -> anyhow::Result<ExitReason> {
     use super::input::{self, AppAction};
     use crossterm::event::EventStream;
@@ -423,8 +402,6 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
 
             // Periodic UI refresh (timer display, animations)
             _ = render_state_tick.tick() => {
-                // Feed timer tick to FSM
-                fsm.handle(&crate::ui::fsm::UiEvent::TimerTick);
                 None
             }
         };
@@ -465,7 +442,6 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
         };
 
         // Snapshot pane state for rendering (avoids borrow conflicts)
-        // Note: renderer now gets this info directly from fsm.component_manager
         let is_review_mode = matches!(state.mode, GameMode::ReviewMode);
 
         // Draw UI using FSM-based renderer
@@ -484,10 +460,7 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
 
         // Handle keyboard event if one arrived
         if let Some(Event::Key(key)) = term_event {
-            // Feed key to FSM
-            fsm.handle(&crate::ui::fsm::UiEvent::Key(key));
-            
-            match input::handle_key(state, unsafe { fsm.inner_mut() }, &mut input_buffer, key).await {
+            match input::handle_key(state, &mut fsm, &mut input_buffer, key).await {
                 AppAction::Continue => {}
                 AppAction::Quit => {
                     // Review mode has no server session to close

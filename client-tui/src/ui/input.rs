@@ -1,11 +1,76 @@
+use crate::review_state::ReviewState;
 use crate::state::{GameMode, GameSession};
-use crate::ui::fsm::component_manager::FocusMode;
 use crate::ui::fsm::render_spec::InputPhase;
-use crate::ui::fsm::{Component, UiState, UiStateMachine};
+use crate::ui::fsm::{Component, UiStateMachine};
 use crate::ui::menu_app::GameConfig;
 use crate::ui::widgets::popup_menu::{PopupMenuItem, PopupMenuState};
 use crate::ui::widgets::snapshot_dialog::{SnapshotDialogFocus, SnapshotDialogState};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+/// Scroll increment for component scroll (lines per scroll step).
+const SCROLL_INCREMENT: u16 = 5;
+
+/// Handle review navigation keys shared across all contexts (n/p/Space/Home/End).
+/// Returns true if the key was consumed.
+fn handle_review_navigation(review: &mut ReviewState, key: KeyCode) -> bool {
+    match key {
+        KeyCode::Char('n') => {
+            let current = review.current_ply;
+            if let Some(&next) = review.critical_moments().iter().find(|&&p| p > current) {
+                review.go_to_ply(next);
+            }
+            true
+        }
+        KeyCode::Char('p') => {
+            let current = review.current_ply;
+            if let Some(&prev) = review
+                .critical_moments()
+                .iter()
+                .rev()
+                .find(|&&p| p < current)
+            {
+                review.go_to_ply(prev);
+            }
+            true
+        }
+        KeyCode::Char(' ') => {
+            review.auto_play = !review.auto_play;
+            true
+        }
+        KeyCode::Home => {
+            review.go_to_start();
+            true
+        }
+        KeyCode::End => {
+            review.go_to_end();
+            true
+        }
+        _ => false,
+    }
+}
+
+/// Handle Tab/Shift+Tab navigation between components.
+fn handle_tab_navigation(fsm: &mut UiStateMachine, state: &GameSession, key: &KeyEvent) {
+    let layout = fsm.layout(state);
+    let current = fsm.selected_component();
+    if key.modifiers.contains(KeyModifiers::SHIFT) {
+        if let Some(curr) = current {
+            if let Some(prev) = fsm.prev_component(curr, &layout) {
+                fsm.select_component(prev);
+            }
+        } else if let Some(first) = fsm.first_component(&layout) {
+            fsm.select_component(first);
+        }
+    } else {
+        if let Some(curr) = current {
+            if let Some(next) = fsm.next_component(curr, &layout) {
+                fsm.select_component(next);
+            }
+        } else if let Some(first) = fsm.first_component(&layout) {
+            fsm.select_component(first);
+        }
+    }
+}
 
 /// Actions returned from key handling that the main loop must process.
 pub enum AppAction {
@@ -61,25 +126,25 @@ pub async fn handle_key(
     // Global toggles that work in any context
     match key.code {
         KeyCode::Char('@') => {
-            fsm.component_manager.toggle_visibility(Component::DebugPanel);
+            fsm.toggle_component_visibility(Component::DebugPanel);
             return AppAction::Continue;
         }
         KeyCode::Char('#') => {
-            fsm.component_manager.toggle_visibility(Component::EnginePanel);
+            fsm.toggle_component_visibility(Component::EnginePanel);
             return AppAction::Continue;
         }
         KeyCode::Char('$') => {
-            fsm.component_manager.toggle_visibility(Component::AdvancedAnalysis);
+            fsm.toggle_component_visibility(Component::AdvancedAnalysis);
             return AppAction::Continue;
         }
         _ => {}
     }
 
     // Dispatch by context
-    match &fsm.component_manager.focus_mode {
-        FocusMode::Board => handle_board_context(state, fsm, input_buffer, key).await,
-        FocusMode::ComponentSelected { component } => handle_component_selected_context(state, fsm, *component, key),
-        FocusMode::ComponentExpanded { component } => handle_component_expanded_context(state, fsm, *component, key),
+    match (fsm.focused_component, fsm.expanded) {
+        (None, _) => handle_board_context(state, fsm, input_buffer, key).await,
+        (Some(component), false) => handle_component_selected_context(state, fsm, component, key),
+        (Some(component), true) => handle_component_expanded_context(state, fsm, component, key),
     }
 }
 
@@ -93,6 +158,10 @@ async fn handle_board_context(
     // Review mode: navigation keys instead of move input
     if matches!(state.mode, GameMode::ReviewMode) {
         if let Some(ref mut review) = state.review_state {
+            // Shared review navigation (n/p/Space/Home/End)
+            if handle_review_navigation(review, key.code) {
+                return AppAction::Continue;
+            }
             match key.code {
                 KeyCode::Right | KeyCode::Char('l') => {
                     review.next_ply();
@@ -100,37 +169,6 @@ async fn handle_board_context(
                 }
                 KeyCode::Left | KeyCode::Char('h') => {
                     review.prev_ply();
-                    return AppAction::Continue;
-                }
-                KeyCode::Home => {
-                    review.go_to_start();
-                    return AppAction::Continue;
-                }
-                KeyCode::End => {
-                    review.go_to_end();
-                    return AppAction::Continue;
-                }
-                KeyCode::Char('n') => {
-                    let current = review.current_ply;
-                    if let Some(&next) = review.critical_moments().iter().find(|&&p| p > current) {
-                        review.go_to_ply(next);
-                    }
-                    return AppAction::Continue;
-                }
-                KeyCode::Char('p') => {
-                    let current = review.current_ply;
-                    if let Some(&prev) = review
-                        .critical_moments()
-                        .iter()
-                        .rev()
-                        .find(|&&p| p < current)
-                    {
-                        review.go_to_ply(prev);
-                    }
-                    return AppAction::Continue;
-                }
-                KeyCode::Char(' ') => {
-                    review.auto_play = !review.auto_play;
                     return AppAction::Continue;
                 }
                 KeyCode::Char('s') => {
@@ -143,34 +181,7 @@ async fn handle_board_context(
                     return AppAction::Continue;
                 }
                 KeyCode::Tab => {
-                    tracing::debug!("Tab pressed (review mode) - focus_mode: {:?}", fsm.component_manager.focus_mode);
-                    let layout = fsm.layout(state);
-                    tracing::debug!("Layout rows: {}", layout.rows.len());
-                    let current = fsm.component_manager.selected_component();
-                    tracing::debug!("Current selected: {:?}", current);
-                    let first = fsm.component_manager.first_component(&layout);
-                    tracing::debug!("First component: {:?}", first);
-                    if key.modifiers.contains(KeyModifiers::SHIFT) {
-                        if let Some(curr) = current {
-                            if let Some(prev) = fsm.component_manager.prev_component(curr, &layout) {
-                                fsm.component_manager.select_component(prev);
-                                tracing::debug!("Selected prev (shift): {:?}", prev);
-                            }
-                        } else if let Some(first) = fsm.component_manager.first_component(&layout) {
-                            fsm.component_manager.select_component(first);
-                            tracing::debug!("Selected first (shift): {:?}", first);
-                        }
-                    } else {
-                        if let Some(curr) = current {
-                            if let Some(next) = fsm.component_manager.next_component(curr, &layout) {
-                                fsm.component_manager.select_component(next);
-                                tracing::debug!("Selected next: {:?}", next);
-                            }
-                        } else if let Some(first) = fsm.component_manager.first_component(&layout) {
-                            fsm.component_manager.select_component(first);
-                            tracing::debug!("Selected first: {:?}", first);
-                        }
-                    }
+                    handle_tab_navigation(fsm, state, &key);
                     return AppAction::Continue;
                 }
                 KeyCode::Esc => {
@@ -189,34 +200,7 @@ async fn handle_board_context(
             return AppAction::Continue;
         }
         KeyCode::Tab => {
-            tracing::debug!("Tab pressed - focus_mode: {:?}", fsm.component_manager.focus_mode);
-            let layout = fsm.layout(state);
-            tracing::debug!("Layout rows: {}", layout.rows.len());
-            let current = fsm.component_manager.selected_component();
-            tracing::debug!("Current selected: {:?}", current);
-            let first = fsm.component_manager.first_component(&layout);
-            tracing::debug!("First component: {:?}", first);
-            if key.modifiers.contains(KeyModifiers::SHIFT) {
-                if let Some(curr) = current {
-                    if let Some(prev) = fsm.component_manager.prev_component(curr, &layout) {
-                        fsm.component_manager.select_component(prev);
-                        tracing::debug!("Selected prev: {:?}", prev);
-                    }
-                } else if let Some(first) = fsm.component_manager.first_component(&layout) {
-                    fsm.component_manager.select_component(first);
-                    tracing::debug!("Selected first (shift): {:?}", first);
-                }
-            } else {
-                if let Some(curr) = current {
-                    if let Some(next) = fsm.component_manager.next_component(curr, &layout) {
-                        fsm.component_manager.select_component(next);
-                        tracing::debug!("Selected next: {:?}", next);
-                    }
-                } else if let Some(first) = fsm.component_manager.first_component(&layout) {
-                    fsm.component_manager.select_component(first);
-                    tracing::debug!("Selected first: {:?}", first);
-                }
-            }
+            handle_tab_navigation(fsm, state, &key);
         }
         // Pause toggle (any engine mode) — must be before Char(c) catch-all
         KeyCode::Char('p')
@@ -518,39 +502,8 @@ fn handle_component_selected_context(
     // Forward review navigation keys (n/p/Space/Home/End) from component context
     if matches!(state.mode, GameMode::ReviewMode) {
         if let Some(ref mut review) = state.review_state {
-            match key.code {
-                KeyCode::Char('n') => {
-                    let current = review.current_ply;
-                    if let Some(&next) = review.critical_moments().iter().find(|&&p| p > current) {
-                        review.go_to_ply(next);
-                    }
-                    return AppAction::Continue;
-                }
-                KeyCode::Char('p') => {
-                    let current = review.current_ply;
-                    if let Some(&prev) = review
-                        .critical_moments()
-                        .iter()
-                        .rev()
-                        .find(|&&p| p < current)
-                    {
-                        review.go_to_ply(prev);
-                    }
-                    return AppAction::Continue;
-                }
-                KeyCode::Char(' ') => {
-                    review.auto_play = !review.auto_play;
-                    return AppAction::Continue;
-                }
-                KeyCode::Home => {
-                    review.go_to_start();
-                    return AppAction::Continue;
-                }
-                KeyCode::End => {
-                    review.go_to_end();
-                    return AppAction::Continue;
-                }
-                _ => {}
+            if handle_review_navigation(review, key.code) {
+                return AppAction::Continue;
             }
         }
     }
@@ -558,23 +511,23 @@ fn handle_component_selected_context(
     let layout = fsm.layout(state);
     match key.code {
         KeyCode::Left | KeyCode::Char('h') => {
-            if let Some(prev) = fsm.component_manager.prev_section(component, &layout) {
-                fsm.component_manager.select_component(prev);
+            if let Some(prev) = fsm.prev_section(component, &layout) {
+                fsm.select_component(prev);
             }
         }
         KeyCode::Right | KeyCode::Char('l') => {
-            if let Some(next) = fsm.component_manager.next_section(component, &layout) {
-                fsm.component_manager.select_component(next);
+            if let Some(next) = fsm.next_section(component, &layout) {
+                fsm.select_component(next);
             }
         }
         KeyCode::Tab => {
             if key.modifiers.contains(KeyModifiers::SHIFT) {
-                if let Some(prev) = fsm.component_manager.prev_component(component, &layout) {
-                    fsm.component_manager.select_component(prev);
+                if let Some(prev) = fsm.prev_component(component, &layout) {
+                    fsm.select_component(prev);
                 }
             } else {
-                if let Some(next) = fsm.component_manager.next_component(component, &layout) {
-                    fsm.component_manager.select_component(next);
+                if let Some(next) = fsm.next_component(component, &layout) {
+                    fsm.select_component(next);
                 }
             }
         }
@@ -585,55 +538,44 @@ fn handle_component_selected_context(
             fsm.review_tab = 1;
         }
         KeyCode::Up | KeyCode::Char('j') if key.modifiers.contains(KeyModifiers::SHIFT) => {
-            let scroll = fsm.component_manager.scroll_mut(&component);
-            *scroll = scroll.saturating_sub(5);
+            let scroll = fsm.component_scroll_mut(&component);
+            *scroll = scroll.saturating_sub(SCROLL_INCREMENT);
         }
         KeyCode::Down | KeyCode::Char('k') if key.modifiers.contains(KeyModifiers::SHIFT) => {
-            let scroll = fsm.component_manager.scroll_mut(&component);
-            *scroll = scroll.saturating_add(5);
+            let scroll = fsm.component_scroll_mut(&component);
+            *scroll = scroll.saturating_add(SCROLL_INCREMENT);
         }
         KeyCode::Char('J') => {
-            let scroll = fsm.component_manager.scroll_mut(&component);
-            *scroll = scroll.saturating_sub(5);
+            let scroll = fsm.component_scroll_mut(&component);
+            *scroll = scroll.saturating_sub(SCROLL_INCREMENT);
         }
         KeyCode::Char('K') => {
-            let scroll = fsm.component_manager.scroll_mut(&component);
-            *scroll = scroll.saturating_add(5);
+            let scroll = fsm.component_scroll_mut(&component);
+            *scroll = scroll.saturating_add(SCROLL_INCREMENT);
         }
         KeyCode::Up | KeyCode::Char('j') => {
-            if let Some(next) = fsm.component_manager.next_in_section(component, &layout) {
-                fsm.component_manager.select_component(next);
+            if let Some(next) = fsm.next_in_section(component, &layout) {
+                fsm.select_component(next);
             }
         }
         KeyCode::Down | KeyCode::Char('k') => {
-            if let Some(prev) = fsm.component_manager.prev_in_section(component, &layout) {
-                fsm.component_manager.select_component(prev);
+            if let Some(prev) = fsm.prev_in_section(component, &layout) {
+                fsm.select_component(prev);
             }
         }
         KeyCode::PageUp => {
-            *fsm.component_manager.scroll_mut(&component) = 0;
+            *fsm.component_scroll_mut(&component) = 0;
         }
         KeyCode::PageDown => {
-            *fsm.component_manager.scroll_mut(&component) = u16::MAX;
+            *fsm.component_scroll_mut(&component) = u16::MAX;
         }
         KeyCode::Enter => {
             if component.is_expandable() {
-                if matches!(state.mode, GameMode::ReviewMode) {
-                    fsm.current_state = UiState::review_board_pane_focused(component);
-                } else {
-                    fsm.current_state = UiState::game_board_pane_focused(component);
-                }
-                fsm.component_manager.expand_component(component);
+                fsm.expand_component(component);
             }
         }
         KeyCode::Esc => {
-            fsm.component_manager.clear_focus();
-            // Also transition FSM state back to regular board
-            if matches!(state.mode, GameMode::ReviewMode) {
-                fsm.current_state = UiState::review_board();
-            } else {
-                fsm.current_state = UiState::game_board();
-            }
+            fsm.clear_focus();
         }
         _ => {}
     }
@@ -650,66 +592,29 @@ fn handle_component_expanded_context(
     // Forward review navigation keys (n/p/Space/Home/End) from expanded pane
     if matches!(state.mode, GameMode::ReviewMode) {
         if let Some(ref mut review) = state.review_state {
-            match key.code {
-                KeyCode::Char('n') => {
-                    let current = review.current_ply;
-                    if let Some(&next) = review.critical_moments().iter().find(|&&p| p > current) {
-                        review.go_to_ply(next);
-                    }
-                    return AppAction::Continue;
-                }
-                KeyCode::Char('p') => {
-                    let current = review.current_ply;
-                    if let Some(&prev) = review
-                        .critical_moments()
-                        .iter()
-                        .rev()
-                        .find(|&&p| p < current)
-                    {
-                        review.go_to_ply(prev);
-                    }
-                    return AppAction::Continue;
-                }
-                KeyCode::Char(' ') => {
-                    review.auto_play = !review.auto_play;
-                    return AppAction::Continue;
-                }
-                KeyCode::Home => {
-                    review.go_to_start();
-                    return AppAction::Continue;
-                }
-                KeyCode::End => {
-                    review.go_to_end();
-                    return AppAction::Continue;
-                }
-                _ => {}
+            if handle_review_navigation(review, key.code) {
+                return AppAction::Continue;
             }
         }
     }
 
     match key.code {
         KeyCode::Up | KeyCode::Char('k') => {
-            let scroll = fsm.component_manager.scroll_mut(&component);
-            *scroll = scroll.saturating_sub(5);
+            let scroll = fsm.component_scroll_mut(&component);
+            *scroll = scroll.saturating_sub(SCROLL_INCREMENT);
         }
         KeyCode::Down | KeyCode::Char('j') => {
-            let scroll = fsm.component_manager.scroll_mut(&component);
-            *scroll = scroll.saturating_add(5);
+            let scroll = fsm.component_scroll_mut(&component);
+            *scroll = scroll.saturating_add(SCROLL_INCREMENT);
         }
         KeyCode::PageUp => {
-            *fsm.component_manager.scroll_mut(&component) = 0;
+            *fsm.component_scroll_mut(&component) = 0;
         }
         KeyCode::PageDown => {
-            *fsm.component_manager.scroll_mut(&component) = u16::MAX;
+            *fsm.component_scroll_mut(&component) = u16::MAX;
         }
         KeyCode::Esc => {
-            fsm.component_manager.clear_focus();
-            // Also transition FSM state back to regular board
-            if matches!(state.mode, GameMode::ReviewMode) {
-                fsm.current_state = UiState::review_board();
-            } else {
-                fsm.current_state = UiState::game_board();
-            }
+            fsm.clear_focus();
         }
         _ => {}
     }

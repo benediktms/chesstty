@@ -4,8 +4,8 @@ pub use crate::state::{GameMode, PlayerColor, UciDirection, UciLogEntry};
 // Re-export FSM types
 pub use crate::ui::fsm::{
     render_spec::{
-        Constraint, Control, InputPhase, Layout, Overlay, RenderSpec, Row, TabInputState, View,
+        Constraint, Control, InputPhase, Layout, Overlay, Row, TabInputState,
     },
     states::{GameBoardState, MatchSummaryState, ReviewBoardState, StartScreenState},
-    Component, ComponentManager, FocusMode, UiEvent, UiState,
+    Component, UiMode,
 };
