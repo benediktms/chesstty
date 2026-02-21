@@ -172,66 +172,34 @@ impl Renderer {
                 use ratatui::text::{Line, Span};
                 use ratatui::widgets::Paragraph;
 
-                let mut controls_spans = Vec::new();
+                let controls = fsm.derive_controls(game_session);
                 let key_style = Style::default()
                     .fg(Color::Green)
                     .add_modifier(Modifier::BOLD);
+                let alert_style = Style::default()
+                    .fg(Color::Red)
+                    .add_modifier(Modifier::BOLD);
 
-                let is_review_mode = matches!(game_session.mode, GameMode::ReviewMode);
-
-                if is_review_mode {
-                    // Review mode controls
-                    controls_spans.push(Span::styled("Tab", key_style));
-                    controls_spans.push(Span::raw(" Tabs | "));
-                    controls_spans.push(Span::styled("j/k", key_style));
-                    controls_spans.push(Span::raw(" Moves | "));
-                    controls_spans.push(Span::styled("Space", key_style));
-                    controls_spans.push(Span::raw(" Auto | "));
-                    controls_spans.push(Span::styled("Home/End", key_style));
-                    controls_spans.push(Span::raw(" Jump | "));
-                    controls_spans.push(Span::styled("Esc", key_style));
-                    controls_spans.push(Span::raw(" Menu"));
-                } else {
-                    // Standard game controls
-                    controls_spans.push(Span::styled("i", key_style));
-                    controls_spans.push(Span::raw(" Input | "));
-
-                    // Pause (HumanVsEngine or EngineVsEngine)
-                    if matches!(
-                        game_session.mode,
-                        GameMode::HumanVsEngine { .. } | GameMode::EngineVsEngine
-                    ) {
-                        if game_session.paused {
-                            controls_spans.push(Span::styled(
-                                "PAUSED",
-                                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
-                            ));
-                            controls_spans.push(Span::raw(" | "));
-                        }
-                        controls_spans.push(Span::styled("p", key_style));
-                        controls_spans.push(Span::raw(" Pause | "));
+                let mut spans = Vec::new();
+                for (i, control) in controls.iter().enumerate() {
+                    if i > 0 {
+                        spans.push(Span::raw(" | "));
                     }
 
-                    // Undo
-                    if game_session.is_undo_allowed() {
-                        controls_spans.push(Span::styled("u", key_style));
-                        controls_spans.push(Span::raw(" Undo | "));
-                    }
+                    // Special styling for alert-style keys (PAUSED, Ctrl+C)
+                    let style = if control.key == "PAUSED" || control.key == "Ctrl+C" {
+                        alert_style
+                    } else {
+                        key_style
+                    };
 
-                    controls_spans.push(Span::styled("Esc", key_style));
-                    controls_spans.push(Span::raw(" Menu | "));
-                    controls_spans.push(Span::styled("Tab", key_style));
-                    controls_spans.push(Span::raw(" Panels | "));
-                    controls_spans.push(Span::styled("@", key_style));
-                    controls_spans.push(Span::raw(" UCI | "));
-                    controls_spans.push(Span::styled(
-                        "Ctrl+C",
-                        Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
-                    ));
-                    controls_spans.push(Span::raw(" Quit"));
+                    spans.push(Span::styled(control.key, style));
+                    if !control.label.is_empty() {
+                        spans.push(Span::raw(format!(" {}", control.label)));
+                    }
                 }
 
-                let controls_line = Paragraph::new(Line::from(controls_spans))
+                let controls_line = Paragraph::new(Line::from(spans))
                     .style(Style::default().bg(Color::Black));
                 frame.render_widget(controls_line, area);
             }
@@ -240,9 +208,9 @@ impl Renderer {
                 frame.render_widget(widget, area);
             }
             Component::HistoryPanel => {
-                let scroll = fsm.component_manager.scroll(&Component::HistoryPanel);
+                let scroll = fsm.component_scroll(&Component::HistoryPanel);
                 let is_selected =
-                    fsm.component_manager.selected_component() == Some(Component::HistoryPanel);
+                    fsm.selected_component() == Some(Component::HistoryPanel);
                 let review_positions = game_session
                     .review_state
                     .as_ref()
@@ -254,9 +222,9 @@ impl Renderer {
                 frame.render_widget(widget, area);
             }
             Component::EnginePanel => {
-                let scroll = fsm.component_manager.scroll(&Component::EnginePanel);
+                let scroll = fsm.component_scroll(&Component::EnginePanel);
                 let is_selected =
-                    fsm.component_manager.selected_component() == Some(Component::EnginePanel);
+                    fsm.selected_component() == Some(Component::EnginePanel);
                 let widget = EngineAnalysisPanel::new(
                     game_session.engine_info.as_ref(),
                     game_session.is_engine_thinking,
@@ -266,17 +234,17 @@ impl Renderer {
                 frame.render_widget(widget, area);
             }
             Component::DebugPanel => {
-                let scroll = fsm.component_manager.scroll(&Component::DebugPanel);
+                let scroll = fsm.component_scroll(&Component::DebugPanel);
                 let is_selected =
-                    fsm.component_manager.selected_component() == Some(Component::DebugPanel);
+                    fsm.selected_component() == Some(Component::DebugPanel);
                 let widget = UciDebugPanel::new(&game_session.uci_log, scroll, is_selected);
                 frame.render_widget(widget, area);
             }
             Component::ReviewTabs => {
                 if let Some(ref review_state) = game_session.review_state {
-                    let is_selected = fsm.component_manager.selected_component()
+                    let is_selected = fsm.selected_component()
                         == Some(Component::ReviewSummary);
-                    let scroll = fsm.component_manager.scroll(&Component::ReviewSummary);
+                    let scroll = fsm.component_scroll(&Component::ReviewSummary);
                     let widget = ReviewTabsPanel {
                         review_state,
                         current_tab: fsm.review_tab,
@@ -290,9 +258,9 @@ impl Renderer {
             }
             Component::ReviewSummary => {
                 if let Some(ref review_state) = game_session.review_state {
-                    let is_selected = fsm.component_manager.selected_component()
+                    let is_selected = fsm.selected_component()
                         == Some(Component::ReviewSummary);
-                    let scroll = fsm.component_manager.scroll(&Component::ReviewSummary);
+                    let scroll = fsm.component_scroll(&Component::ReviewSummary);
                     let widget = ReviewSummaryPanel {
                         review_state,
                         scroll,
@@ -304,9 +272,9 @@ impl Renderer {
             }
             Component::AdvancedAnalysis => {
                 if let Some(ref review_state) = game_session.review_state {
-                    let is_selected = fsm.component_manager.selected_component()
+                    let is_selected = fsm.selected_component()
                         == Some(Component::AdvancedAnalysis);
-                    let scroll = fsm.component_manager.scroll(&Component::AdvancedAnalysis);
+                    let scroll = fsm.component_scroll(&Component::AdvancedAnalysis);
                     let widget = AdvancedAnalysisPanel {
                         review_state,
                         scroll,

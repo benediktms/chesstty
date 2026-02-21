@@ -1,19 +1,19 @@
-use crate::ui::fsm::{UiEvent, UiState};
+use crate::ui::fsm::UiMode;
 
 pub trait UiTransitionHook {
-    fn on_before_transition(&mut self, from: &UiState, to: &UiState, event: &UiEvent);
-    fn on_after_transition(&mut self, from: &UiState, to: &UiState, event: &UiEvent);
+    fn on_before_transition(&mut self, from: &UiMode, to: &UiMode);
+    fn on_after_transition(&mut self, from: &UiMode, to: &UiMode);
 }
 
 #[derive(Default)]
 pub struct LoggingHook;
 
 impl UiTransitionHook for LoggingHook {
-    fn on_before_transition(&mut self, from: &UiState, to: &UiState, event: &UiEvent) {
-        tracing::debug!("FSM transition: {:?} -> {:?} via {:?}", from, to, event);
+    fn on_before_transition(&mut self, from: &UiMode, to: &UiMode) {
+        tracing::debug!("FSM transition: {:?} -> {:?}", from, to);
     }
 
-    fn on_after_transition(&mut self, from: &UiState, to: &UiState, event: &UiEvent) {
+    fn on_after_transition(&mut self, from: &UiMode, to: &UiMode) {
         tracing::info!("FSM transitioned: {:?} -> {:?}", from, to);
     }
 }
@@ -24,17 +24,17 @@ pub struct RpcHook {
 }
 
 impl UiTransitionHook for RpcHook {
-    fn on_before_transition(&mut self, from: &UiState, to: &UiState, event: &UiEvent) {}
+    fn on_before_transition(&mut self, _from: &UiMode, _to: &UiMode) {}
 
-    fn on_after_transition(&mut self, from: &UiState, to: &UiState, event: &UiEvent) {
+    fn on_after_transition(&mut self, from: &UiMode, to: &UiMode) {
         match (from, to) {
-            (UiState::StartScreen(_), UiState::GameBoard(_)) => {
+            (UiMode::StartScreen, UiMode::GameBoard) => {
                 tracing::info!("Starting new game");
             }
-            (UiState::StartScreen(_), UiState::ReviewBoard(_)) => {
+            (UiMode::StartScreen, UiMode::ReviewBoard) => {
                 tracing::info!("Starting review mode");
             }
-            (UiState::GameBoard(_), UiState::MatchSummary(_)) => {
+            (UiMode::GameBoard, UiMode::MatchSummary) => {
                 tracing::info!("Game ended, showing summary");
             }
             _ => {}
@@ -48,13 +48,13 @@ pub struct CompositeHook<H1, H2> {
 }
 
 impl<H1: UiTransitionHook, H2: UiTransitionHook> UiTransitionHook for CompositeHook<H1, H2> {
-    fn on_before_transition(&mut self, from: &UiState, to: &UiState, event: &UiEvent) {
-        self.hook1.on_before_transition(from, to, event);
-        self.hook2.on_before_transition(from, to, event);
+    fn on_before_transition(&mut self, from: &UiMode, to: &UiMode) {
+        self.hook1.on_before_transition(from, to);
+        self.hook2.on_before_transition(from, to);
     }
 
-    fn on_after_transition(&mut self, from: &UiState, to: &UiState, event: &UiEvent) {
-        self.hook1.on_after_transition(from, to, event);
-        self.hook2.on_after_transition(from, to, event);
+    fn on_after_transition(&mut self, from: &UiMode, to: &UiMode) {
+        self.hook1.on_after_transition(from, to);
+        self.hook2.on_after_transition(from, to);
     }
 }

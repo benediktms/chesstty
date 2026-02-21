@@ -1,341 +1,392 @@
-# client-tui - Terminal UI Client
+# client-tui
 
-A ratatui-based terminal chess interface that renders the game board, info panels, and overlays. The TUI is a thin rendering layer; all game logic lives on the server.
+A ratatui-based terminal chess client. The TUI is a rendering layer over a server-authoritative game model — all game logic lives on the server, the client renders the latest snapshot and forwards user input.
 
-## UI Render Workflow
+## Architecture Overview
 
-### Application Loop
-
-The application runs an outer menu/game loop:
+The crate is organized into five layers:
 
 ```
-┌──────┐     ┌──────────┐     ┌──────────┐
-│ Menu │────>│ Game UI  │────>│ Menu     │──> ...
-│      │     │ Loop     │     │ (or Quit)│
-└──────┘     └──────────┘     └──────────┘
+┌─────────────────────────────────────────────────────┐
+│                   Render Loop                        │
+│  tokio::select! { keyboard | server events | tick }  │
+├─────────────┬───────────────────────────────────────┤
+│  Input      │           Renderer                     │
+│  Handling   │  Layout + State → ratatui widgets      │
+├─────────────┴───────────┬───────────────────────────┤
+│      UI State Machine   │   Declarative Layout       │
+│  UiStateMachine (FSM)   │  Layout / Row / Section    │
+├─────────────────────────┴───────────────────────────┤
+│                    State Layer                        │
+│         GameSession (server)  +  ReviewState          │
+└─────────────────────────────────────────────────────┘
 ```
 
-1. **Menu phase**: Show main menu (ratatui in raw mode). Pre-fetches suspended sessions and saved positions from the server. User selects game mode, skill, FEN, time control.
-2. **Game phase**: Set up terminal (alternate screen, mouse capture), create `ClientState`, configure engine, start event stream, enter the render loop.
-3. **Exit**: On quit or return-to-menu, restore terminal and loop back.
-
-### Render Loop (`run_ui_loop`)
-
-The render loop uses `tokio::select! { biased; }` to handle three event sources:
-
-```rust
-loop {
-    tokio::select! {
-        biased;
-
-        // 1. Keyboard events (highest priority)
-        event = crossterm_events.next() => { ... }
-
-        // 2. Server events (gRPC stream)
-        _ = state.poll_event_async() => { ... }
-
-        // 3. UI tick (~30fps, every 33ms)
-        _ = tick_interval.tick() => { /* just re-render */ }
-    }
-
-    // After any branch: drain buffered server events, then render
-    while state.poll_events().await == Ok(true) { }
-    terminal.draw(|f| render(f, state))?;
-}
-```
-
-- **Keyboard events** wake the loop immediately for responsive input
-- **Server events** (engine analysis, state changes) trigger immediate re-renders
-- **UI tick** ensures timer displays update even without events
-
-### State Management
-
-`ClientState` is the single source of truth for the TUI:
+**Data flow:**
 
 ```
-ClientState
-├── client: ChessClient              # gRPC connection
-├── mode: GameMode                    # HvH, HvE, EvE, Analysis, Review
-├── skill_level: u8                   # Stockfish skill (0-20)
-├── snapshot: SessionSnapshot         # Latest server snapshot (source of truth)
-├── board: Board                      # Parsed from snapshot.fen for rendering
-├── legal_moves_cache: HashMap        # Legal moves indexed by source square
-├── event_stream: Streaming           # gRPC event stream
-└── ui: UiState                       # Ephemeral UI state
-    ├── selected_square               # Currently selected piece
-    ├── highlighted_squares           # Legal destinations for selected piece
-    ├── selectable_squares            # All squares with movable pieces
-    ├── last_move                     # Highlight for last move
-    ├── engine_info                   # Latest engine analysis
-    ├── is_engine_thinking            # Engine status indicator
-    ├── input_phase                   # SelectPiece -> SelectDestination -> SelectPromotion
-    ├── uci_log                       # UCI message log (max 100 entries)
-    ├── pane_manager                  # Pane visibility, order, scroll positions
-    ├── focus_stack                   # Focus context stack
-    ├── popup_menu                    # Active popup menu state (if any)
-    └── paused                        # Pause state
-└── review_state: Option<ReviewState>  # Review navigation (when in Review mode)
+Keyboard Event
+  → input::handle_key()        mutates FSM or GameSession
+  → fsm.layout(game_session)   derives Layout from current mode
+  → Renderer::render()         converts Layout → ratatui widgets
+  → terminal.draw()            paints to screen
 ```
-
-**All updates flow through `apply_snapshot()`**: parses FEN into `cozy_chess::Board`, updates game mode, updates pause state. No local game logic.
-
-## Layout Structure
-
-```
-┌─────────────────────────────────────────────┐
-│                                             │
-│  Board (left)         │  Panels (right)     │
-│  [or expanded pane    │  ┌─ GameInfo ─────┐ │
-│   + mini board        │  │ Mode, Turn,    │ │
-│   in corner]          │  │ Timer, Status  │ │
-│                       │  └────────────────┘ │
-│                       │  ┌─ Engine ───────┐ │
-│                       │  │ Depth, Score,  │ │
-│                       │  │ PV, Nodes/sec  │ │
-│                       │  └────────────────┘ │
-│                       │  ┌─ Move History ─┐ │
-│                       │  │ 1. e4   e5     │ │
-│                       │  │ 2. Nf3  Nc6    │ │
-│                       │  └────────────────┘ │
-├─────────────────────────────────────────────┤
-│ [UCI Debug Panel - hidden by default]       │
-├─────────────────────────────────────────────┤
-│ Input: e2 | p Pause | Esc Menu | Tab Panels │
-└─────────────────────────────────────────────┘
-```
-
-When a pane is expanded (Enter from pane selection), it replaces the board area. A `MiniBoardWidget` (compact 18x10 Unicode board) renders in the bottom-right corner so the position is always visible.
-
-## Focus System
-
-The focus system uses a stack-based model with three contexts:
-
-```
-FocusContext::Board (always at bottom of stack)
-    │
-    │ Tab
-    ▼
-FocusContext::PaneSelected { pane_id }
-    │                    │
-    │ Enter              │ Left/Right
-    ▼                    ▼
-FocusContext::PaneExpanded { pane_id }    (cycle panes)
-    │
-    │ Esc
-    ▼
-FocusContext::PaneSelected (pop)
-    │
-    │ Esc
-    ▼
-FocusContext::Board (pop)
-```
-
-| Context | Keyboard Behavior |
-|---------|------------------|
-| **Board** | Character input builds algebraic notation, Enter submits move, Esc opens popup menu |
-| **PaneSelected** | Left/Right cycle visible panes, Up/Down scroll, Enter expands pane |
-| **PaneExpanded** | Up/Down/PageUp/PageDown scroll content, Esc collapses back |
-
-## Review Summary Display
-
-The `ReviewSummaryPanel` widget appears when viewing a completed game review. It displays:
-
-### Accuracy Section
-Shows the accuracy percentage for each player with a visual bar chart:
-```
-Accuracy
-  White: 87.3%  ████████████████████
-  Black: 72.1%  ███████████████░░░░░
-```
-
-Color-coded by performance:
-- **Green** (≥90%) - Excellent accuracy
-- **Yellow** (70-89%) - Good accuracy
-- **Red** (<70%) - Needs improvement
-
-### Evaluation Graph
-
-A **5-row ASCII sparkline chart** showing position evaluation throughout the game:
-
-```
-Evaluation
-    ▔▔▔▔▔▔▔▔
-  ▄▄        ▄▄
-▄▄              ▄▄
-▁▁                ▁▁░░░░░░
-░░░░░░░░░░░░░░░░░░░░░░░░░░░░
-```
-
-**How to read it:**
-- **Above the midline** (row 2) = White advantage
-- **Below the midline** = Black advantage
-- **Height/fullness** = Magnitude of advantage (scaled to ±500 cp)
-- **White/Gray** = Normal positions
-- **Yellow highlights** = Mistakes made
-- **Red highlights** = Blunders made
-
-Each column represents a sampled position across the game, automatically scaled to fit the available width.
-
-### Move Quality Breakdown
-
-Counts moves in each category for each side:
-```
-Move Quality
-  Best         W:5   B:3
-  Excellent    W:2   B:4
-  Good         W:8   B:10
-  Inaccuracy   W:3   B:2
-  Mistake      W:1   B:0
-  Blunder      W:0   B:1
-```
-
-### Critical Moments
-
-Lists blunders and mistakes (up to 10) with move number, side, move, and centipawn loss:
-```
-Critical Moments
-  1. [W] e4?? (52cp)
-  3. [B] Nf6? (35cp)
-  5. [W] h3?? (280cp)
-```
-
-Format: `move_number. [W|B] move_notation (cp_loss)`
-
-### Legend
-
-Reference guide for move quality annotations:
-```
-Legend
-  !! Brilliant
-  !  Excellent
-     Good / Best
-  ?! Inaccuracy
-  ?  Mistake
-  ?? Blunder
-  [] Forced
-```
-
-These annotations (NAG - Numeric Annotation Glyphs) appear in exported PGN files.
-
-### Analysis Info
-
-Shows depth of analysis and completion progress:
-```
-Depth: 18  Plies: 42/42
-```
-
-- **Depth** - How many half-moves ahead Stockfish analyzed
-- **Plies** - Number of moves analyzed / total moves in game
-
-## Widget Inventory
-
-| Widget | File | Description |
-|--------|------|-------------|
-| `BoardWidget` | `board.rs` | Chess board with 3 size variants (Small/Medium/Large) auto-selected by terminal size. RGB colored squares, selection/highlight/typeahead overlays. Board flips for Black in HvE. |
-| `GameInfoPanel` | `game_info_panel.rs` | Game mode, current turn, timer display (color-coded urgency: green > yellow > red), input phase, status message. Always visible, not selectable. |
-| `EngineAnalysisPanel` | `engine_panel.rs` | Depth, score (color-coded: green for advantage, red for disadvantage, yellow for mate), nodes/sec, principal variation line. Toggleable with `#`. |
-| `MoveHistoryPanel` | `move_history_panel.rs` | Compact paired format (1. e4 e5) in normal view, detailed expanded mode with piece descriptions. Selectable and expandable. |
-| `UciDebugPanel` | `uci_debug_panel.rs` | Syntax-highlighted UCI protocol log. Direction-colored (green for TO_ENGINE, cyan for FROM_ENGINE). Hidden by default, toggle with `@`. |
-| `PopupMenuWidget` | `popup_menu.rs` | Modal overlay menu triggered by Esc. Items: Restart, Adjust Difficulty (HvE only), Suspend Session, Quit to Menu. |
-| `PromotionWidget` | `promotion_dialog.rs` | Modal promotion piece selector (Q/R/B/N) shown during pawn promotion. |
-| `MiniBoardWidget` | `mini_board.rs` | Compact Unicode board (18x10) shown in corner when a pane is expanded. |
-| `MenuWidget` | `menu.rs` | Main menu with dynamic items based on game mode, suspended sessions, and saved positions. |
-| `FenDialogWidget` | `fen_dialog.rs` | FEN input field with saved positions table overlay. |
-| `ReviewSummaryPanel` | `review_summary_panel.rs` | Accuracy scores, classification breakdown, critical moments list. Only visible in Review mode. |
-| `SelectableTableState` | `selectable_table.rs` | Reusable table component with keyboard navigation (used by FEN dialog and menu). |
-
-## Pane Management
-
-`PaneManager` controls pane visibility, ordering, and scroll state:
-
-| Pane | Default Visible | Selectable | Expandable |
-|------|----------------|------------|------------|
-| GameInfo | Yes | No | No |
-| EngineAnalysis | Yes | Yes | Yes |
-| MoveHistory | Yes | Yes | Yes |
-| UciDebug | No | Yes | Yes |
-| ReviewSummary | No (review mode only) | Yes | Yes |
-
-Pane order: GameInfo -> EngineAnalysis -> MoveHistory -> UciDebug
-
-Visibility toggles: `@` for UciDebug, `#` for EngineAnalysis
-
-## Input Handling
-
-### Input Priority Chain
-
-1. **Popup menu** (modal) - Up/Down navigate, Enter selects, Esc dismisses
-2. **Promotion dialog** (modal) - Character input for piece selection (q/r/b/n)
-3. **Ctrl+C** - Always quits
-4. **Global toggles** - `@` (UCI panel), `#` (Engine panel)
-5. **Context-based** - Dispatched by current `FocusContext`
-
-### Move Input (Board context)
-
-Moves are entered as algebraic square notation:
-
-```
-InputPhase::SelectPiece ──(type "e2", Enter)──> InputPhase::SelectDestination
-    ──(type "e4", Enter)──> Move submitted to server
-    ──(promotion needed)──> InputPhase::SelectPromotion
-```
-
-- Typeahead filtering highlights matching squares as the user types
-- Backspace clears input buffer
-- Esc clears piece selection
-- Input is disabled in Engine vs Engine mode
-
-### Special Keys
-
-| Key | Context | Action |
-|-----|---------|--------|
-| `p` | Board (EvE mode) | Toggle pause |
-| `u` | Board (HvE, skill <= 3) | Undo last move |
-| `Esc` | Board (no selection) | Open popup menu (auto-pauses engine) |
-| `Tab` | Board | Enter pane selection |
-
-### Review Mode
-
-When in Review mode, board context keys are replaced with navigation:
-
-| Key | Action |
-|-----|--------|
-| Right / `l` | Next ply |
-| Left / `h` | Previous ply |
-| Home | Go to start |
-| End | Go to end |
-| `n` | Next critical moment (blunder/mistake) |
-| `p` | Previous critical moment |
-| Space | Toggle auto-play |
-
-Move input is disabled. All data is loaded once from the server; no further server calls are made during review.
 
 ## Module Structure
 
 ```
 client-tui/src/
-├── main.rs              # Entry point, CLI args, tracing setup
-├── state.rs             # ClientState, UiState, GameMode, InputPhase
+├── main.rs                          # Entry point, tracing setup, calls ui::run_app()
+├── lib.rs                           # Library root, public exports
+├── prelude.rs                       # Re-exports of common types
+├── state.rs                         # GameSession, GameMode, PlayerColor
+├── review_state.rs                  # ReviewState (post-game review navigation)
 └── ui/
-    ├── mod.rs           # UI module exports
-    ├── full_ui.rs       # Main app loop, game setup, render function
-    ├── simple_ui.rs     # Simplified UI mode (--simple flag)
-    ├── input.rs         # Key dispatch, context handlers, AppAction enum
-    ├── context.rs       # FocusContext enum, FocusStack
-    ├── pane.rs          # PaneId, PaneProperties, PaneManager
-    ├── menu_app.rs      # Main menu (GameConfig, mode selection, FEN input)
+    ├── mod.rs                       # UI module exports
+    ├── render_loop.rs               # Main event loop (run_app, run_ui_loop)
+    ├── menu_app.rs                  # Menu UI, game configuration
+    ├── input.rs                     # Keyboard event dispatch
+    ├── fsm/
+    │   ├── mod.rs                   # UiStateMachine, UiMode, transitions, navigation
+    │   ├── component.rs             # Component enum, properties (selectability, etc.)
+    │   ├── render_spec.rs           # Layout, Row, Section, Constraint, Overlay, Control
+    │   ├── renderer.rs              # Renderer: Layout → ratatui widgets
+    │   ├── hooks.rs                 # Transition hook traits (extension point)
+    │   └── states/
+    │       ├── mod.rs               # State type exports
+    │       ├── start_screen.rs      # StartScreenState
+    │       ├── game_board.rs        # GameBoardState (layout builder)
+    │       ├── review_board.rs      # ReviewBoardState (layout builder)
+    │       └── match_summary.rs     # MatchSummaryState
     └── widgets/
-        ├── mod.rs
-        ├── board.rs
-        ├── engine_panel.rs
-        ├── fen_dialog.rs
-        ├── game_info_panel.rs
-        ├── menu.rs
-        ├── mini_board.rs
-        ├── move_history_panel.rs
-        ├── popup_menu.rs
-        ├── promotion_dialog.rs
-        ├── review_summary_panel.rs
-        ├── selectable_table.rs
-        └── uci_debug_panel.rs
+        ├── mod.rs                   # Widget exports
+        ├── board.rs                 # BoardWidget (main chess board)
+        ├── board_overlay.rs         # BoardOverlay (highlights, arrows, tints)
+        ├── mini_board.rs            # MiniBoardWidget (compact Unicode board)
+        ├── game_info_panel.rs       # GameInfoPanel (mode, turn, timers)
+        ├── move_history_panel.rs    # MoveHistoryPanel (move list)
+        ├── engine_panel.rs          # EngineAnalysisPanel (depth, score, PV)
+        ├── move_analysis_panel.rs   # MoveAnalysisPanel (move classification)
+        ├── advanced_analysis_panel.rs # AdvancedAnalysisPanel (tactics, patterns)
+        ├── review_summary_panel.rs  # ReviewSummaryPanel (accuracy, eval graph)
+        ├── review_tabs_panel.rs     # ReviewTabsPanel (review navigation tabs)
+        ├── uci_debug_panel.rs       # UciDebugPanel (UCI protocol log)
+        ├── tab_input.rs             # TabInputWidget (typeahead move entry)
+        ├── menu.rs                  # MenuWidget (start screen menu)
+        ├── popup_menu.rs            # PopupMenuWidget (in-game pause menu)
+        ├── promotion_dialog.rs      # PromotionWidget (pawn promotion selector)
+        ├── fen_dialog.rs            # FenDialogWidget (FEN/position input)
+        ├── snapshot_dialog.rs       # SnapshotDialogWidget (review snapshot creator)
+        └── selectable_table.rs      # SelectableTableState (reusable table navigation)
 ```
+
+## State Management
+
+Two state structs, each with a distinct responsibility:
+
+### GameSession (`state.rs`)
+
+Server-authoritative game state. The server is the source of truth — the client stores the latest `SessionSnapshot` and derives everything else from it.
+
+```
+GameSession
+├── client: ChessClient              # gRPC connection to server
+├── mode: GameMode                   # HumanVsHuman | HumanVsEngine | EngineVsEngine | AnalysisMode | ReviewMode
+├── skill_level: u8                  # Engine difficulty (0-20)
+├── snapshot: SessionSnapshot        # Authoritative state from server
+├── board: Board                     # Parsed from snapshot.fen (cozy_chess)
+├── legal_moves_cache: HashMap       # Legal moves indexed by source square
+├── event_stream: Streaming          # gRPC event stream for real-time updates
+├── engine_info: Option<EngineInfo>  # Latest engine analysis output
+├── is_engine_thinking: bool         # Engine activity indicator
+├── uci_log: Vec<UciLogEntry>       # UCI protocol message log (max 100)
+├── paused: bool                     # Game pause state
+├── selected_square: Option<Square>  # Currently selected piece
+├── highlighted_squares: Vec<Square> # Legal destinations for selected piece
+├── selectable_squares: Vec<Square>  # Squares with movable pieces
+├── last_move: Option<(Square, Square)>      # Previous move (for highlighting)
+├── best_move_squares: Option<(Square, Square)> # Engine recommendation
+├── review_state: Option<ReviewState>        # Populated in review/analysis modes
+└── pre_history: Vec<MoveRecord>             # Moves before current position
+```
+
+All updates flow through `apply_snapshot()` — parses FEN, updates board, refreshes game metadata.
+
+### UiStateMachine (`fsm/mod.rs`)
+
+Ephemeral UI state. No game logic, no server communication — purely controls what's on screen and how the user interacts with it.
+
+```
+UiStateMachine
+├── mode: UiMode                          # Current UI mode (see FSM section)
+├── tab_input: TabInputState              # Typeahead move input state
+├── input_phase: InputPhase               # SelectPiece | SelectDestination | SelectPromotion
+├── popup_menu: Option<PopupMenuState>    # Active popup menu (if any)
+├── snapshot_dialog: Option<SnapshotDialogState> # Active snapshot dialog (if any)
+├── review_tab: u8                        # Active review analysis tab
+├── selected_promotion_piece: Piece       # User's promotion choice
+├── focused_component: Option<Component>  # Which panel has focus (None = board)
+├── expanded: bool                        # Whether focused panel fills the board area
+├── visibility: HashMap<Component, bool>  # Panel show/hide state
+└── scroll_state: HashMap<Component, u16> # Per-panel scroll position
+```
+
+## UI State Machine
+
+The FSM tracks four mutually exclusive UI modes:
+
+```rust
+enum UiMode {
+    StartScreen,    // Main menu
+    GameBoard,      // Active gameplay
+    ReviewBoard,    // Post-game review
+    MatchSummary,   // Game result display
+}
+```
+
+### Transitions
+
+`transition_to(mode)` switches the mode and applies mode-specific setup:
+
+```
+StartScreen ──(start game)──> GameBoard
+StartScreen ──(load review)──> ReviewBoard
+GameBoard ──(game ends)──> MatchSummary
+GameBoard ──(escape)──> StartScreen
+ReviewBoard ──(escape)──> StartScreen
+MatchSummary ──(new game / menu)──> StartScreen
+```
+
+Each mode configures panel visibility on entry:
+
+| Panel             | GameBoard | ReviewBoard |
+|-------------------|-----------|-------------|
+| InfoPanel         | visible   | visible     |
+| EnginePanel       | visible   | hidden      |
+| HistoryPanel      | visible   | visible     |
+| ReviewSummary     | hidden    | visible     |
+| AdvancedAnalysis  | hidden    | visible     |
+
+## Declarative Layout System
+
+Layouts are data, not code. Each UI mode produces a `Layout` struct that the `Renderer` interprets.
+
+### Type hierarchy
+
+```
+Layout
+├── rows: Vec<Row>
+│   └── Row
+│       ├── height: Constraint
+│       └── sections: Vec<Section>
+│           └── Section
+│               ├── constraint: Constraint
+│               └── content: SectionContent
+│                   ├── Component(component)     # Leaf: a single widget
+│                   └── Nested(Vec<Section>)     # Recursive: vertical stack
+└── overlay: Overlay                             # Modal dialog layer
+```
+
+**Constraint** types: `Length(u16)`, `Min(u16)`, `Percentage(u16)`, `Ratio(u16, u16)`
+
+### GameBoard Layout
+
+```
+┌──────────────────────────────┬─────────────────┐
+│                              │   InfoPanel (8)  │
+│                              ├─────────────────┤
+│      Board (min 10)          │  EnginePanel (12)│  ← if visible
+│      [75%]                   ├─────────────────┤
+│                              │  HistoryPanel    │
+│                              │  (min 10)        │
+│                              │  [25%]           │
+├──────────────────────────────┴─────────────────┤
+│ Controls (1 row)                                │
+└─────────────────────────────────────────────────┘
+```
+
+When `tab_input` is active, a `TabInput` row (3 cells) appears below the board. When a panel is **expanded**, it replaces the board in the left column:
+
+```
+┌──────────────────────────────┬─────────────────┐
+│                              │   InfoPanel      │
+│   [expanded panel]           ├─────────────────┤
+│      [75%]                   │  EnginePanel     │
+│                              ├─────────────────┤
+│                              │  HistoryPanel    │
+│                              │  [25%]           │
+├──────────────────────────────┴─────────────────┤
+│ Controls                                        │
+└─────────────────────────────────────────────────┘
+```
+
+### ReviewBoard Layout
+
+```
+┌───────────────┬──────────────────────┬─────────────────┐
+│ AdvancedAnal. │                      │   InfoPanel (8)  │
+│ (35%)         │                      ├─────────────────┤
+├───────────────┤     Board (55%)      │  HistoryPanel    │
+│ ReviewSummary │                      │  (min 10)        │
+│ (min 10)      │                      │                  │
+│ [20%]         │                      │  [25%]           │
+├───────────────┴──────────────────────┴─────────────────┤
+│ Controls                                                │
+└─────────────────────────────────────────────────────────┘
+```
+
+Layout builders live in `states/game_board.rs` and `states/review_board.rs`. Each checks `fsm.expanded_component()` to decide between normal and expanded variants.
+
+## Component Model
+
+Components are the leaf nodes of the layout tree — each maps to a widget at render time.
+
+```rust
+enum Component {
+    Board, TabInput, Controls,          // Non-selectable
+    InfoPanel,                          // Selectable, not expandable
+    HistoryPanel, EnginePanel,          // Selectable + expandable
+    DebugPanel,                         // Selectable + expandable (hidden by default)
+    ReviewTabs,                         // Not selectable (review mode)
+    ReviewSummary, AdvancedAnalysis,    // Selectable + expandable (review mode)
+}
+```
+
+| Component        | Selectable | Expandable | Default Visible |
+|------------------|:----------:|:----------:|:---------------:|
+| Board            |     -      |     -      |       yes       |
+| TabInput         |     -      |     -      |    on demand    |
+| Controls         |     -      |     -      |       yes       |
+| InfoPanel        |    yes     |     -      |       yes       |
+| HistoryPanel     |    yes     |    yes     |       yes       |
+| EnginePanel      |    yes     |    yes     |       yes       |
+| DebugPanel       |    yes     |    yes     |       no        |
+| ReviewTabs       |     -      |     -      |    review only  |
+| ReviewSummary    |    yes     |    yes     |    review only  |
+| AdvancedAnalysis |    yes     |    yes     |    review only  |
+
+**Focus mechanics:**
+
+- `focused_component: None` → board context (default)
+- `focused_component: Some(c), expanded: false` → panel is selected (highlighted border)
+- `focused_component: Some(c), expanded: true` → panel fills the board area
+
+Navigation uses layout-derived tab order: `tab_order(layout)` flattens visible, selectable components from the layout tree. `Tab`/`Shift+Tab` cycles through them. `h`/`l` navigates between sections (columns), `j`/`k` navigates within a section.
+
+## Rendering Pipeline
+
+`Renderer::render(frame, area, layout, game_session, fsm)` walks the layout tree:
+
+1. **Split rows vertically** — each `Row.height` becomes a ratatui constraint
+2. **Split sections horizontally** — each `Section.constraint` divides the row
+3. **Render content recursively:**
+   - `SectionContent::Component(c)` → render the widget for component `c`
+   - `SectionContent::Nested(sections)` → split vertically again, recurse
+4. **Render overlay** (if active) — painted on top of everything
+
+Each `Component` variant maps to a specific widget (e.g., `Component::Board` → `BoardWidget`, `Component::InfoPanel` → `GameInfoPanel`).
+
+## Controls and Overlays
+
+### Controls
+
+`UiStateMachine::derive_controls(game_session)` is the single source of truth for the controls bar. It returns `Vec<Control>` based on the current mode:
+
+- **StartScreen**: `Enter Select`
+- **MatchSummary**: `n New Game | Enter Menu | q Quit`
+- **ReviewBoard**: `Tab Tabs | j/k Moves | Space Auto | Home/End Jump | Esc Menu`
+- **GameBoard**: `i Input | p Pause | u Undo | Esc Menu | Tab Panels | @ UCI | Ctrl+C Quit` (conditional on game mode and state)
+
+The renderer generically renders `Vec<Control>` as styled spans.
+
+### Overlays
+
+`derive_overlay()` checks FSM state in priority order:
+
+1. `InputPhase::SelectPromotion` → `Overlay::PromotionDialog`
+2. `popup_menu.is_some()` → `Overlay::PopupMenu`
+3. `snapshot_dialog.is_some()` → `Overlay::SnapshotDialog`
+4. Otherwise → `Overlay::None`
+
+Overlays render as modal widgets on top of the full screen area.
+
+## Input Handling
+
+Input dispatch follows a modal priority chain — the topmost active modal consumes the event:
+
+```
+TabInput (typeahead move entry)         ← highest priority
+  → PopupMenu (in-game pause menu)
+    → SnapshotDialog (review snapshot)
+      → PromotionDialog (piece selection)
+        → Global toggles (@ # $ for panel visibility)
+          → Context-based handling          ← lowest priority
+```
+
+### Context-based input
+
+When no modal is active, input dispatches by focus state:
+
+**Board context** (`focused_component: None`):
+- Game mode: character input builds algebraic notation (`e2` → `e4`), `i` activates TabInput, `Tab` enters panel selection, `p` pauses, `Esc` opens popup menu
+- Review mode: `j`/`k` or arrows navigate plies, `Space` toggles auto-play, `Home`/`End` jump to start/end, `n`/`p` jump to critical moments
+
+**Component selected** (`focused_component: Some(_), expanded: false`):
+- `h`/`l` or Left/Right — navigate between sections (columns)
+- `j`/`k` or Up/Down — navigate within section
+- `J`/`K` (Shift) — scroll panel content
+- `Tab`/`Shift+Tab` — cycle all selectable components
+- `Enter` — expand the panel
+- `Esc` — clear focus, return to board
+
+**Component expanded** (`focused_component: Some(_), expanded: true`):
+- `j`/`k` or Up/Down — scroll content
+- `PageUp`/`PageDown` — jump to top/bottom
+- `Esc` — collapse back to selected state
+
+## Render Loop
+
+The application runs an outer menu → game → menu loop. The game phase enters `run_ui_loop`, which uses `tokio::select!` with biased polling:
+
+```rust
+loop {
+    tokio::select! {
+        biased;
+        event = crossterm_events.next() => { /* keyboard */ }
+        consumed = state.poll_event_async() => { /* server gRPC stream */ }
+        _ = tick_interval.tick() => { /* 30fps UI refresh */ }
+    }
+
+    // Auto-play: advance review ply every 750ms if active
+    // Drain buffered server events
+    // Render frame: fsm.layout() → Renderer::render()
+    // Handle keyboard → AppAction (Continue | Quit | ReturnToMenu | ...)
+}
+```
+
+- **Keyboard** (highest priority) — immediate response to user input
+- **Server events** — engine analysis updates, state changes from gRPC stream
+- **UI tick** (33ms) — ensures timers and animations update even without events
+
+## Widget Inventory
+
+| Widget                 | File                        | Description                                          |
+|------------------------|-----------------------------|------------------------------------------------------|
+| BoardWidget            | `board.rs`                  | Chess board with adaptive sizing (S/M/L), overlays   |
+| BoardOverlay           | `board_overlay.rs`          | Layered square tints, outlines, and arrows            |
+| MiniBoardWidget        | `mini_board.rs`             | Compact 18x10 Unicode board for expanded pane mode    |
+| GameInfoPanel          | `game_info_panel.rs`        | Game mode, turn, timers, status                       |
+| MoveHistoryPanel       | `move_history_panel.rs`     | Scrollable move list with classification markers      |
+| EngineAnalysisPanel    | `engine_panel.rs`           | Depth, eval score, nodes/sec, principal variation     |
+| MoveAnalysisPanel      | `move_analysis_panel.rs`    | Per-move classification and eval delta                |
+| AdvancedAnalysisPanel  | `advanced_analysis_panel.rs`| Tactical patterns, king safety, tension metrics       |
+| ReviewSummaryPanel     | `review_summary_panel.rs`   | Accuracy scores, eval graph, move quality breakdown   |
+| ReviewTabsPanel        | `review_tabs_panel.rs`      | Tabbed view for review data (Overview / Position)     |
+| UciDebugPanel          | `uci_debug_panel.rs`        | Syntax-highlighted UCI protocol log                   |
+| TabInputWidget         | `tab_input.rs`              | Two-phase typeahead move entry (piece → destination)  |
+| MenuWidget             | `menu.rs`                   | Start screen menu with game configuration             |
+| PopupMenuWidget        | `popup_menu.rs`             | In-game modal menu (Restart, Suspend, Quit)           |
+| PromotionWidget        | `promotion_dialog.rs`       | Pawn promotion piece selector (Q/R/B/N)               |
+| FenDialogWidget        | `fen_dialog.rs`             | FEN input with saved positions table                  |
+| SnapshotDialogWidget   | `snapshot_dialog.rs`        | Create playable snapshot from review position         |
+| SelectableTableState   | `selectable_table.rs`       | Reusable table with keyboard navigation               |
