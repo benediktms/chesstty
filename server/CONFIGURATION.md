@@ -1,95 +1,65 @@
 # ChessTTY Server Configuration
 
-## Data Directory Configuration
+## Persistence Configuration
 
-The ChessTTY server stores runtime data (suspended sessions and user-created positions) in a configurable data directory.
+The server stores runtime data in a SQLite database and supports one-time migration from legacy JSON files.
 
-### Directory Priority
+### Database Path Priority
 
-The server determines the data directory using the following priority:
+`chesstty-server` resolves the SQLite database path in this order:
 
-1. **`CHESSTTY_DATA_DIR` environment variable** (if set)
-2. **`~/.config/chesstty/data`** (production default)
-3. **`./data`** (development fallback)
+1. `CHESSTTY_DB_PATH` (if set)
+2. Platform application data directory via `directories::ProjectDirs`:
+   - macOS: `~/Library/Application Support/chesstty/chesstty.db`
+   - Linux: `~/.local/share/chesstty/chesstty.db`
+3. `./data/chesstty.db` (fallback)
 
-### Environment Variable
-
-Set the `CHESSTTY_DATA_DIR` environment variable to use a custom data directory:
-
-```bash
-# Development with custom location
-export CHESSTTY_DATA_DIR=/tmp/chesstty_dev
-cargo run --package chesstty-server
-
-# Production deployment
-export CHESSTTY_DATA_DIR=/var/lib/chesstty/data
-./chesstty-server
-```
-
-### Data Structure
-
-The data directory contains:
-
-```
-$CHESSTTY_DATA_DIR/
-├── sessions/          # Suspended game sessions (JSON files)
-├── positions/         # User-created and default positions (JSON files)
-├── finished_games/    # Completed game records for review (JSON files)
-├── reviews/           # Post-game analysis results (JSON files)
-└── advanced_reviews/  # Advanced tactical analysis cache (JSON files)
-```
-
-### Default Positions
-
-Default chess positions (openings, endgames, puzzles) are stored in version control at:
-
-```
-server/defaults/positions/
-```
-
-On first run, the server copies these default positions into the runtime data directory. This allows:
-
-- **Version control** of curated default positions
-- **User customization** without modifying version-controlled files
-- **Production deployments** to have consistent defaults
-
-### Production Deployment
-
-For production environments:
-
-1. **Set environment variable**:
-   ```bash
-   export CHESSTTY_DATA_DIR=/var/lib/chesstty/data
-   ```
-
-2. **Create data directory**:
-   ```bash
-   mkdir -p /var/lib/chesstty/data
-   ```
-
-3. **Set permissions** (if running as non-root):
-   ```bash
-   chown -R chesstty:chesstty /var/lib/chesstty/data
-   ```
-
-4. **Start server**:
-   ```bash
-   ./chesstty-server
-   ```
-
-### Development Setup
-
-For local development, no configuration is needed. The server will use `./data` by default.
-
-To use a custom location for testing:
+Example:
 
 ```bash
-CHESSTTY_DATA_DIR=/tmp/chesstty_test cargo run --package chesstty-server
+export CHESSTTY_DB_PATH=/tmp/chesstty-dev.db
+cargo run -p chesstty-server
 ```
 
-### Notes
+## Legacy JSON Migration
 
-- The data directory is **not** version controlled (ignored in `.gitignore`)
-- Default positions in `server/defaults/` **are** version controlled
-- Each server instance can have its own isolated data directory
-- The server creates necessary subdirectories automatically on startup
+On startup, the server checks for legacy JSON data and imports it into SQLite.
+
+### Legacy Data Directory Priority
+
+The migration source directory is resolved in this order:
+
+1. `CHESSTTY_DATA_DIR` (if set)
+2. `~/.config/chesstty/data`
+3. `./data`
+
+Example:
+
+```bash
+export CHESSTTY_DATA_DIR=/var/lib/chesstty/legacy-data
+cargo run -p chesstty-server
+```
+
+Migration is idempotent: running the server repeatedly does not duplicate migrated records. Legacy JSON files are left in place as backup.
+
+## Defaults Directory
+
+Default positions are version-controlled in:
+
+```text
+server/defaults/
+```
+
+The defaults directory is resolved relative to the server crate and is not environment-configurable.
+
+## Runtime Logging
+
+```bash
+RUST_LOG=debug cargo run -p chesstty-server
+```
+
+## Notes
+
+- `CHESSTTY_DB_PATH` controls where live data is persisted.
+- `CHESSTTY_DATA_DIR` is used only as a migration source for legacy JSON files.
+- The server listens on `[::1]:50051` by default.

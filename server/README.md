@@ -35,10 +35,8 @@ graph TB
     end
 
     subgraph "Persistence"
-        SS[SessionStore<br/>data/sessions/*.json]
-        PS[PositionStore<br/>data/positions/*.json]
-        RS[ReviewStore<br/>data/reviews/*.json]
-        FG[FinishedGameStore<br/>data/finished_games/*.json]
+        DB[(SQLite<br/>chesstty.db)]
+        MIG[JSON migration<br/>startup import]
     end
 
     SVC --> SE & GE & EE & EVE & PE & POE
@@ -48,7 +46,9 @@ graph TB
     SM -->|"SessionHandle (mpsc)"| ACTOR
     ACTOR --> STATE
     STATE --> SNAP
-    SM --> SS & PS
+    SM --> DB
+    RM --> DB
+    MIG --> DB
 ```
 
 ## Module Structure
@@ -56,12 +56,23 @@ graph TB
 ```
 server/src/
 ├── main.rs                    # Server startup, tracing init, gRPC server bind
-├── config.rs                  # Data directory and defaults directory resolution
+├── config.rs                  # DB path + legacy JSON migration source resolution
 ├── persistence/
 │   ├── mod.rs                 # PersistenceError, re-exports, ID generators
-│   ├── session_store.rs       # SessionStore, SuspendedSessionData
-│   ├── finished_game_store.rs # FinishedGameStore, FinishedGameData, StoredMoveRecord
-│   └── position_store.rs      # PositionStore, SavedPositionData
+│   ├── traits.rs              # Async repository interfaces
+│   ├── json_store.rs          # Shared JSON utilities (migration + tests)
+│   ├── session_store.rs       # Legacy JSON session store (tests/migration)
+│   ├── finished_game_store.rs # Legacy JSON finished game store (tests/migration)
+│   ├── position_store.rs      # Legacy JSON position store (tests/migration)
+│   └── sqlite/
+│       ├── mod.rs             # SQLite backend exports
+│       ├── database.rs        # Pool setup, WAL mode, embedded migrations
+│       ├── migrate_json.rs    # One-time JSON -> SQLite migration
+│       ├── session_repo.rs    # SessionRepository impl
+│       ├── position_repo.rs   # PositionRepository impl
+│       ├── finished_game_repo.rs # FinishedGameRepository impl
+│       ├── review_repo.rs     # ReviewRepository impl
+│       └── advanced_repo.rs   # AdvancedAnalysisRepository impl
 ├── service/
 │   ├── mod.rs                 # ChessServiceImpl (delegates to endpoint handlers)
 │   ├── converters.rs          # Domain ↔ Proto type conversions
@@ -72,12 +83,14 @@ server/src/
 │       ├── engine.rs          # SetEngine, StopEngine, Pause, Resume
 │       ├── events.rs          # StreamEvents (gRPC server streaming)
 │       ├── persistence.rs     # Suspend, Resume, List, Delete suspended
-│       └── positions.rs       # SavePosition, ListPositions, DeletePosition
+│       ├── positions.rs       # SavePosition, ListPositions, DeletePosition
+│       └── review.rs          # Review + advanced analysis endpoints
 ├── review/
 │   ├── mod.rs                 # ReviewManager (job queue, worker pool, public API)
 │   ├── worker.rs              # ReviewWorker (per-ply engine analysis loop)
 │   ├── types.rs               # GameReview, PositionReview, MoveClassification
-│   └── store.rs               # ReviewStore (JSON file persistence)
+│   ├── store.rs               # Review persistence helpers
+│   └── advanced/              # Advanced analysis compute/cache/store
 └── session/
     ├── mod.rs                 # SessionManager (session lifecycle + stores)
     ├── actor.rs               # Session actor loop (select!, command/event handling)
@@ -142,18 +155,20 @@ loop {
 
 Every command embeds a `oneshot::Sender` for its reply, creating a request/response pattern over channels:
 
-```
-gRPC Endpoint                SessionHandle              Session Actor
-     │                            │                          │
-     │── handle.make_move(mv) ──>│                          │
-     │                            │── create oneshot ────────│
-     │                            │── send SessionCommand ──>│
-     │                            │   {mv, reply: tx}        │
-     │                            │                          │── state.apply_move(mv)
-     │                            │                          │── event_tx.send(StateChanged)
-     │                            │                          │── maybe_auto_trigger()
-     │                            │<── reply via oneshot ────│
-     │<── Result<Snapshot> ──────│                          │
+```mermaid
+sequenceDiagram
+    participant Endpoint as gRPC Endpoint
+    participant Handle as SessionHandle
+    participant Actor as Session Actor
+
+    Endpoint->>Handle: make_move(mv)
+    Handle->>Handle: create oneshot reply channel
+    Handle->>Actor: send SessionCommand::MakeMove { mv, reply }
+    Note over Actor: state.apply_move(mv)
+    Note over Actor: event_tx.send(StateChanged)
+    Note over Actor: maybe_auto_trigger()
+    Actor-->>Handle: reply via oneshot (SessionSnapshot)
+    Handle-->>Endpoint: Result<SessionSnapshot>
 ```
 
 ### Engine Event Handling
@@ -202,9 +217,9 @@ Search parameters scale with skill level:
 | `GameEndpoints` | MakeMove, GetLegalMoves, Undo, Redo, Reset | Game actions |
 | `EngineEndpoints` | SetEngine, StopEngine, Pause, Resume | Engine + pause control |
 | `EventsEndpoints` | StreamEvents | gRPC server streaming |
-| `PersistenceEndpoints` | Suspend, Resume, List, Delete | Session persistence |
+| `PersistenceEndpoints` | Suspend, Resume, List, Delete, SaveSnapshot | Session persistence |
 | `PositionsEndpoints` | Save, List, Delete | Saved positions |
-| `ReviewEndpoints` | ListFinishedGames, EnqueueReview, GetReviewStatus, GetGameReview, ExportReviewPgn | Post-game review |
+| `ReviewEndpoints` | ListFinishedGames, EnqueueReview, GetReviewStatus, GetGameReview, ExportReviewPgn, DeleteFinishedGame, GetAdvancedAnalysis | Post-game review + advanced analysis |
 
 ### Proto Boundary
 
@@ -237,9 +252,13 @@ On flag fall, the actor transitions to `GamePhase::Ended` with reason "Time expi
 
 ## Persistence
 
+### Storage Backend
+
+Production persistence is SQLite (`chesstty.db`) via `sqlx` repositories. Legacy JSON files are used as a migration source at startup and as lightweight test fixtures.
+
 ### Session Persistence (Suspend/Resume)
 
-Suspended sessions are stored as JSON files in `data/sessions/`:
+Suspended sessions are stored in the SQLite `suspended_sessions` table:
 
 ```json
 {
@@ -254,11 +273,11 @@ Suspended sessions are stored as JSON files in `data/sessions/`:
 }
 ```
 
-On suspend: snapshot state, write JSON, close the live session. On resume: read JSON, create a new session from the saved FEN and mode, delete the JSON file.
+On suspend: snapshot state, insert/update SQLite row, close the live session. On resume: load row, create a new session from the saved FEN and mode, then delete the suspended row.
 
 ### Position Library
 
-Saved positions in `data/positions/`:
+Saved positions are stored in the SQLite `saved_positions` table:
 
 ```json
 {
@@ -274,7 +293,7 @@ Default positions (`is_default: true`) are seeded from the `defaults/` directory
 
 ### Finished Games
 
-When a session with `GamePhase::Ended` is closed, the move history is automatically saved to `data/finished_games/`:
+When a session with `GamePhase::Ended` is closed, the move history is automatically saved in SQLite (`finished_games` + related move rows):
 
 ```json
 {
@@ -291,7 +310,7 @@ When a session with `GamePhase::Ended` is closed, the move history is automatica
 
 ### Review Results
 
-Reviews are stored in `data/reviews/`:
+Reviews are stored in SQLite (`reviews` + related per-position rows):
 
 ```json
 {
@@ -491,8 +510,11 @@ On successful completion:
 # Log level (defaults to "info")
 RUST_LOG=debug cargo run -p chesstty-server
 
-# Data directory (defaults to "./data" or CHESSTTY_DATA_DIR)
-CHESSTTY_DATA_DIR=/path/to/data cargo run -p chesstty-server
+# SQLite DB path (preferred runtime config)
+CHESSTTY_DB_PATH=/path/to/chesstty.db cargo run -p chesstty-server
+
+# Legacy JSON migration source directory (optional)
+CHESSTTY_DATA_DIR=/path/to/legacy-json cargo run -p chesstty-server
 ```
 
 Server binds to `[::1]:50051` (IPv6 localhost).

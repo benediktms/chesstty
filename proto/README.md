@@ -66,7 +66,7 @@ message SessionSnapshot {
   string session_id = 1;
   string fen = 2;                        // Current position in FEN
   string side_to_move = 3;               // "white" or "black"
-  GamePhase phase = 4;                   // SETUP | PLAYING | PAUSED | ENDED | ANALYZING
+  GamePhase phase = 4;                   // GAME_PHASE_SETUP | GAME_PHASE_PLAYING | GAME_PHASE_PAUSED | GAME_PHASE_ENDED | GAME_PHASE_ANALYZING
   GameStatus status = 5;                 // ONGOING | WON | DRAWN
   uint32 move_count = 6;
   repeated MoveRecord history = 7;       // Complete move history
@@ -98,6 +98,7 @@ message MoveRecord {
   string san = 5;               // Standard algebraic: "e4", "Nxd5", "O-O"
   string fen_after = 6;
   optional string promotion = 7;
+  optional uint64 clock_ms = 8;          // Remaining time for mover (if timers enabled)
 }
 
 // Server returns this for legal move queries
@@ -115,7 +116,7 @@ message MoveDetail {
 ### Enums
 
 ```protobuf
-enum GamePhase    { SETUP=0, PLAYING=1, PAUSED=2, ENDED=3, ANALYZING=4 }
+enum GamePhase    { GAME_PHASE_SETUP=0, GAME_PHASE_PLAYING=1, GAME_PHASE_PAUSED=2, GAME_PHASE_ENDED=3, GAME_PHASE_ANALYZING=4 }
 enum GameStatus   { ONGOING=0, WON=1, DRAWN=2 }
 enum GameModeType { HUMAN_VS_HUMAN=0, HUMAN_VS_ENGINE=1, ENGINE_VS_ENGINE=2, ANALYSIS=3, REVIEW=4 }
 ```
@@ -201,7 +202,7 @@ sequenceDiagram
     Server->>SessionManager: suspend_session(session_id)
     SessionManager->>SessionManager: get_snapshot()
     SessionManager->>Store: save(suspended_data)
-    Store->>Store: Write data/sessions/{id}.json
+    Store->>Store: INSERT/UPDATE SQLite (suspended_sessions table)
     SessionManager->>SessionManager: close_session(session_id)
     SessionManager-->>Server: suspended_id
     Server-->>Client: SuspendSessionResponse
@@ -212,7 +213,7 @@ sequenceDiagram
     Server->>SessionManager: resume_suspended(suspended_id)
     SessionManager->>Store: load(suspended_id)
     SessionManager->>SessionManager: create_session(fen, game_mode)
-    SessionManager->>Store: delete(suspended_id)
+    SessionManager->>Store: delete(suspended_id) from SQLite
     SessionManager-->>Server: SessionSnapshot
     Server-->>Client: SessionSnapshot
 ```

@@ -74,6 +74,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 | Method | Returns | Description |
 |--------|---------|-------------|
 | `suspend_session()` | `String` (suspended_id) | Suspend and save the active session |
+| `save_snapshot(fen, name, game_mode?, move_count, skill_level)` | `String` (suspended_id) | Save an arbitrary snapshot (used by review mode) |
 | `list_suspended_sessions()` | `Vec<SuspendedSessionInfo>` | List all suspended sessions |
 | `resume_suspended_session(id)` | `SessionSnapshot` | Resume a suspended session |
 | `delete_suspended_session(id)` | `()` | Delete a suspended session |
@@ -95,6 +96,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 | `get_review_status(game_id)` | `ReviewStatusInfo` | Get the current review status for a game |
 | `get_game_review(game_id)` | `GameReviewProto` | Get the full review with per-ply analysis |
 | `export_review_pgn(game_id)` | `String` | Export annotated PGN for a reviewed game |
+| `delete_finished_game(game_id)` | `()` | Delete a finished game and related review data |
+
+### Advanced Analysis
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `get_advanced_analysis(game_id)` | `AdvancedGameAnalysisProto` | Fetch advanced tactical/psychological analysis for a reviewed game |
 
 ## Error Handling
 

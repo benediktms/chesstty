@@ -35,10 +35,8 @@ graph TB
     end
 
     subgraph Storage ["Persistence"]
-        PS[SessionStore<br/>JSON files]
-        PP[PositionStore<br/>JSON files]
-        RS[ReviewStore<br/>JSON files]
-        FG[FinishedGameStore<br/>JSON files]
+        DB[(SQLite<br/>chesstty.db)]
+        LJ[Legacy JSON<br/>migration source]
     end
 
     UI --> CS
@@ -54,10 +52,9 @@ graph TB
     SA -->|"broadcast channel"| SVC
     SVC -->|"SessionStreamEvent"| GC
     SVC --> RM
-    RM --> RS
-    SM --> FG
-    SM --> PS
-    SM --> PP
+    SM --> DB
+    RM --> DB
+    LJ --> DB
 ```
 
 ### Design Principles
@@ -177,22 +174,23 @@ proto/proto/
 
 All game mutations follow the same pattern through the actor:
 
-```
-Client                gRPC Service          SessionManager       Session Actor
-  │                        │                      │                    │
-  │── MakeMove(from,to) ──>│                      │                    │
-  │                        │── get_handle(id) ───>│                    │
-  │                        │<── SessionHandle ────│                    │
-  │                        │                      │                    │
-  │                        │── handle.make_move(mv) ──────────────────>│
-  │                        │   (mpsc + oneshot)                        │
-  │                        │                                           │── validate & apply
-  │                        │                                           │── broadcast StateChanged
-  │                        │                                           │── maybe_auto_trigger()
-  │                        │<──────────── SessionSnapshot ─────────────│
-  │                        │                                           │
-  │                        │── convert to proto ──│                    │
-  │<── SessionSnapshot ────│                      │                    │
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Service as gRPC Service
+    participant Manager as SessionManager
+    participant Actor as Session Actor
+
+    Client->>Service: MakeMove(from, to)
+    Service->>Manager: get_handle(session_id)
+    Manager-->>Service: SessionHandle
+    Service->>Actor: handle.make_move(mv) (mpsc + oneshot)
+    Note over Actor: validate + apply move
+    Note over Actor: broadcast StateChanged
+    Note over Actor: maybe_auto_trigger()
+    Actor-->>Service: SessionSnapshot
+    Note over Service: convert domain snapshot to proto
+    Service-->>Client: SessionSnapshot
 ```
 
 ### Event Streaming
@@ -323,7 +321,7 @@ A real-time visualization of position strength throughout the game:
 - Forced moves (only one legal move) are labeled as such and don't count as errors
 
 ### Capabilities
-- **Session Persistence** - Suspend and resume games (JSON file storage)
+- **Session Persistence** - Suspend and resume games (SQLite-backed persistence with one-time JSON migration support)
 - **Position Library** - Save and load custom FEN positions (with built-in defaults)
 - **Real-time Engine Analysis** - Live depth, score, nodes/sec, and principal variation
 - **Move History** - Complete history with undo/redo support
