@@ -20,11 +20,14 @@ impl Storable for SavedPositionData {
 }
 
 /// Persistence layer for saved positions. Uses JSON files in a directory.
+/// Kept as a fallback trait implementation; production uses SqlitePositionRepository.
+#[allow(dead_code)]
 pub struct PositionStore {
     inner: JsonStore<SavedPositionData>,
     defaults_dir: Option<PathBuf>,
 }
 
+#[allow(dead_code)]
 impl PositionStore {
     /// Create a new PositionStore with runtime data directory and optional defaults directory.
     ///
@@ -141,6 +144,21 @@ impl PositionStore {
             }
         }
         self.inner.delete(id)
+    }
+}
+
+impl super::traits::PositionRepository for PositionStore {
+    async fn save_position(&self, data: &SavedPositionData) -> Result<(), super::PersistenceError> {
+        self.save(data)?;
+        Ok(())
+    }
+
+    async fn list_positions(&self) -> Result<Vec<SavedPositionData>, super::PersistenceError> {
+        self.list()
+    }
+
+    async fn delete_position(&self, id: &str) -> Result<(), super::PersistenceError> {
+        self.delete(id)
     }
 }
 

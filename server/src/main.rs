@@ -5,6 +5,11 @@ mod service;
 mod session;
 
 use chess_proto::chess_service_server::ChessServiceServer;
+use persistence::sqlite::{
+    Database, SqliteAdvancedAnalysisRepository, SqliteFinishedGameRepository,
+    SqlitePositionRepository, SqliteReviewRepository, SqliteSessionRepository,
+    migrate_json_to_sqlite,
+};
 use service::ChessServiceImpl;
 use session::SessionManager;
 use std::sync::Arc;
@@ -24,20 +29,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     tracing::info!("Starting ChessTTY gRPC server");
 
-    // Get data and defaults directories
-    let data_dir = config::get_data_dir();
-    let defaults_dir = Some(config::get_defaults_dir());
+    let data_dir = config::get_legacy_data_dir();
+    let db_path = config::get_db_path();
 
-    tracing::info!("Using data directory: {}", data_dir.display());
+    tracing::info!("Using legacy data directory: {}", data_dir.display());
+    tracing::info!("Using SQLite database: {}", db_path.display());
+
+    let database = Database::open(&db_path).await?;
+    let migration_report = migrate_json_to_sqlite(database.pool(), &data_dir).await?;
     tracing::info!(
-        "Using defaults directory: {:?}",
-        defaults_dir.as_ref().map(|d| d.display())
+        skipped = migration_report.skipped,
+        sessions = migration_report.sessions,
+        positions = migration_report.positions,
+        finished_games = migration_report.finished_games,
+        reviews = migration_report.reviews,
+        advanced_analyses = migration_report.advanced_analyses,
+        "SQLite migration check complete"
     );
 
-    // Create persistence stores
-    let session_store = persistence::SessionStore::new(data_dir.join("sessions"));
-    let position_store = persistence::PositionStore::new(data_dir.join("positions"), defaults_dir);
-    let finished_game_store = Arc::new(persistence::FinishedGameStore::new(data_dir.clone()));
+    let session_store = SqliteSessionRepository::new(database.pool().clone());
+    let position_store = SqlitePositionRepository::new(database.pool().clone());
+    let finished_game_store = Arc::new(SqliteFinishedGameRepository::new(database.pool().clone()));
+    let review_store = Arc::new(SqliteReviewRepository::new(database.pool().clone()));
+    let advanced_store = Arc::new(SqliteAdvancedAnalysisRepository::new(database.pool().clone()));
 
     // Create session manager
     let session_manager = Arc::new(SessionManager::new(
@@ -47,8 +61,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ));
 
     // Create review manager
-    let review_store = Arc::new(review::store::ReviewStore::new(data_dir.clone()));
-    let advanced_store = Arc::new(review::advanced::AdvancedAnalysisStore::new(data_dir));
     let review_manager = Arc::new(review::ReviewManager::new(
         finished_game_store,
         review_store,

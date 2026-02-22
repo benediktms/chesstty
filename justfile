@@ -1,4 +1,5 @@
 export CHESSTTY_DATA_DIR := "data"
+export CHESSTTY_DB_PATH := "data/chesstty.db"
 
 # Default recipe - show all available commands
 default:

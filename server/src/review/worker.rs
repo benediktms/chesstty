@@ -5,21 +5,25 @@ use analysis::AnalysisConfig;
 use engine::{EngineCommand, EngineEvent, GoParams, StockfishConfig, StockfishEngine};
 use tokio::sync::{mpsc, Mutex, RwLock};
 
-use super::advanced::{compute_advanced_analysis, AdvancedAnalysisStore};
-use super::store::ReviewStore;
+use crate::persistence::{AdvancedAnalysisRepository, ReviewRepository};
+
+use super::advanced::compute_advanced_analysis;
 use super::types::*;
 
 /// A long-lived worker task. Receives jobs from the shared channel,
 /// processes them one at a time.
-pub async fn run_review_worker(
+pub async fn run_review_worker<R, A>(
     worker_id: usize,
     job_rx: Arc<Mutex<mpsc::Receiver<ReviewJob>>>,
-    store: Arc<ReviewStore>,
-    advanced_store: Arc<AdvancedAnalysisStore>,
+    store: Arc<R>,
+    advanced_store: Arc<A>,
     enqueued: Arc<RwLock<HashSet<String>>>,
     analysis_depth: u32,
     analysis_config: AnalysisConfig,
-) {
+) where
+    R: ReviewRepository + Send + Sync + 'static,
+    A: AdvancedAnalysisRepository + Send + Sync + 'static,
+{
     tracing::info!(worker_id, "Review worker started");
 
     loop {
@@ -41,8 +45,8 @@ pub async fn run_review_worker(
         let result = analyze_game(
             worker_id,
             &job,
-            &store,
-            &advanced_store,
+            store.as_ref(),
+            advanced_store.as_ref(),
             analysis_depth,
             &analysis_config,
         )
@@ -67,7 +71,7 @@ pub async fn run_review_worker(
                     completed_at: None,
                     winner: None,
                 };
-                let _ = store.save(&failed_review);
+                let _ = store.save_review(&failed_review).await;
             }
         }
 
@@ -81,19 +85,23 @@ pub async fn run_review_worker(
 /// Pipeline:
 ///   Phase 1 — Engine analysis of each position (at configured depth)
 ///   Phase 2+4 — Board geometry metrics + psychological profiling (via analysis crate)
-async fn analyze_game(
+async fn analyze_game<R, A>(
     worker_id: usize,
     job: &ReviewJob,
-    store: &ReviewStore,
-    advanced_store: &AdvancedAnalysisStore,
+    store: &R,
+    advanced_store: &A,
     analysis_depth: u32,
     analysis_config: &AnalysisConfig,
-) -> Result<(), String> {
+) -> Result<(), String>
+where
+    R: ReviewRepository + Send + Sync,
+    A: AdvancedAnalysisRepository + Send + Sync,
+{
     let game = &job.game_data;
     let total_plies = game.moves.len() as u32;
 
     // Check for partial review (crash recovery)
-    let mut review = match store.load(&job.game_id) {
+    let mut review = match store.load_review(&job.game_id).await {
         Ok(Some(existing)) if !existing.positions.is_empty() => {
             tracing::info!(
                 worker_id,
@@ -250,7 +258,8 @@ async fn analyze_game(
 
         // Persist partial results after each ply (crash recovery)
         store
-            .save(&review)
+            .save_review(&review)
+            .await
             .map_err(|e| format!("Failed to save partial review: {}", e))?;
     }
 
@@ -279,7 +288,8 @@ async fn analyze_game(
     );
 
     store
-        .save(&review)
+        .save_review(&review)
+        .await
         .map_err(|e| format!("Failed to save completed review: {}", e))?;
 
     // =====================================================================
@@ -306,7 +316,8 @@ async fn analyze_game(
         );
 
         advanced_store
-            .save(&advanced)
+            .save_analysis(&advanced)
+            .await
             .map_err(|e| format!("Failed to save advanced analysis: {}", e))?;
     }
 

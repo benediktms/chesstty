@@ -9,9 +9,9 @@ use std::sync::Arc;
 use analysis::AnalysisConfig;
 use tokio::sync::{mpsc, Mutex, RwLock};
 
-use crate::persistence::FinishedGameStore;
-use advanced::AdvancedAnalysisStore;
-use store::ReviewStore;
+use crate::persistence::{
+    AdvancedAnalysisRepository, FinishedGameRepository, ReviewRepository,
+};
 use types::*;
 
 /// Configuration for the review system.
@@ -38,21 +38,31 @@ impl Default for ReviewConfig {
 ///
 /// Owns a bounded job queue (mpsc channel) and a fixed pool of worker tasks.
 /// Each worker spawns its own StockfishEngine process.
-pub struct ReviewManager {
+pub struct ReviewManager<F, R, A>
+where
+    F: FinishedGameRepository,
+    R: ReviewRepository,
+    A: AdvancedAnalysisRepository,
+{
     job_tx: mpsc::Sender<ReviewJob>,
     enqueued: Arc<RwLock<HashSet<String>>>,
-    review_store: Arc<ReviewStore>,
-    finished_game_store: Arc<FinishedGameStore>,
-    advanced_store: Arc<AdvancedAnalysisStore>,
+    review_store: Arc<R>,
+    finished_game_store: Arc<F>,
+    advanced_store: Arc<A>,
     /// Kept alive so the channel stays open even if no workers are spawned.
     _job_rx: Arc<Mutex<mpsc::Receiver<ReviewJob>>>,
 }
 
-impl ReviewManager {
+impl<F, R, A> ReviewManager<F, R, A>
+where
+    F: FinishedGameRepository + Send + Sync + 'static,
+    R: ReviewRepository + Send + Sync + 'static,
+    A: AdvancedAnalysisRepository + Send + Sync + 'static,
+{
     pub fn new(
-        finished_game_store: Arc<FinishedGameStore>,
-        review_store: Arc<ReviewStore>,
-        advanced_store: Arc<AdvancedAnalysisStore>,
+        finished_game_store: Arc<F>,
+        review_store: Arc<R>,
+        advanced_store: Arc<A>,
         config: ReviewConfig,
     ) -> Self {
         let (job_tx, job_rx) = mpsc::channel::<ReviewJob>(64);
@@ -113,7 +123,7 @@ impl ReviewManager {
         let mut recovered = 0;
 
         // 1. Scan for incomplete reviews on disk
-        if let Ok(reviews) = self.review_store.list() {
+        if let Ok(reviews) = self.review_store.list_reviews().await {
             for review in reviews {
                 match review.status {
                     ReviewStatus::Complete => {} // nothing to do
@@ -141,11 +151,12 @@ impl ReviewManager {
         }
 
         // 2. Scan for finished games with no review at all
-        if let Ok(games) = self.finished_game_store.list() {
+        if let Ok(games) = self.finished_game_store.list_games().await {
             for game in games {
                 if self
                     .review_store
-                    .load(&game.game_id)
+                    .load_review(&game.game_id)
+                    .await
                     .ok()
                     .flatten()
                     .is_none()
@@ -189,7 +200,7 @@ impl ReviewManager {
         }
 
         // Check if review already exists and is complete
-        if let Ok(Some(review)) = self.review_store.load(game_id) {
+        if let Ok(Some(review)) = self.review_store.load_review(game_id).await {
             if review.status == ReviewStatus::Complete {
                 tracing::warn!(game_id = %game_id, "Review already complete, rejecting enqueue");
                 return Err(format!("Review for game {} already exists", game_id));
@@ -200,7 +211,8 @@ impl ReviewManager {
         // Load the finished game data
         let game_data = self
             .finished_game_store
-            .load(game_id)
+            .load_game(game_id)
+            .await
             .map_err(|e| format!("Failed to load game: {}", e))?
             .ok_or_else(|| format!("Finished game not found: {}", game_id))?;
 
@@ -228,7 +240,7 @@ impl ReviewManager {
         // Check if it's in the enqueued set (job is pending or in-flight)
         if self.enqueued.read().await.contains(game_id) {
             // Check the store for in-progress updates from the worker
-            if let Ok(Some(review)) = self.review_store.load(game_id) {
+            if let Ok(Some(review)) = self.review_store.load_review(game_id).await {
                 if let ReviewStatus::Analyzing { .. } = review.status {
                     return Ok(review.status);
                 }
@@ -238,7 +250,7 @@ impl ReviewManager {
         }
 
         // Check the store for completed/failed reviews
-        match self.review_store.load(game_id) {
+        match self.review_store.load_review(game_id).await {
             Ok(Some(review)) => Ok(review.status),
             Ok(None) => Err(format!("No review found for game {}", game_id)),
             Err(e) => Err(e.to_string()),
@@ -246,23 +258,32 @@ impl ReviewManager {
     }
 
     /// Get the full review for a game.
-    pub fn get_review(&self, game_id: &str) -> Result<Option<GameReview>, String> {
-        self.review_store.load(game_id).map_err(|e| e.to_string())
+    pub async fn get_review(&self, game_id: &str) -> Result<Option<GameReview>, String> {
+        self.review_store
+            .load_review(game_id)
+            .await
+            .map_err(|e| e.to_string())
     }
 
     /// Get the advanced analysis for a game.
-    pub fn get_advanced_analysis(
+    pub async fn get_advanced_analysis(
         &self,
         game_id: &str,
     ) -> Result<Option<analysis::AdvancedGameAnalysis>, String> {
         self.advanced_store
-            .load(game_id)
+            .load_analysis(game_id)
+            .await
             .map_err(|e| e.to_string())
     }
 
     /// List all finished games eligible for review.
-    pub fn list_finished_games(&self) -> Result<Vec<crate::persistence::FinishedGameData>, String> {
-        self.finished_game_store.list().map_err(|e| e.to_string())
+    pub async fn list_finished_games(
+        &self,
+    ) -> Result<Vec<crate::persistence::FinishedGameData>, String> {
+        self.finished_game_store
+            .list_games()
+            .await
+            .map_err(|e| e.to_string())
     }
 
     /// Delete a finished game and its associated review.
@@ -276,14 +297,17 @@ impl ReviewManager {
         }
 
         self.finished_game_store
-            .delete(game_id)
+            .delete_game(game_id)
+            .await
             .map_err(|e| e.to_string())?;
         self.review_store
-            .delete(game_id)
+            .delete_review(game_id)
+            .await
             .map_err(|e| e.to_string())?;
         // Also delete advanced analysis if it exists
         self.advanced_store
-            .delete(game_id)
+            .delete_analysis(game_id)
+            .await
             .map_err(|e| e.to_string())?;
         Ok(())
     }
@@ -292,7 +316,9 @@ impl ReviewManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::persistence::{FinishedGameData, StoredMoveRecord};
+    use crate::review::advanced::AdvancedAnalysisStore;
+    use crate::review::store::ReviewStore;
+    use crate::persistence::{FinishedGameData, FinishedGameStore, StoredMoveRecord};
 
     /// Create test stores in a temp directory (leaked so it outlives the test).
     fn test_stores() -> (Arc<FinishedGameStore>, Arc<ReviewStore>, Arc<AdvancedAnalysisStore>) {
@@ -311,7 +337,7 @@ mod tests {
         finished: Arc<FinishedGameStore>,
         reviews: Arc<ReviewStore>,
         advanced: Arc<AdvancedAnalysisStore>,
-    ) -> ReviewManager {
+    ) -> ReviewManager<FinishedGameStore, ReviewStore, AdvancedAnalysisStore> {
         ReviewManager::new(
             finished,
             reviews,
@@ -330,7 +356,7 @@ mod tests {
         finished: Arc<FinishedGameStore>,
         reviews: Arc<ReviewStore>,
         advanced: Arc<AdvancedAnalysisStore>,
-    ) -> ReviewManager {
+    ) -> ReviewManager<FinishedGameStore, ReviewStore, AdvancedAnalysisStore> {
         let (job_tx, job_rx) = mpsc::channel::<ReviewJob>(1);
         // Drop receiver immediately so all sends fail
         drop(job_rx);
@@ -529,7 +555,7 @@ mod tests {
         let (finished, reviews, advanced) = test_stores();
         let mgr = test_manager_no_workers(finished, reviews, advanced);
 
-        assert!(mgr.get_review("nonexistent").unwrap().is_none());
+        assert!(mgr.get_review("nonexistent").await.unwrap().is_none());
     }
 
     #[tokio::test]
@@ -553,7 +579,7 @@ mod tests {
 
         let mgr = test_manager_no_workers(finished, reviews, advanced);
 
-        let loaded = mgr.get_review("game_1").unwrap().unwrap();
+        let loaded = mgr.get_review("game_1").await.unwrap().unwrap();
         assert_eq!(loaded.game_id, "game_1");
         assert_eq!(loaded.status, ReviewStatus::Complete);
         assert_eq!(loaded.white_accuracy, Some(90.0));
@@ -567,7 +593,7 @@ mod tests {
 
         let mgr = test_manager_no_workers(finished, reviews, advanced);
 
-        let games = mgr.list_finished_games().unwrap();
+        let games = mgr.list_finished_games().await.unwrap();
         assert_eq!(games.len(), 2);
     }
 
@@ -780,7 +806,7 @@ mod tests {
             }
         }
 
-        let review = mgr.get_review("game_1").unwrap().unwrap();
+        let review = mgr.get_review("game_1").await.unwrap().unwrap();
         assert_eq!(review.status, ReviewStatus::Complete);
         assert_eq!(review.total_plies, 4);
         assert_eq!(review.analyzed_plies, 4);
@@ -814,7 +840,7 @@ mod tests {
         );
 
         // Advanced analysis should have been produced
-        let adv = mgr.get_advanced_analysis("game_1").unwrap();
+        let adv = mgr.get_advanced_analysis("game_1").await.unwrap();
         assert!(adv.is_some(), "Advanced analysis should be present");
         let adv = adv.unwrap();
         assert_eq!(adv.game_id, "game_1");

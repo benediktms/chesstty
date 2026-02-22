@@ -1,17 +1,27 @@
 //! Session persistence endpoints
 
+use crate::persistence::{FinishedGameRepository, PositionRepository, SessionRepository};
 use crate::service::converters::convert_snapshot_to_proto;
 use crate::session::SessionManager;
 use chess_proto::*;
 use std::sync::Arc;
 use tonic::{Request, Response, Status};
 
-pub struct PersistenceEndpoints {
-    session_manager: Arc<SessionManager>,
+pub struct PersistenceEndpoints<
+    S: SessionRepository,
+    P: PositionRepository,
+    F: FinishedGameRepository,
+> {
+    session_manager: Arc<SessionManager<S, P, F>>,
 }
 
-impl PersistenceEndpoints {
-    pub fn new(session_manager: Arc<SessionManager>) -> Self {
+impl<S, P, F> PersistenceEndpoints<S, P, F>
+where
+    S: SessionRepository + Send + Sync + 'static,
+    P: PositionRepository + Send + Sync + 'static,
+    F: FinishedGameRepository + Send + Sync + 'static,
+{
+    pub fn new(session_manager: Arc<SessionManager<S, P, F>>) -> Self {
         Self { session_manager }
     }
 
@@ -42,6 +52,7 @@ impl PersistenceEndpoints {
         let sessions = self
             .session_manager
             .list_suspended()
+            .await
             .map_err(Status::internal)?;
 
         let proto_sessions: Vec<SuspendedSessionInfo> = sessions
@@ -129,6 +140,7 @@ impl PersistenceEndpoints {
                 req.move_count,
                 req.skill_level as u8,
             )
+            .await
             .map_err(Status::internal)?;
 
         Ok(Response::new(SaveSnapshotResponse { suspended_id }))
@@ -143,6 +155,7 @@ impl PersistenceEndpoints {
 
         self.session_manager
             .delete_suspended(&req.suspended_id)
+            .await
             .map_err(Status::not_found)?;
 
         Ok(Response::new(Empty {}))

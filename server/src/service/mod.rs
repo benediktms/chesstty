@@ -9,6 +9,10 @@ mod converters;
 mod endpoints;
 mod parsers;
 
+use crate::persistence::{
+    AdvancedAnalysisRepository, FinishedGameRepository, PositionRepository, ReviewRepository,
+    SessionRepository,
+};
 use crate::review::ReviewManager;
 use crate::session::SessionManager;
 use chess_proto::chess_service_server::ChessService;
@@ -22,20 +26,36 @@ use tonic::{Request, Response, Status};
 /// Implementation of the ChessService gRPC service
 ///
 /// This service delegates to specialized endpoint handlers for better modularity and testability.
-pub struct ChessServiceImpl {
-    session_manager: Arc<SessionManager>,
-    review_manager: Arc<ReviewManager>,
-    session_endpoints: SessionEndpoints,
-    game_endpoints: GameEndpoints,
-    engine_endpoints: EngineEndpoints,
-    events_endpoints: EventsEndpoints,
-    persistence_endpoints: PersistenceEndpoints,
-    positions_endpoints: PositionsEndpoints,
-    review_endpoints: ReviewEndpoints,
+pub struct ChessServiceImpl<
+    S: SessionRepository,
+    P: PositionRepository,
+    F: FinishedGameRepository,
+    R: ReviewRepository,
+    A: AdvancedAnalysisRepository,
+> {
+    session_manager: Arc<SessionManager<S, P, F>>,
+    review_manager: Arc<ReviewManager<F, R, A>>,
+    session_endpoints: SessionEndpoints<S, P, F>,
+    game_endpoints: GameEndpoints<S, P, F>,
+    engine_endpoints: EngineEndpoints<S, P, F>,
+    events_endpoints: EventsEndpoints<S, P, F>,
+    persistence_endpoints: PersistenceEndpoints<S, P, F>,
+    positions_endpoints: PositionsEndpoints<S, P, F>,
+    review_endpoints: ReviewEndpoints<F, R, A>,
 }
 
-impl ChessServiceImpl {
-    pub fn new(session_manager: Arc<SessionManager>, review_manager: Arc<ReviewManager>) -> Self {
+impl<S, P, F, R, A> ChessServiceImpl<S, P, F, R, A>
+where
+    S: SessionRepository + Send + Sync + 'static,
+    P: PositionRepository + Send + Sync + 'static,
+    F: FinishedGameRepository + Send + Sync + 'static,
+    R: ReviewRepository + Send + Sync + 'static,
+    A: AdvancedAnalysisRepository + Send + Sync + 'static,
+{
+    pub fn new(
+        session_manager: Arc<SessionManager<S, P, F>>,
+        review_manager: Arc<ReviewManager<F, R, A>>,
+    ) -> Self {
         Self {
             session_endpoints: SessionEndpoints::new(session_manager.clone()),
             game_endpoints: GameEndpoints::new(session_manager.clone()),
@@ -51,7 +71,14 @@ impl ChessServiceImpl {
 }
 
 #[tonic::async_trait]
-impl ChessService for ChessServiceImpl {
+impl<S, P, F, R, A> ChessService for ChessServiceImpl<S, P, F, R, A>
+where
+    S: SessionRepository + Send + Sync + 'static,
+    P: PositionRepository + Send + Sync + 'static,
+    F: FinishedGameRepository + Send + Sync + 'static,
+    R: ReviewRepository + Send + Sync + 'static,
+    A: AdvancedAnalysisRepository + Send + Sync + 'static,
+{
     // =========================================================================
     // Session Management Endpoints
     // =========================================================================

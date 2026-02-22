@@ -1,17 +1,27 @@
 //! Engine control and pause/resume endpoints
 
+use crate::persistence::{FinishedGameRepository, PositionRepository, SessionRepository};
 use crate::session::commands::EngineConfig;
 use crate::session::SessionManager;
 use chess_proto::*;
 use std::sync::Arc;
 use tonic::{Request, Response, Status};
 
-pub struct EngineEndpoints {
-    session_manager: Arc<SessionManager>,
+pub struct EngineEndpoints<
+    S: SessionRepository,
+    P: PositionRepository,
+    F: FinishedGameRepository,
+> {
+    session_manager: Arc<SessionManager<S, P, F>>,
 }
 
-impl EngineEndpoints {
-    pub fn new(session_manager: Arc<SessionManager>) -> Self {
+impl<S, P, F> EngineEndpoints<S, P, F>
+where
+    S: SessionRepository + Send + Sync + 'static,
+    P: PositionRepository + Send + Sync + 'static,
+    F: FinishedGameRepository + Send + Sync + 'static,
+{
+    pub fn new(session_manager: Arc<SessionManager<S, P, F>>) -> Self {
         Self { session_manager }
     }
 

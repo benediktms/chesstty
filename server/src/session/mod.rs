@@ -13,8 +13,8 @@ use tokio::sync::{broadcast, mpsc, RwLock};
 use uuid::Uuid;
 
 use crate::persistence::{
-    self, FinishedGameData, FinishedGameStore, PositionStore, SavedPositionData, SessionStore,
-    StoredMoveRecord, SuspendedSessionData,
+    self, FinishedGameData, FinishedGameRepository, PositionRepository, SavedPositionData,
+    SessionRepository, StoredMoveRecord, SuspendedSessionData,
 };
 use actor::run_session_actor;
 pub use events::{SessionEvent, UciDirection};
@@ -23,19 +23,20 @@ pub use snapshot::{SessionSnapshot, TimerSnapshot};
 use state::SessionState;
 
 /// Manages all active sessions. Spawns an actor task per session.
-pub struct SessionManager {
+pub struct SessionManager<S: SessionRepository, P: PositionRepository, F: FinishedGameRepository> {
     sessions: RwLock<HashMap<String, SessionHandle>>,
-    store: SessionStore,
-    position_store: PositionStore,
-    finished_game_store: Arc<FinishedGameStore>,
+    store: S,
+    position_store: P,
+    finished_game_store: Arc<F>,
 }
 
-impl SessionManager {
-    pub fn new(
-        store: SessionStore,
-        position_store: PositionStore,
-        finished_game_store: Arc<FinishedGameStore>,
-    ) -> Self {
+impl<S, P, F> SessionManager<S, P, F>
+where
+    S: SessionRepository + Send + Sync + 'static,
+    P: PositionRepository + Send + Sync + 'static,
+    F: FinishedGameRepository + Send + Sync + 'static,
+{
+    pub fn new(store: S, position_store: P, finished_game_store: Arc<F>) -> Self {
         Self {
             sessions: RwLock::new(HashMap::new()),
             store,
@@ -100,7 +101,7 @@ impl SessionManager {
                 ref reason,
             } = snapshot.phase
             {
-                self.save_finished_game(&snapshot, result, reason)
+                self.save_finished_game(&snapshot, result, reason).await
             } else {
                 None
             }
@@ -114,7 +115,7 @@ impl SessionManager {
 
     /// Persist a finished game's move history for post-game review.
     /// Returns the game_id if saved successfully.
-    fn save_finished_game(
+    async fn save_finished_game(
         &self,
         snapshot: &SessionSnapshot,
         result: &chess::GameResult,
@@ -176,8 +177,8 @@ impl SessionManager {
             created_at: persistence::now_timestamp(),
         };
 
-        match self.finished_game_store.save(&data) {
-            Ok(_) => {
+        match self.finished_game_store.save_game(&data).await {
+            Ok(()) => {
                 tracing::info!(game_id = %data.game_id, "Saved finished game for review");
                 Some(data.game_id)
             }
@@ -226,7 +227,11 @@ impl SessionManager {
             created_at: persistence::now_timestamp(),
         };
 
-        let suspended_id = self.store.save(&data).map_err(|e| e.to_string())?;
+        self.store
+            .save_session(&data)
+            .await
+            .map_err(|e| e.to_string())?;
+        let suspended_id = data.suspended_id;
         self.close_session(session_id).await?;
         Ok(suspended_id)
     }
@@ -234,7 +239,8 @@ impl SessionManager {
     pub async fn resume_suspended(&self, suspended_id: &str) -> Result<SessionSnapshot, String> {
         let data = self
             .store
-            .load(suspended_id)
+            .load_session(suspended_id)
+            .await
             .map_err(|e| e.to_string())?
             .ok_or_else(|| format!("Suspended session not found: {}", suspended_id))?;
 
@@ -255,20 +261,26 @@ impl SessionManager {
         };
 
         let snapshot = self.create_session(Some(data.fen), game_mode).await?;
-        self.store.delete(suspended_id).map_err(|e| e.to_string())?;
+        self.store
+            .delete_session(suspended_id)
+            .await
+            .map_err(|e| e.to_string())?;
         Ok(snapshot)
     }
 
-    pub fn list_suspended(&self) -> Result<Vec<SuspendedSessionData>, String> {
-        self.store.list().map_err(|e| e.to_string())
+    pub async fn list_suspended(&self) -> Result<Vec<SuspendedSessionData>, String> {
+        self.store.list_sessions().await.map_err(|e| e.to_string())
     }
 
-    pub fn delete_suspended(&self, suspended_id: &str) -> Result<(), String> {
-        self.store.delete(suspended_id).map_err(|e| e.to_string())
+    pub async fn delete_suspended(&self, suspended_id: &str) -> Result<(), String> {
+        self.store
+            .delete_session(suspended_id)
+            .await
+            .map_err(|e| e.to_string())
     }
 
     /// Save a snapshot directly as a suspended session (from review mode, no active session).
-    pub fn save_snapshot(
+    pub async fn save_snapshot(
         &self,
         fen: &str,
         _name: &str,
@@ -295,10 +307,14 @@ impl SessionManager {
             created_at: persistence::now_timestamp(),
         };
 
-        self.store.save(&data).map_err(|e| e.to_string())
+        self.store
+            .save_session(&data)
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok(data.suspended_id)
     }
 
-    pub fn save_position(&self, name: &str, fen: &str) -> Result<String, String> {
+    pub async fn save_position(&self, name: &str, fen: &str) -> Result<String, String> {
         let _board: cozy_chess::Board = fen.parse().map_err(|_| format!("Invalid FEN: {}", fen))?;
         let data = SavedPositionData {
             position_id: persistence::generate_position_id(),
@@ -307,16 +323,24 @@ impl SessionManager {
             is_default: false,
             created_at: persistence::now_timestamp(),
         };
-        self.position_store.save(&data).map_err(|e| e.to_string())
-    }
-
-    pub fn list_positions(&self) -> Result<Vec<SavedPositionData>, String> {
-        self.position_store.list().map_err(|e| e.to_string())
-    }
-
-    pub fn delete_position(&self, position_id: &str) -> Result<(), String> {
         self.position_store
-            .delete(position_id)
+            .save_position(&data)
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok(data.position_id)
+    }
+
+    pub async fn list_positions(&self) -> Result<Vec<SavedPositionData>, String> {
+        self.position_store
+            .list_positions()
+            .await
+            .map_err(|e| e.to_string())
+    }
+
+    pub async fn delete_position(&self, position_id: &str) -> Result<(), String> {
+        self.position_store
+            .delete_position(position_id)
+            .await
             .map_err(|e| e.to_string())
     }
 }
@@ -324,14 +348,18 @@ impl SessionManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::persistence::{FinishedGameStore, PositionStore, SessionStore};
     use std::sync::Arc;
 
-    fn test_manager() -> SessionManager {
+    fn test_manager() -> SessionManager<SessionStore, PositionStore, FinishedGameStore> {
         let (mgr, _) = test_manager_with_store();
         mgr
     }
 
-    fn test_manager_with_store() -> (SessionManager, Arc<FinishedGameStore>) {
+    fn test_manager_with_store() -> (
+        SessionManager<SessionStore, PositionStore, FinishedGameStore>,
+        Arc<FinishedGameStore>,
+    ) {
         let dir = tempfile::tempdir().unwrap();
         let store = SessionStore::new(dir.path().to_path_buf());
         let position_store = PositionStore::new(dir.path().to_path_buf(), None);
@@ -653,21 +681,23 @@ mod tests {
         assert_eq!(games[0].move_count, 1);
     }
 
-    #[test]
-    fn test_save_snapshot_creates_suspended_session() {
+    #[tokio::test]
+    async fn test_save_snapshot_creates_suspended_session() {
         let mgr = test_manager();
         let fen = "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2";
-        let result = mgr.save_snapshot(
-            fen,
-            "Test Snapshot",
-            "HumanVsEngine:White",
-            Some("white".to_string()),
-            10,
-            5,
-        );
+        let result = mgr
+            .save_snapshot(
+                fen,
+                "Test Snapshot",
+                "HumanVsEngine:White",
+                Some("white".to_string()),
+                10,
+                5,
+            )
+            .await;
         assert!(result.is_ok());
 
-        let suspended = mgr.list_suspended().unwrap();
+        let suspended = mgr.list_suspended().await.unwrap();
         assert_eq!(suspended.len(), 1);
         assert_eq!(suspended[0].fen, fen);
         assert_eq!(suspended[0].game_mode, "HumanVsEngine:White");
@@ -676,10 +706,12 @@ mod tests {
         assert_eq!(suspended[0].side_to_move, "white");
     }
 
-    #[test]
-    fn test_save_snapshot_invalid_fen_fails() {
+    #[tokio::test]
+    async fn test_save_snapshot_invalid_fen_fails() {
         let mgr = test_manager();
-        let result = mgr.save_snapshot("not a valid fen", "Bad", "HumanVsHuman", None, 0, 0);
+        let result = mgr
+            .save_snapshot("not a valid fen", "Bad", "HumanVsHuman", None, 0, 0)
+            .await;
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Invalid FEN"));
     }
@@ -691,6 +723,7 @@ mod tests {
         let fen = "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2";
         let suspended_id = mgr
             .save_snapshot(fen, "Test", "HumanVsHuman", None, 2, 0)
+            .await
             .unwrap();
 
         let snap = mgr.resume_suspended(&suspended_id).await.unwrap();
@@ -698,7 +731,7 @@ mod tests {
         assert!(matches!(snap.phase, GamePhase::Playing { .. }));
 
         // Suspended session should be deleted after resume
-        let suspended = mgr.list_suspended().unwrap();
+        let suspended = mgr.list_suspended().await.unwrap();
         assert!(suspended.is_empty());
     }
 
@@ -709,6 +742,7 @@ mod tests {
         let checkmate_fen = "rnb1kbnr/pppp1ppp/8/4p3/6Pq/5P2/PPPPP2P/RNBQKBNR w KQkq - 1 3";
         let suspended_id = mgr
             .save_snapshot(checkmate_fen, "Checkmate", "HumanVsHuman", None, 4, 0)
+            .await
             .unwrap();
 
         // Resuming a terminal FEN creates a session that immediately detects checkmate.

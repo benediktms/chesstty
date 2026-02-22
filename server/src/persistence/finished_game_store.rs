@@ -39,10 +39,13 @@ impl Storable for FinishedGameData {
 }
 
 /// Persistence layer for finished games. Uses JSON files in a directory.
+/// Kept as a fallback trait implementation; production uses SqliteFinishedGameRepository.
+#[allow(dead_code)]
 pub struct FinishedGameStore {
     inner: JsonStore<FinishedGameData>,
 }
 
+#[allow(dead_code)]
 impl FinishedGameStore {
     pub fn new(data_dir: PathBuf) -> Self {
         let dir = data_dir.join("finished_games");
@@ -71,6 +74,25 @@ impl FinishedGameStore {
     /// Delete a finished game by ID.
     pub fn delete(&self, id: &str) -> Result<(), PersistenceError> {
         self.inner.delete(id)
+    }
+}
+
+impl super::traits::FinishedGameRepository for FinishedGameStore {
+    async fn save_game(&self, data: &FinishedGameData) -> Result<(), super::PersistenceError> {
+        self.save(data)?;
+        Ok(())
+    }
+
+    async fn list_games(&self) -> Result<Vec<FinishedGameData>, super::PersistenceError> {
+        self.list()
+    }
+
+    async fn load_game(&self, id: &str) -> Result<Option<FinishedGameData>, super::PersistenceError> {
+        self.load(id)
+    }
+
+    async fn delete_game(&self, id: &str) -> Result<(), super::PersistenceError> {
+        self.delete(id)
     }
 }
 

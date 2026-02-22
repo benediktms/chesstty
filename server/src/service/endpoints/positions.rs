@@ -1,16 +1,26 @@
 //! Saved positions endpoints
 
+use crate::persistence::{FinishedGameRepository, PositionRepository, SessionRepository};
 use crate::session::SessionManager;
 use chess_proto::*;
 use std::sync::Arc;
 use tonic::{Request, Response, Status};
 
-pub struct PositionsEndpoints {
-    session_manager: Arc<SessionManager>,
+pub struct PositionsEndpoints<
+    S: SessionRepository,
+    P: PositionRepository,
+    F: FinishedGameRepository,
+> {
+    session_manager: Arc<SessionManager<S, P, F>>,
 }
 
-impl PositionsEndpoints {
-    pub fn new(session_manager: Arc<SessionManager>) -> Self {
+impl<S, P, F> PositionsEndpoints<S, P, F>
+where
+    S: SessionRepository + Send + Sync + 'static,
+    P: PositionRepository + Send + Sync + 'static,
+    F: FinishedGameRepository + Send + Sync + 'static,
+{
+    pub fn new(session_manager: Arc<SessionManager<S, P, F>>) -> Self {
         Self { session_manager }
     }
 
@@ -24,6 +34,7 @@ impl PositionsEndpoints {
         let position_id = self
             .session_manager
             .save_position(&req.name, &req.fen)
+            .await
             .map_err(Status::invalid_argument)?;
 
         Ok(Response::new(SavePositionResponse { position_id }))
@@ -38,6 +49,7 @@ impl PositionsEndpoints {
         let positions = self
             .session_manager
             .list_positions()
+            .await
             .map_err(Status::internal)?;
 
         let proto_positions: Vec<SavedPosition> = positions
@@ -65,6 +77,7 @@ impl PositionsEndpoints {
 
         self.session_manager
             .delete_position(&req.position_id)
+            .await
             .map_err(Status::invalid_argument)?;
 
         Ok(Response::new(Empty {}))

@@ -3,6 +3,7 @@ use std::collections::HashMap;
 
 /// Cache entry for a position evaluation.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct CacheEntry {
     pub score: AnalysisScore,
     pub best_move_uci: String,
@@ -12,10 +13,12 @@ pub struct CacheEntry {
 
 /// In-memory cache for engine evaluations keyed by FEN.
 /// Returns entries only if cached at >= requested depth.
+#[allow(dead_code)]
 pub struct EvalCache {
     entries: HashMap<String, CacheEntry>,
 }
 
+#[allow(dead_code)]
 impl EvalCache {
     pub fn new() -> Self {
         Self {

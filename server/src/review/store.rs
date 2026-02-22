@@ -4,10 +4,13 @@ use std::path::PathBuf;
 use super::types::GameReview;
 
 /// Persistence layer for game reviews. Uses JSON files in a directory.
+/// Kept as a fallback trait implementation; production uses SqliteReviewRepository.
+#[allow(dead_code)]
 pub struct ReviewStore {
     inner: JsonStore<GameReview>,
 }
 
+#[allow(dead_code)]
 impl ReviewStore {
     pub fn new(data_dir: PathBuf) -> Self {
         let dir = data_dir.join("reviews");
@@ -35,6 +38,24 @@ impl ReviewStore {
     /// Delete a review by game_id.
     pub fn delete(&self, game_id: &str) -> Result<(), PersistenceError> {
         self.inner.delete(game_id)
+    }
+}
+
+impl crate::persistence::traits::ReviewRepository for ReviewStore {
+    async fn save_review(&self, review: &super::types::GameReview) -> Result<(), crate::persistence::PersistenceError> {
+        self.save(review)
+    }
+
+    async fn load_review(&self, game_id: &str) -> Result<Option<super::types::GameReview>, crate::persistence::PersistenceError> {
+        self.load(game_id)
+    }
+
+    async fn list_reviews(&self) -> Result<Vec<super::types::GameReview>, crate::persistence::PersistenceError> {
+        self.list()
+    }
+
+    async fn delete_review(&self, game_id: &str) -> Result<(), crate::persistence::PersistenceError> {
+        self.delete(game_id)
     }
 }
 

@@ -7,18 +7,29 @@ use analysis::board_analysis::{
 use analysis::advanced::types::{
     AdvancedGameAnalysis, AdvancedPositionAnalysis, PsychologicalProfile,
 };
+use crate::persistence::{AdvancedAnalysisRepository, FinishedGameRepository, ReviewRepository};
 use crate::review::types::{is_white_ply, AnalysisScore, MoveClassification, ReviewStatus};
 use crate::review::ReviewManager;
 use chess_proto::*;
 use std::sync::Arc;
 use tonic::{Request, Response, Status};
 
-pub struct ReviewEndpoints {
-    review_manager: Arc<ReviewManager>,
+pub struct ReviewEndpoints<F, R, A>
+where
+    F: FinishedGameRepository,
+    R: ReviewRepository,
+    A: AdvancedAnalysisRepository,
+{
+    review_manager: Arc<ReviewManager<F, R, A>>,
 }
 
-impl ReviewEndpoints {
-    pub fn new(review_manager: Arc<ReviewManager>) -> Self {
+impl<F, R, A> ReviewEndpoints<F, R, A>
+where
+    F: FinishedGameRepository + Send + Sync + 'static,
+    R: ReviewRepository + Send + Sync + 'static,
+    A: AdvancedAnalysisRepository + Send + Sync + 'static,
+{
+    pub fn new(review_manager: Arc<ReviewManager<F, R, A>>) -> Self {
         Self { review_manager }
     }
 
@@ -31,32 +42,32 @@ impl ReviewEndpoints {
         let games = self
             .review_manager
             .list_finished_games()
+            .await
             .map_err(Status::internal)?;
 
-        let proto_games: Vec<FinishedGameInfo> = games
-            .into_iter()
-            .map(|g| {
-                // Check review status for this game
-                let review_status = self
-                    .review_manager
-                    .get_review(&g.game_id)
-                    .ok()
-                    .flatten()
-                    .map(|r| convert_review_status_type(&r.status) as i32);
+        let mut proto_games = Vec::with_capacity(games.len());
+        for g in games {
+            // Check review status for this game
+            let review_status = self
+                .review_manager
+                .get_review(&g.game_id)
+                .await
+                .ok()
+                .flatten()
+                .map(|r| convert_review_status_type(&r.status) as i32);
 
-                let game_mode = parse_game_mode_string(&g.game_mode, g.human_side.as_deref());
+            let game_mode = parse_game_mode_string(&g.game_mode, g.human_side.as_deref());
 
-                FinishedGameInfo {
-                    game_id: g.game_id,
-                    result: g.result,
-                    result_reason: g.result_reason,
-                    game_mode: Some(game_mode),
-                    move_count: g.move_count,
-                    created_at: g.created_at,
-                    review_status,
-                }
-            })
-            .collect();
+            proto_games.push(FinishedGameInfo {
+                game_id: g.game_id,
+                result: g.result,
+                result_reason: g.result_reason,
+                game_mode: Some(game_mode),
+                move_count: g.move_count,
+                created_at: g.created_at,
+                review_status,
+            });
+        }
 
         Ok(Response::new(ListFinishedGamesResponse {
             games: proto_games,
@@ -113,6 +124,7 @@ impl ReviewEndpoints {
         let review = self
             .review_manager
             .get_review(game_id)
+            .await
             .map_err(Status::internal)?
             .ok_or_else(|| Status::not_found(format!("Review not found: {}", game_id)))?;
 
@@ -131,6 +143,7 @@ impl ReviewEndpoints {
         let review = self
             .review_manager
             .get_review(game_id)
+            .await
             .map_err(Status::internal)?
             .ok_or_else(|| Status::not_found(format!("Review not found: {}", game_id)))?;
 
@@ -163,6 +176,7 @@ impl ReviewEndpoints {
         let analysis = self
             .review_manager
             .get_advanced_analysis(game_id)
+            .await
             .map_err(Status::internal)?
             .ok_or_else(|| {
                 Status::not_found(format!("Advanced analysis not found: {}", game_id))

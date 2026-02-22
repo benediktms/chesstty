@@ -27,6 +27,7 @@ impl<T: Storable> JsonStore<T> {
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub fn dir(&self) -> &PathBuf {
         &self.dir
     }

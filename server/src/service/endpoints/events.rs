@@ -1,5 +1,6 @@
 //! Event streaming endpoint
 
+use crate::persistence::{FinishedGameRepository, PositionRepository, SessionRepository};
 use crate::service::converters::{convert_session_event_to_proto, convert_snapshot_to_proto};
 use crate::session::SessionManager;
 use chess_proto::*;
@@ -14,12 +15,21 @@ use tonic::{Request, Response, Status};
 /// When a client disconnects (network failure, crash, or explicit drop),
 /// tonic drops the stream future, which drops this guard, which spawns a
 /// task to close the session and shut down the engine process.
-struct CleanupGuard {
-    session_manager: Arc<SessionManager>,
+struct CleanupGuard<
+    S: SessionRepository + Send + Sync + 'static,
+    P: PositionRepository + Send + Sync + 'static,
+    F: FinishedGameRepository + Send + Sync + 'static,
+> {
+    session_manager: Arc<SessionManager<S, P, F>>,
     session_id: String,
 }
 
-impl Drop for CleanupGuard {
+impl<S, P, F> Drop for CleanupGuard<S, P, F>
+where
+    S: SessionRepository + Send + Sync + 'static,
+    P: PositionRepository + Send + Sync + 'static,
+    F: FinishedGameRepository + Send + Sync + 'static,
+{
     fn drop(&mut self) {
         let session_manager = self.session_manager.clone();
         let session_id = std::mem::take(&mut self.session_id);
@@ -47,12 +57,21 @@ impl Drop for CleanupGuard {
     }
 }
 
-pub struct EventsEndpoints {
-    session_manager: Arc<SessionManager>,
+pub struct EventsEndpoints<
+    S: SessionRepository,
+    P: PositionRepository,
+    F: FinishedGameRepository,
+> {
+    session_manager: Arc<SessionManager<S, P, F>>,
 }
 
-impl EventsEndpoints {
-    pub fn new(session_manager: Arc<SessionManager>) -> Self {
+impl<S, P, F> EventsEndpoints<S, P, F>
+where
+    S: SessionRepository + Send + Sync + 'static,
+    P: PositionRepository + Send + Sync + 'static,
+    F: FinishedGameRepository + Send + Sync + 'static,
+{
+    pub fn new(session_manager: Arc<SessionManager<S, P, F>>) -> Self {
         Self { session_manager }
     }
 

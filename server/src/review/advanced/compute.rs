@@ -5,7 +5,7 @@ use analysis::board_analysis::{
     analyze_tactics, compute_king_safety, compute_tension, PositionKingSafety,
     PositionTensionMetrics, TacticalAnalysis,
 };
-use analysis::review_types::{GameReview, PositionReview};
+use analysis::review_types::GameReview;
 use cozy_chess::Board;
 
 /// Compute advanced analysis for all positions in a completed review.

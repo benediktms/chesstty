@@ -25,12 +25,14 @@ anyhow = { workspace = true }
 thiserror = { workspace = true }
 uuid = { workspace = true }
 
-serde = { workspace = true }
-serde_json = { workspace = true }
-
 # For async streaming
 async-stream = "0.3"
 cozy-chess = { workspace = true }
+directories = "6"
+
+serde = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "migrate"] }
 
 [dev-dependencies]
 tempfile = "3"

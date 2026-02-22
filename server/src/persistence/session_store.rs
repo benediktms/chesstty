@@ -23,10 +23,13 @@ impl Storable for SuspendedSessionData {
 }
 
 /// Persistence layer for suspended sessions. Uses JSON files in a directory.
+/// Kept as a fallback trait implementation; production uses SqliteSessionRepository.
+#[allow(dead_code)]
 pub struct SessionStore {
     inner: JsonStore<SuspendedSessionData>,
 }
 
+#[allow(dead_code)]
 impl SessionStore {
     /// Create a new SessionStore with the given data directory.
     pub fn new(data_dir: PathBuf) -> Self {
@@ -56,6 +59,25 @@ impl SessionStore {
     /// Delete a suspended session by ID.
     pub fn delete(&self, id: &str) -> Result<(), PersistenceError> {
         self.inner.delete(id)
+    }
+}
+
+impl super::traits::SessionRepository for SessionStore {
+    async fn save_session(&self, data: &SuspendedSessionData) -> Result<(), super::PersistenceError> {
+        self.save(data)?;
+        Ok(())
+    }
+
+    async fn list_sessions(&self) -> Result<Vec<SuspendedSessionData>, super::PersistenceError> {
+        self.list()
+    }
+
+    async fn load_session(&self, id: &str) -> Result<Option<SuspendedSessionData>, super::PersistenceError> {
+        self.load(id)
+    }
+
+    async fn delete_session(&self, id: &str) -> Result<(), super::PersistenceError> {
+        self.delete(id)
     }
 }
 

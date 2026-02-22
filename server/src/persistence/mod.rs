@@ -1,13 +1,55 @@
+//! Persistence layer for chesstty.
+//!
+//! ## Architecture
+//!
+//! The persistence layer is built around async repository traits defined in
+//! [`traits`]. Each trait abstracts over a domain aggregate (sessions, positions,
+//! finished games, reviews, advanced analyses).
+//!
+//! **Production backend**: SQLite via `sqlx` (see [`sqlite`]). A single database
+//! file holds nine STRICT tables with foreign-key constraints and WAL mode for
+//! concurrent reads. The [`sqlite::Database`] type owns the connection pool and
+//! runs embedded migrations on startup.
+//!
+//! **Test backend**: The original JSON-file stores (`SessionStore`, `PositionStore`,
+//! `FinishedGameStore`) are still compiled under `#[cfg(test)]`. They satisfy the
+//! same traits, keeping unit tests fast and filesystem-isolated.
+//!
+//! **Data migration**: [`sqlite::migrate_json_to_sqlite`] is called once on startup.
+//! It reads any existing JSON records from the legacy data directory and inserts
+//! them into SQLite, then leaves the JSON files in place as a backup. The migration
+//! is idempotent — re-running it on already-migrated data is safe.
+//!
+//! ## Manager generics
+//!
+//! `SessionManager<S, P, F>` and `ReviewManager<F, R, A>` are generic over the
+//! repository traits. Concrete type parameters are resolved in `main.rs`, keeping
+//! the managers independent of any specific backend.
+
 mod finished_game_store;
 mod json_store;
 mod position_store;
 mod session_store;
 
-pub(crate) use json_store::{JsonStore, Storable};
+pub mod sqlite;
+pub mod traits;
 
-pub use finished_game_store::{FinishedGameData, FinishedGameStore, StoredMoveRecord};
-pub use position_store::{PositionStore, SavedPositionData};
-pub use session_store::{SessionStore, SuspendedSessionData};
+pub(crate) use json_store::{JsonStore, Storable};
+pub use traits::{
+    AdvancedAnalysisRepository, FinishedGameRepository, PositionRepository, ReviewRepository,
+    SessionRepository,
+};
+
+pub use finished_game_store::{FinishedGameData, StoredMoveRecord};
+pub use position_store::SavedPositionData;
+pub use session_store::SuspendedSessionData;
+
+#[cfg(test)]
+pub use finished_game_store::FinishedGameStore;
+#[cfg(test)]
+pub use position_store::PositionStore;
+#[cfg(test)]
+pub use session_store::SessionStore;
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -18,8 +60,12 @@ pub enum PersistenceError {
     Io(#[from] std::io::Error),
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
+    #[error("SQLite error: {0}")]
+    Sqlx(#[from] sqlx::Error),
     #[error("Cannot delete default positions")]
     DefaultPositionProtected,
+    #[error("Migration error: {0}")]
+    Migration(String),
 }
 
 /// Generate a unique suspended session ID using timestamp + random suffix.
