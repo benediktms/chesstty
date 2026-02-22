@@ -2,7 +2,7 @@ use crate::review_state::ReviewState;
 use crate::ui::widgets::game_info_panel::{classification_color, format_review_score};
 use chess_client::{
     review_score, MoveClassification, PositionKingSafetyProto, PositionTensionMetricsProto,
-    TacticalAnalysisProto,
+    TacticalTagKindProto, TacticalTagProto,
 };
 use ratatui::{
     buffer::Buffer,
@@ -194,9 +194,9 @@ impl Widget for MoveAnalysisPanel<'_> {
         if let Some(adv_pos) = self.review_state.advanced_position() {
             lines.push(Line::raw(""));
 
-            // Tactical patterns
-            if let Some(ref tactics) = adv_pos.tactics_after {
-                render_tactics_inline(&mut lines, tactics);
+            // Tactical tags (new pipeline)
+            if !adv_pos.tactical_tags_after.is_empty() {
+                render_tactical_tags_inline(&mut lines, &adv_pos.tactical_tags_after);
             }
 
             // King safety
@@ -278,11 +278,7 @@ fn wrap_text(text: &str, max_width: usize) -> Vec<String> {
     lines
 }
 
-fn render_tactics_inline(lines: &mut Vec<Line<'_>>, tactics: &TacticalAnalysisProto) {
-    if tactics.patterns.is_empty() {
-        return;
-    }
-
+fn render_tactical_tags_inline(lines: &mut Vec<Line<'_>>, tags: &[TacticalTagProto]) {
     lines.push(Line::from(Span::styled(
         "Tactics",
         Style::default()
@@ -290,76 +286,64 @@ fn render_tactics_inline(lines: &mut Vec<Line<'_>>, tactics: &TacticalAnalysisPr
             .add_modifier(Modifier::BOLD),
     )));
 
-    for pattern in tactics.patterns.iter().take(3) {
-        let pattern_text = match &pattern.pattern {
-            Some(chess_client::tactical_pattern_proto::Pattern::Fork(fork)) => {
-                let attacker = fork
-                    .attacker
-                    .as_ref()
-                    .map(|a| a.piece.as_str())
-                    .unwrap_or("?");
-                let targets: Vec<_> = fork
-                    .targets
-                    .iter()
-                    .filter_map(|t| Some(t.square.as_str()))
-                    .collect();
-                format!("Fork: {} -> {}", attacker, targets.join(", "))
-            }
-            Some(chess_client::tactical_pattern_proto::Pattern::Pin(pin)) => {
-                let pinner = pin.pinner.as_ref().map(|p| p.piece.as_str()).unwrap_or("?");
-                let pinned = pin
-                    .pinned_piece
-                    .as_ref()
-                    .map(|p| p.square.as_str())
-                    .unwrap_or("?");
-                format!("Pin: {} pins {}", pinner, pinned)
-            }
-            Some(chess_client::tactical_pattern_proto::Pattern::Skewer(skewer)) => {
-                let attacker = skewer
-                    .attacker
-                    .as_ref()
-                    .map(|a| a.piece.as_str())
-                    .unwrap_or("?");
-                let front = skewer
-                    .front_piece
-                    .as_ref()
-                    .map(|f| f.square.as_str())
-                    .unwrap_or("?");
-                format!("Skewer: {} -> {}", attacker, front)
-            }
-            Some(chess_client::tactical_pattern_proto::Pattern::DiscoveredAttack(disc)) => {
-                let revealed = disc
-                    .revealed_attacker
-                    .as_ref()
-                    .map(|r| r.piece.as_str())
-                    .unwrap_or("?");
-                let target = disc
-                    .target
-                    .as_ref()
-                    .map(|t| t.square.as_str())
-                    .unwrap_or("?");
-                format!("Discovered: {} attacks {}", revealed, target)
-            }
-            Some(chess_client::tactical_pattern_proto::Pattern::HangingPiece(hanging)) => {
-                let piece = hanging
-                    .piece
-                    .as_ref()
-                    .map(|p| p.square.as_str())
-                    .unwrap_or("?");
-                format!(
-                    "Hanging: {} ({}a/{}d)",
-                    piece, hanging.attacker_count, hanging.defender_count
-                )
-            }
-            Some(chess_client::tactical_pattern_proto::Pattern::BackRankWeakness(_)) => {
-                "Back rank weakness".to_string()
-            }
-            None => continue,
+    for tag in tags.iter().take(3) {
+        let kind_name = tactical_tag_kind_name_inline(tag.kind);
+        let conf = tag.confidence;
+        let conf_color = if conf >= 0.8 {
+            Color::LightGreen
+        } else if conf >= 0.5 {
+            Color::Yellow
+        } else {
+            Color::DarkGray
         };
-        lines.push(Line::from(Span::styled(
-            format!("  {}", pattern_text),
-            Style::default().fg(Color::LightYellow),
-        )));
+
+        let mut spans = vec![
+            Span::raw("  "),
+            Span::styled(
+                kind_name,
+                Style::default().fg(conf_color).add_modifier(Modifier::BOLD),
+            ),
+        ];
+
+        // Attacker info
+        if let Some(ref attacker) = tag.attacker {
+            spans.push(Span::raw(": "));
+            spans.push(Span::styled(attacker.clone(), Style::default().fg(Color::White)));
+        }
+
+        // Victims
+        if !tag.victims.is_empty() {
+            spans.push(Span::raw(" -> "));
+            spans.push(Span::styled(
+                tag.victims.join(", "),
+                Style::default().fg(Color::LightCyan),
+            ));
+        }
+
+        // Confidence percentage
+        spans.push(Span::raw("  "));
+        spans.push(Span::styled(
+            format!("{:.0}%", conf * 100.0),
+            Style::default().fg(conf_color),
+        ));
+
+        lines.push(Line::from(spans));
+    }
+}
+
+fn tactical_tag_kind_name_inline(kind: i32) -> &'static str {
+    match TacticalTagKindProto::try_from(kind) {
+        Ok(TacticalTagKindProto::TacticalTagKindFork) => "Fork",
+        Ok(TacticalTagKindProto::TacticalTagKindPin) => "Pin",
+        Ok(TacticalTagKindProto::TacticalTagKindSkewer) => "Skewer",
+        Ok(TacticalTagKindProto::TacticalTagKindDiscoveredAttack) => "Discovered",
+        Ok(TacticalTagKindProto::TacticalTagKindDoubleAttack) => "Double Attack",
+        Ok(TacticalTagKindProto::TacticalTagKindHangingPiece) => "Hanging",
+        Ok(TacticalTagKindProto::TacticalTagKindSacrifice) => "Sacrifice",
+        Ok(TacticalTagKindProto::TacticalTagKindZwischenzug) => "Zwischenzug",
+        Ok(TacticalTagKindProto::TacticalTagKindBackRankWeakness) => "Back Rank",
+        Ok(TacticalTagKindProto::TacticalTagKindMateThreat) => "Mate Threat",
+        _ => "Unknown",
     }
 }
 

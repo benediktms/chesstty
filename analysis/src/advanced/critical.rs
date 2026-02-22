@@ -1,4 +1,4 @@
-use crate::board_analysis::{PositionKingSafety, PositionTensionMetrics, TacticalAnalysis};
+use crate::board_analysis::{PositionKingSafety, PositionTensionMetrics, TacticalTag};
 use crate::review_types::PositionReview;
 
 /// Determine if a position is "critical" based on multiple signals.
@@ -11,7 +11,7 @@ use crate::review_types::PositionReview;
 pub fn is_critical_position(
     position: &PositionReview,
     prev_position: Option<&PositionReview>,
-    tactics: &TacticalAnalysis,
+    tactical_tags: &[TacticalTag],
     king_safety: &PositionKingSafety,
     tension: &PositionTensionMetrics,
 ) -> bool {
@@ -32,7 +32,7 @@ pub fn is_critical_position(
     }
 
     // Signal 3: tactical motif detected
-    if !tactics.patterns.is_empty() {
+    if !tactical_tags.is_empty() {
         signals += 1;
     }
 
@@ -52,7 +52,7 @@ pub fn is_critical_position(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::board_analysis::{KingSafetyMetrics, TacticalPattern};
+    use crate::board_analysis::{KingSafetyMetrics, TacticalEvidence, TacticalTagKind};
     use chess::AnalysisScore;
 
     fn make_position_review(cp_loss: i32, eval_after_cp: i32) -> PositionReview {
@@ -70,18 +70,6 @@ mod tests {
             pv: vec![],
             depth: 18,
             clock_ms: None,
-        }
-    }
-
-    fn empty_tactics() -> TacticalAnalysis {
-        TacticalAnalysis {
-            patterns: vec![],
-            fork_count: 0,
-            pin_count: 0,
-            skewer_count: 0,
-            discovered_attack_count: 0,
-            hanging_piece_count: 0,
-            has_back_rank_weakness: false,
         }
     }
 
@@ -124,7 +112,7 @@ mod tests {
         let result = is_critical_position(
             &pos,
             None,
-            &empty_tactics(),
+            &[],
             &safe_king_safety(),
             &quiet_tension(),
         );
@@ -134,17 +122,15 @@ mod tests {
     #[test]
     fn test_critical_high_cp_loss_and_tactics() {
         let pos = make_position_review(100, -200);
-        let mut tactics = empty_tactics();
-        tactics.patterns.push(TacticalPattern::HangingPiece {
-            piece: crate::board_analysis::SquareInfo {
-                square: "d5".into(),
-                piece: 'N',
-                color: 'b',
-            },
-            attacker_count: 1,
-            defender_count: 0,
-        });
-        tactics.hanging_piece_count = 1;
+        let tactics = vec![TacticalTag {
+            kind: TacticalTagKind::HangingPiece,
+            attacker: None,
+            victims: vec!["d5".into()],
+            target_square: Some("d5".into()),
+            confidence: 0.9,
+            note: None,
+            evidence: TacticalEvidence::default(),
+        }];
 
         let result = is_critical_position(
             &pos,
@@ -166,7 +152,7 @@ mod tests {
         let result = is_critical_position(
             &pos,
             Some(&prev),
-            &empty_tactics(),
+            &[],
             &safe_king_safety(),
             &tension,
         );

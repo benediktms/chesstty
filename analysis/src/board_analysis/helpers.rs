@@ -36,11 +36,13 @@ pub fn attackers_of(board: &Board, sq: Square, color: Color) -> BitBoard {
 
     // Bishop/Queen (diagonal)
     let bishop_attacks = cozy_chess::get_bishop_moves(sq, occupied);
-    attackers |= bishop_attacks & (board.pieces(Piece::Bishop) | board.pieces(Piece::Queen)) & color_pieces;
+    attackers |=
+        bishop_attacks & (board.pieces(Piece::Bishop) | board.pieces(Piece::Queen)) & color_pieces;
 
     // Rook/Queen (orthogonal)
     let rook_attacks = cozy_chess::get_rook_moves(sq, occupied);
-    attackers |= rook_attacks & (board.pieces(Piece::Rook) | board.pieces(Piece::Queen)) & color_pieces;
+    attackers |=
+        rook_attacks & (board.pieces(Piece::Rook) | board.pieces(Piece::Queen)) & color_pieces;
 
     // King attacks
     let king_attacks = cozy_chess::get_king_moves(sq);

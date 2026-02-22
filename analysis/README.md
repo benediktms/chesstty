@@ -9,8 +9,20 @@ analysis/src/
 ├── lib.rs                      # Public re-exports
 ├── review_types.rs             # MoveClassification, PositionReview, GameReview, compute_accuracy
 └── board_analysis/
-│   ├── mod.rs                  # Re-exports for board_analysis submodules
-│   ├── tactics.rs              # TacticalPattern, TacticalAnalysis, analyze_tactics
+│   ├── mod.rs                  # Re-exports and detect_tactics() entry point
+│   ├── tactical_types.rs       # TacticalTag, TacticalTagKind, TacticalEvidence, TacticalLine
+│   ├── detector.rs             # TacticalDetector trait, TacticalContext
+│   ├── attack_map.rs           # AttackMap, Attacker, PinInfo
+│   ├── fork_detector.rs        # ForkDetector, DoubleAttackDetector
+│   ├── pin_detector.rs         # PinDetector
+│   ├── skewer_detector.rs      # SkewerDetector
+│   ├── hanging_detector.rs     # HangingPieceDetector
+│   ├── back_rank_detector.rs   # BackRankDetector
+│   ├── discovered_attack_detector.rs  # DiscoveredAttackDetector
+│   ├── mate_threat_detector.rs # MateThreatDetector
+│   ├── sacrifice_detector.rs   # SacrificeDetector
+│   ├── zwischenzug_detector.rs # ZwischenzugDetector
+│   ├── reducer.rs              # reduce_tags (deduplication and ranking)
 │   ├── king_safety.rs          # KingSafetyMetrics, PositionKingSafety, compute_king_safety
 │   ├── tension.rs              # PositionTensionMetrics, compute_tension
 │   └── helpers.rs              # attacked_squares, attackers_of, piece_attacks, piece_value
@@ -101,24 +113,42 @@ pub fn compute_accuracy(positions: &[PositionReview], is_white: bool) -> f64
 
 ## Board Analysis
 
-### tactics.rs
+### Tactical detection pipeline
 
-Detects tactical patterns for a given perspective (the side that benefits):
+Entry point:
 
 ```rust
-pub fn analyze_tactics(board: &Board, perspective: Color) -> TacticalAnalysis
+pub fn detect_tactics(ctx: &TacticalContext, max_results: Option<usize>) -> Vec<TacticalTag>
 ```
 
-`TacticalAnalysis` counts and lists all detected `TacticalPattern` variants:
+`TacticalContext` holds `before`/`after` board positions, the move played, side to move, precomputed `AttackMap`s for both positions, optional eval scores, and an optional engine best-line.
 
-| Pattern | Detection logic |
-|---------|----------------|
-| `Fork` | Piece attacks 2+ enemy pieces where any target is the king or higher-value than the attacker |
-| `Pin` | Sliding piece with an enemy piece in front of a more-valuable (or king) enemy piece behind |
-| `Skewer` | Same ray geometry as pin, but the front piece is more valuable than the piece behind |
-| `DiscoveredAttack` | Populated by pin/skewer detection when a revealed attacker targets a piece |
-| `HangingPiece` | Non-pawn enemy piece with at least one attacker and zero defenders |
-| `BackRankWeakness` | King on its back rank with all forward escape squares blocked by own pieces, while the opponent has a rook or queen with access to that rank |
+Each detector implements the `TacticalDetector` trait and returns zero or more `TacticalTag` values. Tags are collected from all detectors, deduplicated, and ranked by `reduce_tags`.
+
+| Detector | `TacticalTagKind` produced |
+|----------|---------------------------|
+| `MateThreatDetector` | `MateThreat` |
+| `ForkDetector` | `Fork` |
+| `DoubleAttackDetector` | `DoubleAttack` |
+| `PinDetector` | `Pin` |
+| `SkewerDetector` | `Skewer` |
+| `DiscoveredAttackDetector` | `DiscoveredAttack` |
+| `SacrificeDetector` | `Sacrifice` |
+| `HangingPieceDetector` | `HangingPiece` |
+| `BackRankDetector` | `BackRankWeakness` |
+| `ZwischenzugDetector` | `Zwischenzug` |
+
+`TacticalTag` fields:
+
+```rust
+pub struct TacticalTag {
+    pub kind: TacticalTagKind,
+    pub confidence: f32,          // 0.0 – 1.0
+    pub attacker: Option<String>, // square name of the attacking piece, if applicable
+    pub evidence: Vec<TacticalEvidence>,
+    pub lines: Vec<TacticalLine>,
+}
+```
 
 ### king_safety.rs
 
@@ -189,8 +219,8 @@ Types for the multi-pass analysis pipeline:
 ```rust
 pub struct AdvancedPositionAnalysis {
     pub ply: u32,
-    pub tactics_before: TacticalAnalysis,
-    pub tactics_after: TacticalAnalysis,
+    pub tactical_tags_before: Vec<TacticalTag>,
+    pub tactical_tags_after: Vec<TacticalTag>,
     pub king_safety: PositionKingSafety,
     pub tension: PositionTensionMetrics,
     pub is_critical: bool,
@@ -220,7 +250,7 @@ Flags a position as critical when at least 2 of 5 signals fire:
 pub fn is_critical_position(
     position: &PositionReview,
     prev_position: Option<&PositionReview>,
-    tactics: &TacticalAnalysis,
+    tactics: &[TacticalTag],
     king_safety: &PositionKingSafety,
     tension: &PositionTensionMetrics,
 ) -> bool
@@ -230,7 +260,7 @@ pub fn is_critical_position(
 |--------|-----------|
 | High cp_loss | `cp_loss > 50` |
 | Eval swing | `\|eval_after - prev_eval_after\| > 150 cp` |
-| Tactical motif | Any pattern detected in `TacticalAnalysis` |
+| Tactical motif | Any `TacticalTag` present in `tactics` |
 | High volatility | `volatility_score > 0.6` |
 | King exposure | Either side `exposure_score > 0.7` |
 

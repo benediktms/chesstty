@@ -2,8 +2,8 @@ use analysis::advanced::critical::is_critical_position;
 use analysis::advanced::psychological::compute_psychological_profile;
 use analysis::advanced::types::{AdvancedGameAnalysis, AdvancedPositionAnalysis, AnalysisConfig};
 use analysis::board_analysis::{
-    analyze_tactics, compute_king_safety, compute_tension, PositionKingSafety,
-    PositionTensionMetrics, TacticalAnalysis,
+    compute_king_safety, compute_tension, detect_tactics, AttackMap, PositionKingSafety,
+    PositionTensionMetrics, TacticalContext, TacticalTag,
 };
 use analysis::review_types::GameReview;
 use cozy_chess::Board;
@@ -25,36 +25,36 @@ pub fn compute_advanced_analysis(
             None
         };
 
-        // Parse FEN for board analysis
-        // Use fen_before for tactics_before, fen_after (pos.fen) for tactics_after
-        let fen_before = if i == 0 {
-            // First move: we don't have the starting FEN in PositionReview,
-            // so use the position's FEN as "after" only
-            None
+        let board_before = if i > 0 {
+            review.positions[i - 1].fen.parse::<Board>().ok()
         } else {
-            // The previous position's FEN is the position after the previous move
-            Some(&review.positions[i - 1].fen)
+            None
         };
-
         let board_after = pos.fen.parse::<Board>().ok();
 
-        // Tactics before this move (the position the player was looking at)
-        let tactics_before = fen_before
-            .and_then(|fen| fen.parse::<Board>().ok())
-            .map(|board| {
-                let color = board.side_to_move();
-                analyze_tactics(&board, color)
-            })
-            .unwrap_or_else(empty_tactical_analysis);
+        // New pipeline: tactical tags
+        let tactical_tags_before = detect_for_position(board_before.as_ref());
 
-        // Tactics after this move (the resulting position)
-        let tactics_after = board_after
-            .as_ref()
-            .map(|board| {
-                let color = board.side_to_move();
-                analyze_tactics(board, color)
-            })
-            .unwrap_or_else(empty_tactical_analysis);
+        let tactical_tags_after = match (board_before.as_ref(), board_after.as_ref()) {
+            (Some(before), Some(after)) => {
+                let before_attacks = AttackMap::compute(before);
+                let after_attacks = AttackMap::compute(after);
+                let ctx = TacticalContext {
+                    before,
+                    after,
+                    mv: None,
+                    side_to_move_before: before.side_to_move(),
+                    before_attacks: &before_attacks,
+                    after_attacks: &after_attacks,
+                    eval_before: Some(pos.eval_before.to_cp()),
+                    eval_after: Some(pos.eval_after.to_cp()),
+                    best_line: if pos.pv.is_empty() { None } else { Some(&pos.pv) },
+                };
+                detect_tactics(&ctx, None)
+            }
+            (None, Some(after)) => detect_for_position(Some(after)),
+            _ => vec![],
+        };
 
         // King safety (from the resulting position)
         let king_safety = board_after
@@ -72,7 +72,7 @@ pub fn compute_advanced_analysis(
         let is_critical = is_critical_position(
             pos,
             prev_pos,
-            &tactics_before,
+            &tactical_tags_after,
             &king_safety,
             &tension,
         );
@@ -83,8 +83,8 @@ pub fn compute_advanced_analysis(
 
         positions.push(AdvancedPositionAnalysis {
             ply: pos.ply,
-            tactics_before,
-            tactics_after,
+            tactical_tags_before,
+            tactical_tags_after,
             king_safety,
             tension,
             is_critical,
@@ -109,15 +109,25 @@ pub fn compute_advanced_analysis(
     }
 }
 
-fn empty_tactical_analysis() -> TacticalAnalysis {
-    TacticalAnalysis {
-        patterns: vec![],
-        fork_count: 0,
-        pin_count: 0,
-        skewer_count: 0,
-        discovered_attack_count: 0,
-        hanging_piece_count: 0,
-        has_back_rank_weakness: false,
+/// Run detectors on a single position (static analysis, no move context).
+fn detect_for_position(board: Option<&Board>) -> Vec<TacticalTag> {
+    match board {
+        Some(b) => {
+            let attacks = AttackMap::compute(b);
+            let ctx = TacticalContext {
+                before: b,
+                after: b,
+                mv: None,
+                side_to_move_before: b.side_to_move(),
+                before_attacks: &attacks,
+                after_attacks: &attacks,
+                eval_before: None,
+                eval_after: None,
+                best_line: None,
+            };
+            detect_tactics(&ctx, None)
+        }
+        None => vec![],
     }
 }
 

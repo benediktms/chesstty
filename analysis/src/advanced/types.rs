@@ -1,13 +1,15 @@
 use serde::{Deserialize, Serialize};
 
-use crate::board_analysis::{PositionKingSafety, PositionTensionMetrics, TacticalAnalysis};
+use crate::board_analysis::{PositionKingSafety, PositionTensionMetrics, TacticalTag};
 
 /// Advanced analysis result for a single position.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AdvancedPositionAnalysis {
     pub ply: u32,
-    pub tactics_before: TacticalAnalysis,
-    pub tactics_after: TacticalAnalysis,
+    #[serde(default)]
+    pub tactical_tags_before: Vec<TacticalTag>,
+    #[serde(default)]
+    pub tactical_tags_after: Vec<TacticalTag>,
     pub king_safety: PositionKingSafety,
     pub tension: PositionTensionMetrics,
     /// Whether this position was flagged as critical (multi-signal).

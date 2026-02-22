@@ -132,8 +132,7 @@ mod tests {
     fn test_tactical_position_tension() {
         // A position with many captures available
         // White: Ke1, Qd1, Rd4, Bg5 — Black: Ke8, Qd8, Nd5, Pf6
-        let board: Board =
-            "3qk3/8/5p2/3n2B1/3R4/8/8/3QK3 w - - 0 1".parse().unwrap();
+        let board: Board = "3qk3/8/5p2/3n2B1/3R4/8/8/3QK3 w - - 0 1".parse().unwrap();
         let tension = compute_tension(&board);
 
         // Should have some captures available
@@ -146,8 +145,7 @@ mod tests {
     #[test]
     fn test_quiet_endgame() {
         // King and pawn endgame — relatively quiet
-        let board: Board =
-            "4k3/8/8/8/4P3/8/8/4K3 w - - 0 1".parse().unwrap();
+        let board: Board = "4k3/8/8/8/4P3/8/8/4K3 w - - 0 1".parse().unwrap();
         let tension = compute_tension(&board);
 
         assert!(

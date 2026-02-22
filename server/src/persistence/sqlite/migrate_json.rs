@@ -391,8 +391,8 @@ async fn insert_advanced_analyses(
             .await?;
 
         for position in &analysis.positions {
-            let tactics_before_patterns = serde_json::to_string(&position.tactics_before.patterns)?;
-            let tactics_after_patterns = serde_json::to_string(&position.tactics_after.patterns)?;
+            let tactics_before_tags = serde_json::to_string(&position.tactical_tags_before)?;
+            let tactics_after_tags = serde_json::to_string(&position.tactical_tags_after)?;
 
             sqlx::query(
                 "INSERT INTO advanced_position_analyses \
@@ -409,15 +409,8 @@ async fn insert_advanced_analyses(
                   ks_black_attacker_count, ks_black_attack_weight, \
                   ks_black_attacked_king_zone_sq, ks_black_king_zone_size, \
                   ks_black_exposure_score, \
-                  tactics_before_fork_count, tactics_before_pin_count, \
-                  tactics_before_skewer_count, tactics_before_discovered_attack_count, \
-                  tactics_before_hanging_piece_count, tactics_before_has_back_rank_weakness, \
-                  tactics_before_patterns, \
-                  tactics_after_fork_count, tactics_after_pin_count, \
-                  tactics_after_skewer_count, tactics_after_discovered_attack_count, \
-                  tactics_after_hanging_piece_count, tactics_after_has_back_rank_weakness, \
-                  tactics_after_patterns) \
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                  tactics_before_tags, tactics_after_tags) \
+                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             )
             .bind(&analysis.game_id)
             .bind(position.ply as i64)
@@ -444,28 +437,8 @@ async fn insert_advanced_analyses(
             .bind(position.king_safety.black.attacked_king_zone_squares as i64)
             .bind(position.king_safety.black.king_zone_size as i64)
             .bind(position.king_safety.black.exposure_score as f64)
-            .bind(position.tactics_before.fork_count as i64)
-            .bind(position.tactics_before.pin_count as i64)
-            .bind(position.tactics_before.skewer_count as i64)
-            .bind(position.tactics_before.discovered_attack_count as i64)
-            .bind(position.tactics_before.hanging_piece_count as i64)
-            .bind(if position.tactics_before.has_back_rank_weakness {
-                1_i64
-            } else {
-                0_i64
-            })
-            .bind(&tactics_before_patterns)
-            .bind(position.tactics_after.fork_count as i64)
-            .bind(position.tactics_after.pin_count as i64)
-            .bind(position.tactics_after.skewer_count as i64)
-            .bind(position.tactics_after.discovered_attack_count as i64)
-            .bind(position.tactics_after.hanging_piece_count as i64)
-            .bind(if position.tactics_after.has_back_rank_weakness {
-                1_i64
-            } else {
-                0_i64
-            })
-            .bind(&tactics_after_patterns)
+            .bind(&tactics_before_tags)
+            .bind(&tactics_after_tags)
             .execute(&mut **tx)
             .await?;
         }
@@ -481,7 +454,7 @@ mod tests {
     use analysis::{
         AdvancedGameAnalysis, AdvancedPositionAnalysis, AnalysisScore, GameReview,
         KingSafetyMetrics, MoveClassification, PositionKingSafety, PositionReview,
-        PositionTensionMetrics, PsychologicalProfile, ReviewStatus, TacticalAnalysis,
+        PositionTensionMetrics, PsychologicalProfile, ReviewStatus,
     };
     use tempfile::TempDir;
 
@@ -587,18 +560,6 @@ mod tests {
         }
     }
 
-    fn sample_tactics() -> TacticalAnalysis {
-        TacticalAnalysis {
-            patterns: vec![],
-            fork_count: 1,
-            pin_count: 0,
-            skewer_count: 0,
-            discovered_attack_count: 0,
-            hanging_piece_count: 1,
-            has_back_rank_weakness: false,
-        }
-    }
-
     fn sample_king_safety() -> PositionKingSafety {
         PositionKingSafety {
             white: KingSafetyMetrics {
@@ -662,8 +623,8 @@ mod tests {
             game_id: game_id.to_string(),
             positions: vec![AdvancedPositionAnalysis {
                 ply: 1,
-                tactics_before: sample_tactics(),
-                tactics_after: sample_tactics(),
+                tactical_tags_before: vec![],
+                tactical_tags_after: vec![],
                 king_safety: sample_king_safety(),
                 tension: sample_tension(),
                 is_critical: true,

@@ -7,3 +7,7 @@ edition = "2021"
 chess = { path = "../chess" }
 cozy-chess = { workspace = true }
 serde = { workspace = true }
+smallvec = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

@@ -1,7 +1,7 @@
 use analysis::{
     AdvancedGameAnalysis, AdvancedPositionAnalysis, AnalysisScore, GameReview, KingSafetyMetrics,
     MoveClassification, PositionKingSafety, PositionReview, PositionTensionMetrics,
-    PsychologicalProfile, ReviewStatus, TacticalAnalysis,
+    PsychologicalProfile, ReviewStatus,
 };
 
 use super::{
@@ -130,18 +130,6 @@ fn sample_review(game_id: &str) -> GameReview {
     }
 }
 
-fn sample_tactics() -> TacticalAnalysis {
-    TacticalAnalysis {
-        patterns: vec![],
-        fork_count: 1,
-        pin_count: 0,
-        skewer_count: 0,
-        discovered_attack_count: 0,
-        hanging_piece_count: 1,
-        has_back_rank_weakness: false,
-    }
-}
-
 fn sample_king_safety() -> PositionKingSafety {
     PositionKingSafety {
         white: KingSafetyMetrics {
@@ -205,8 +193,8 @@ fn sample_analysis(game_id: &str, ts: u64) -> AdvancedGameAnalysis {
         game_id: game_id.to_string(),
         positions: vec![AdvancedPositionAnalysis {
             ply: 1,
-            tactics_before: sample_tactics(),
-            tactics_after: sample_tactics(),
+            tactical_tags_before: vec![],
+            tactical_tags_after: vec![],
             king_safety: sample_king_safety(),
             tension: sample_tension(),
             is_critical: true,

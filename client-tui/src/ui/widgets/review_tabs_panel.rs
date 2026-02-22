@@ -2,7 +2,7 @@
 
 use crate::review_state::ReviewState;
 use chess::is_white_ply;
-use chess_client::{review_score, MoveClassification, PositionReview};
+use chess_client::{review_score, MoveClassification, PositionReview, TacticalTagKindProto, TacticalTagProto};
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
@@ -523,8 +523,8 @@ impl ReviewTabsPanel<'_> {
                 )));
             }
 
-            if let Some(ref tactics) = adv_pos.tactics_after {
-                render_tactics(&mut lines, tactics);
+            if !adv_pos.tactical_tags_after.is_empty() {
+                render_tactical_tags(&mut lines, &adv_pos.tactical_tags_after);
             }
 
             if let Some(ref ks) = adv_pos.king_safety {
@@ -593,13 +593,13 @@ fn count_classifications(
     (white, black)
 }
 
-fn render_tactics(lines: &mut Vec<Line<'_>>, tactics: &chess_client::TacticalAnalysisProto) {
+fn render_tactical_tags(lines: &mut Vec<Line<'_>>, tags: &[TacticalTagProto]) {
     lines.push(Line::from(Span::styled(
         "  Tactics",
         Style::default().fg(Color::Yellow),
     )));
 
-    if tactics.patterns.is_empty() {
+    if tags.is_empty() {
         lines.push(Line::from(Span::styled(
             "    None detected",
             Style::default().fg(Color::DarkGray),
@@ -607,45 +607,46 @@ fn render_tactics(lines: &mut Vec<Line<'_>>, tactics: &chess_client::TacticalAna
         return;
     }
 
-    lines.push(Line::from(vec![
-        Span::raw("    "),
-        Span::styled(
-            format!("Forks: {}", tactics.fork_count),
-            Style::default().fg(Color::White),
-        ),
-        Span::raw("  "),
-        Span::styled(
-            format!("Pins: {}", tactics.pin_count),
-            Style::default().fg(Color::White),
-        ),
-    ]));
-    lines.push(Line::from(vec![
-        Span::raw("    "),
-        Span::styled(
-            format!("Skewers: {}", tactics.skewer_count),
-            Style::default().fg(Color::White),
-        ),
-        Span::raw("  "),
-        Span::styled(
-            format!("Discovered: {}", tactics.discovered_attack_count),
-            Style::default().fg(Color::White),
-        ),
-    ]));
+    for tag in tags {
+        let kind_name = tactical_tag_kind_name(tag.kind);
+        let conf = tag.confidence;
+        let conf_color = if conf >= 0.8 {
+            Color::LightGreen
+        } else if conf >= 0.5 {
+            Color::Yellow
+        } else {
+            Color::DarkGray
+        };
 
-    if tactics.hanging_piece_count > 0 {
-        lines.push(Line::from(vec![
-            Span::raw("    "),
-            Span::styled(
-                format!("Hanging: {}", tactics.hanging_piece_count),
-                Style::default().fg(Color::Red),
-            ),
-        ]));
-    }
-    if tactics.has_back_rank_weakness {
+        let mut detail = kind_name.to_string();
+        if let Some(ref attacker) = tag.attacker {
+            detail.push_str(&format!(": {}", attacker));
+        }
+        if !tag.victims.is_empty() {
+            detail.push_str(&format!(" -> {}", tag.victims.join(", ")));
+        }
+        detail.push_str(&format!("  {:.0}%", conf * 100.0));
+
         lines.push(Line::from(Span::styled(
-            "    Back rank weakness",
-            Style::default().fg(Color::Red),
+            format!("    {}", detail),
+            Style::default().fg(conf_color),
         )));
+    }
+}
+
+fn tactical_tag_kind_name(kind: i32) -> &'static str {
+    match TacticalTagKindProto::try_from(kind) {
+        Ok(TacticalTagKindProto::TacticalTagKindFork) => "Fork",
+        Ok(TacticalTagKindProto::TacticalTagKindPin) => "Pin",
+        Ok(TacticalTagKindProto::TacticalTagKindSkewer) => "Skewer",
+        Ok(TacticalTagKindProto::TacticalTagKindDiscoveredAttack) => "Discovered",
+        Ok(TacticalTagKindProto::TacticalTagKindDoubleAttack) => "Double Attack",
+        Ok(TacticalTagKindProto::TacticalTagKindHangingPiece) => "Hanging",
+        Ok(TacticalTagKindProto::TacticalTagKindSacrifice) => "Sacrifice",
+        Ok(TacticalTagKindProto::TacticalTagKindZwischenzug) => "Zwischenzug",
+        Ok(TacticalTagKindProto::TacticalTagKindBackRankWeakness) => "Back Rank",
+        Ok(TacticalTagKindProto::TacticalTagKindMateThreat) => "Mate Threat",
+        _ => "Unknown",
     }
 }
 

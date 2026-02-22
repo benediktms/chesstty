@@ -5,68 +5,48 @@ package chess;
 // Advanced Review Analysis Messages
 // ============================================================================
 
-// Information about a piece on a specific square.
-message SquareInfoProto {
-  string square = 1;
-  string piece = 2;    // Single char: P, N, B, R, Q, K
-  string color = 3;    // "w" or "b"
+// ============================================================================
+// Tactical Tag Model
+// ============================================================================
+
+// The kind of tactical pattern detected.
+enum TacticalTagKindProto {
+  TACTICAL_TAG_KIND_UNSPECIFIED = 0;
+  TACTICAL_TAG_KIND_FORK = 1;
+  TACTICAL_TAG_KIND_PIN = 2;
+  TACTICAL_TAG_KIND_SKEWER = 3;
+  TACTICAL_TAG_KIND_DISCOVERED_ATTACK = 4;
+  TACTICAL_TAG_KIND_DOUBLE_ATTACK = 5;
+  TACTICAL_TAG_KIND_HANGING_PIECE = 6;
+  TACTICAL_TAG_KIND_SACRIFICE = 7;
+  TACTICAL_TAG_KIND_ZWISCHENZUG = 8;
+  TACTICAL_TAG_KIND_BACK_RANK_WEAKNESS = 9;
+  TACTICAL_TAG_KIND_MATE_THREAT = 10;
 }
 
-// A detected tactical pattern.
-message TacticalPatternProto {
-  oneof pattern {
-    ForkProto fork = 1;
-    PinProto pin = 2;
-    SkewerProto skewer = 3;
-    DiscoveredAttackProto discovered_attack = 4;
-    HangingPieceProto hanging_piece = 5;
-    BackRankWeaknessProto back_rank_weakness = 6;
-  }
+// A line of action in a tactical pattern (e.g. pin line, skewer line).
+message TacticalLineProto {
+  string from = 1;
+  repeated string through = 2;
+  string to = 3;
 }
 
-message ForkProto {
-  SquareInfoProto attacker = 1;
-  repeated SquareInfoProto targets = 2;
+// Supporting evidence for a detected tactical pattern.
+message TacticalEvidenceProto {
+  repeated TacticalLineProto lines = 1;
+  repeated string threatened_pieces = 2;
+  repeated string defended_by = 3;
 }
 
-message PinProto {
-  SquareInfoProto pinner = 1;
-  SquareInfoProto pinned_piece = 2;
-  SquareInfoProto pinned_to = 3;
-}
-
-message SkewerProto {
-  SquareInfoProto attacker = 1;
-  SquareInfoProto front_piece = 2;
-  SquareInfoProto back_piece = 3;
-}
-
-message DiscoveredAttackProto {
-  SquareInfoProto moving_piece = 1;
-  SquareInfoProto revealed_attacker = 2;
-  SquareInfoProto target = 3;
-}
-
-message HangingPieceProto {
-  SquareInfoProto piece = 1;
-  uint32 attacker_count = 2;
-  uint32 defender_count = 3;
-}
-
-message BackRankWeaknessProto {
-  SquareInfoProto king_square = 1;
-  uint32 blocking_rank = 2;
-}
-
-// Summary of tactical patterns in a position.
-message TacticalAnalysisProto {
-  repeated TacticalPatternProto patterns = 1;
-  uint32 fork_count = 2;
-  uint32 pin_count = 3;
-  uint32 skewer_count = 4;
-  uint32 discovered_attack_count = 5;
-  uint32 hanging_piece_count = 6;
-  bool has_back_rank_weakness = 7;
+// A detected tactical pattern with confidence and evidence.
+message TacticalTagProto {
+  TacticalTagKindProto kind = 1;
+  optional string attacker = 2;
+  repeated string victims = 3;
+  optional string target_square = 4;
+  float confidence = 5;
+  optional string note = 6;
+  TacticalEvidenceProto evidence = 7;
 }
 
 // King safety metrics for one side.
@@ -102,12 +82,14 @@ message PositionTensionMetricsProto {
 // Advanced analysis for a single position.
 message AdvancedPositionAnalysisProto {
   uint32 ply = 1;
-  TacticalAnalysisProto tactics_before = 2;
-  TacticalAnalysisProto tactics_after = 3;
+  reserved 2, 3;
+  reserved "tactics_before", "tactics_after";
   PositionKingSafetyProto king_safety = 4;
   PositionTensionMetricsProto tension = 5;
   bool is_critical = 6;
   optional uint32 deep_depth = 7;
+  repeated TacticalTagProto tactical_tags_before = 8;
+  repeated TacticalTagProto tactical_tags_after = 9;
 }
 
 // Psychological profile for one player.

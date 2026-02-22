@@ -137,9 +137,11 @@ fn compute_side_king_safety(board: &Board, color: Color) -> KingSafetyMetrics {
         0.0
     };
 
-    let exposure_score =
-        (0.25 * shield_deficit + 0.20 * open_file_factor + 0.30 * attack_factor + 0.25 * zone_control)
-            .clamp(0.0, 1.0);
+    let exposure_score = (0.25 * shield_deficit
+        + 0.20 * open_file_factor
+        + 0.30 * attack_factor
+        + 0.25 * zone_control)
+        .clamp(0.0, 1.0);
 
     KingSafetyMetrics {
         color: if color == Color::White { 'w' } else { 'b' },
@@ -192,10 +194,9 @@ mod tests {
     #[test]
     fn test_castled_king_with_shield() {
         // White castled kingside with intact pawn shield
-        let board: Board =
-            "rnbqkb1r/pppppppp/5n2/8/8/5N2/PPPPPPPP/RNBQK2R w KQkq - 0 1"
-                .parse()
-                .unwrap();
+        let board: Board = "rnbqkb1r/pppppppp/5n2/8/8/5N2/PPPPPPPP/RNBQK2R w KQkq - 0 1"
+            .parse()
+            .unwrap();
         let safety = compute_king_safety(&board);
         // King hasn't castled yet but pawn shield should still be measured
         assert!(safety.white.pawn_shield_count >= 2);
@@ -204,8 +205,9 @@ mod tests {
     #[test]
     fn test_exposed_king() {
         // White king on e1 with no pawns nearby
-        let board: Board =
-            "rnbqkbnr/pppppppp/8/8/8/8/8/4K3 w kq - 0 1".parse().unwrap();
+        let board: Board = "rnbqkbnr/pppppppp/8/8/8/8/8/4K3 w kq - 0 1"
+            .parse()
+            .unwrap();
         let safety = compute_king_safety(&board);
         assert_eq!(safety.white.pawn_shield_count, 0);
         assert!(

@@ -1,8 +1,8 @@
 //! Post-game review endpoints
 
 use analysis::board_analysis::{
-    KingSafetyMetrics, PositionKingSafety, PositionTensionMetrics, SquareInfo, TacticalAnalysis,
-    TacticalPattern,
+    KingSafetyMetrics, PositionKingSafety, PositionTensionMetrics,
+    TacticalEvidence, TacticalLine, TacticalTag, TacticalTagKind,
 };
 use analysis::advanced::types::{
     AdvancedGameAnalysis, AdvancedPositionAnalysis, PsychologicalProfile,
@@ -349,87 +349,55 @@ fn convert_advanced_position_to_proto(
 ) -> AdvancedPositionAnalysisProto {
     AdvancedPositionAnalysisProto {
         ply: pos.ply,
-        tactics_before: Some(convert_tactics_to_proto(&pos.tactics_before)),
-        tactics_after: Some(convert_tactics_to_proto(&pos.tactics_after)),
         king_safety: Some(convert_king_safety_to_proto(&pos.king_safety)),
         tension: Some(convert_tension_to_proto(&pos.tension)),
         is_critical: pos.is_critical,
         deep_depth: pos.deep_depth,
+        tactical_tags_before: pos.tactical_tags_before.iter().map(convert_tactical_tag_to_proto).collect(),
+        tactical_tags_after: pos.tactical_tags_after.iter().map(convert_tactical_tag_to_proto).collect(),
     }
 }
 
-fn convert_tactics_to_proto(tactics: &TacticalAnalysis) -> TacticalAnalysisProto {
-    TacticalAnalysisProto {
-        patterns: tactics.patterns.iter().map(convert_pattern_to_proto).collect(),
-        fork_count: tactics.fork_count as u32,
-        pin_count: tactics.pin_count as u32,
-        skewer_count: tactics.skewer_count as u32,
-        discovered_attack_count: tactics.discovered_attack_count as u32,
-        hanging_piece_count: tactics.hanging_piece_count as u32,
-        has_back_rank_weakness: tactics.has_back_rank_weakness,
+fn convert_tactical_tag_to_proto(tag: &TacticalTag) -> TacticalTagProto {
+    TacticalTagProto {
+        kind: convert_tactical_tag_kind(&tag.kind) as i32,
+        attacker: tag.attacker.clone(),
+        victims: tag.victims.clone(),
+        target_square: tag.target_square.clone(),
+        confidence: tag.confidence,
+        note: tag.note.clone(),
+        evidence: Some(convert_tactical_evidence_to_proto(&tag.evidence)),
     }
 }
 
-fn convert_pattern_to_proto(pattern: &TacticalPattern) -> TacticalPatternProto {
-    let p = match pattern {
-        TacticalPattern::Fork { attacker, targets } => {
-            tactical_pattern_proto::Pattern::Fork(ForkProto {
-                attacker: Some(convert_square_info(attacker)),
-                targets: targets.iter().map(convert_square_info).collect(),
-            })
-        }
-        TacticalPattern::Pin {
-            pinner,
-            pinned_piece,
-            pinned_to,
-        } => tactical_pattern_proto::Pattern::Pin(PinProto {
-            pinner: Some(convert_square_info(pinner)),
-            pinned_piece: Some(convert_square_info(pinned_piece)),
-            pinned_to: Some(convert_square_info(pinned_to)),
-        }),
-        TacticalPattern::Skewer {
-            attacker,
-            front_piece,
-            back_piece,
-        } => tactical_pattern_proto::Pattern::Skewer(SkewerProto {
-            attacker: Some(convert_square_info(attacker)),
-            front_piece: Some(convert_square_info(front_piece)),
-            back_piece: Some(convert_square_info(back_piece)),
-        }),
-        TacticalPattern::DiscoveredAttack {
-            moving_piece,
-            revealed_attacker,
-            target,
-        } => tactical_pattern_proto::Pattern::DiscoveredAttack(DiscoveredAttackProto {
-            moving_piece: Some(convert_square_info(moving_piece)),
-            revealed_attacker: Some(convert_square_info(revealed_attacker)),
-            target: Some(convert_square_info(target)),
-        }),
-        TacticalPattern::HangingPiece {
-            piece,
-            attacker_count,
-            defender_count,
-        } => tactical_pattern_proto::Pattern::HangingPiece(HangingPieceProto {
-            piece: Some(convert_square_info(piece)),
-            attacker_count: *attacker_count as u32,
-            defender_count: *defender_count as u32,
-        }),
-        TacticalPattern::BackRankWeakness {
-            king_square,
-            blocking_rank,
-        } => tactical_pattern_proto::Pattern::BackRankWeakness(BackRankWeaknessProto {
-            king_square: Some(convert_square_info(king_square)),
-            blocking_rank: *blocking_rank as u32,
-        }),
-    };
-    TacticalPatternProto { pattern: Some(p) }
+fn convert_tactical_tag_kind(kind: &TacticalTagKind) -> TacticalTagKindProto {
+    match kind {
+        TacticalTagKind::Fork => TacticalTagKindProto::TacticalTagKindFork,
+        TacticalTagKind::Pin => TacticalTagKindProto::TacticalTagKindPin,
+        TacticalTagKind::Skewer => TacticalTagKindProto::TacticalTagKindSkewer,
+        TacticalTagKind::DiscoveredAttack => TacticalTagKindProto::TacticalTagKindDiscoveredAttack,
+        TacticalTagKind::DoubleAttack => TacticalTagKindProto::TacticalTagKindDoubleAttack,
+        TacticalTagKind::HangingPiece => TacticalTagKindProto::TacticalTagKindHangingPiece,
+        TacticalTagKind::Sacrifice => TacticalTagKindProto::TacticalTagKindSacrifice,
+        TacticalTagKind::Zwischenzug => TacticalTagKindProto::TacticalTagKindZwischenzug,
+        TacticalTagKind::BackRankWeakness => TacticalTagKindProto::TacticalTagKindBackRankWeakness,
+        TacticalTagKind::MateThreat => TacticalTagKindProto::TacticalTagKindMateThreat,
+    }
 }
 
-fn convert_square_info(info: &SquareInfo) -> SquareInfoProto {
-    SquareInfoProto {
-        square: info.square.clone(),
-        piece: info.piece.to_string(),
-        color: info.color.to_string(),
+fn convert_tactical_evidence_to_proto(evidence: &TacticalEvidence) -> TacticalEvidenceProto {
+    TacticalEvidenceProto {
+        lines: evidence.lines.iter().map(convert_tactical_line_to_proto).collect(),
+        threatened_pieces: evidence.threatened_pieces.clone(),
+        defended_by: evidence.defended_by.clone(),
+    }
+}
+
+fn convert_tactical_line_to_proto(line: &TacticalLine) -> TacticalLineProto {
+    TacticalLineProto {
+        from: line.from.clone(),
+        through: line.through.clone(),
+        to: line.to.clone(),
     }
 }
 

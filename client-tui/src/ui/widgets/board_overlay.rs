@@ -319,10 +319,10 @@ pub fn build_review_overlay(review: &ReviewState) -> BoardOverlay {
         overlay.outline(to, OverlayColor::BestMove);
     }
 
-    // Layer 3: Tactical patterns from advanced analysis
+    // Layer 3: Tactical patterns from advanced analysis (new pipeline)
     if let Some(adv_pos) = review.advanced_position() {
-        if let Some(ref tactics) = adv_pos.tactics_after {
-            add_tactical_overlays(&mut overlay, tactics);
+        if !adv_pos.tactical_tags_after.is_empty() {
+            add_tactical_tag_overlays(&mut overlay, &adv_pos.tactical_tags_after);
         }
     }
 
@@ -330,8 +330,7 @@ pub fn build_review_overlay(review: &ReviewState) -> BoardOverlay {
 }
 
 /// Parse a square string like "e4" into a cozy_chess Square.
-fn parse_proto_square(info: &chess_client::SquareInfoProto) -> Option<Square> {
-    let sq_str = &info.square;
+fn parse_square_str(sq_str: &str) -> Option<Square> {
     if sq_str.len() < 2 {
         return None;
     }
@@ -347,72 +346,68 @@ fn parse_proto_square(info: &chess_client::SquareInfoProto) -> Option<Square> {
     Some(Square::new(file, rank))
 }
 
-/// Add tactical pattern overlays to the board.
-fn add_tactical_overlays(
+/// Add tactical tag overlays to the board using the new TacticalTagProto model.
+fn add_tactical_tag_overlays(
     overlay: &mut BoardOverlay,
-    tactics: &chess_client::TacticalAnalysisProto,
+    tags: &[chess_client::TacticalTagProto],
 ) {
-    for pattern in &tactics.patterns {
-        match pattern.pattern {
-            Some(chess_client::tactical_pattern_proto::Pattern::Fork(ref fork)) => {
-                if let Some(ref attacker) = fork.attacker {
-                    if let Some(from) = parse_proto_square(attacker) {
-                        for target in &fork.targets {
-                            if let Some(to) = parse_proto_square(target) {
-                                overlay.arrow(from, to, OverlayColor::Tactical);
-                            }
+    use chess_client::TacticalTagKindProto;
+
+    for tag in tags {
+        let kind = TacticalTagKindProto::try_from(tag.kind).ok();
+
+        // Determine overlay color based on tag kind
+        let color = match kind {
+            Some(TacticalTagKindProto::TacticalTagKindHangingPiece) => OverlayColor::Blunder,
+            Some(TacticalTagKindProto::TacticalTagKindBackRankWeakness) => OverlayColor::Danger,
+            Some(TacticalTagKindProto::TacticalTagKindMateThreat) => OverlayColor::Danger,
+            Some(TacticalTagKindProto::TacticalTagKindPin) => OverlayColor::Danger,
+            Some(TacticalTagKindProto::TacticalTagKindSkewer) => OverlayColor::Danger,
+            _ => OverlayColor::Tactical,
+        };
+
+        // Draw arrows from attacker to each victim
+        if let Some(ref attacker_str) = tag.attacker {
+            if let Some(from) = parse_square_str(attacker_str) {
+                for victim_str in &tag.victims {
+                    if let Some(to) = parse_square_str(victim_str) {
+                        overlay.arrow(from, to, color);
+                    }
+                }
+                // If no victims but has target_square, draw arrow to target
+                if tag.victims.is_empty() {
+                    if let Some(ref target_str) = tag.target_square {
+                        if let Some(to) = parse_square_str(target_str) {
+                            overlay.arrow(from, to, color);
                         }
                     }
                 }
             }
-            Some(chess_client::tactical_pattern_proto::Pattern::Pin(ref pin)) => {
-                if let Some(ref pinner) = pin.pinner {
-                    if let Some(from) = parse_proto_square(pinner) {
-                        if let Some(ref pinned_piece) = pin.pinned_piece {
-                            if let Some(to) = parse_proto_square(pinned_piece) {
-                                overlay.arrow(from, to, OverlayColor::Danger);
-                            }
-                        }
+        }
+
+        // For hanging pieces and back rank weakness, tint the target square
+        match kind {
+            Some(TacticalTagKindProto::TacticalTagKindHangingPiece) => {
+                if let Some(ref target_str) = tag.target_square {
+                    if let Some(sq) = parse_square_str(target_str) {
+                        overlay.tint(sq, OverlayColor::Blunder);
                     }
                 }
-            }
-            Some(chess_client::tactical_pattern_proto::Pattern::Skewer(ref skewer)) => {
-                if let Some(ref attacker) = skewer.attacker {
-                    if let Some(from) = parse_proto_square(attacker) {
-                        if let Some(ref front_piece) = skewer.front_piece {
-                            if let Some(to) = parse_proto_square(front_piece) {
-                                overlay.arrow(from, to, OverlayColor::Danger);
-                            }
-                        }
-                    }
-                }
-            }
-            Some(chess_client::tactical_pattern_proto::Pattern::DiscoveredAttack(ref disc)) => {
-                if let Some(ref moving_piece) = disc.moving_piece {
-                    if let Some(from) = parse_proto_square(moving_piece) {
-                        if let Some(ref target) = disc.target {
-                            if let Some(to) = parse_proto_square(target) {
-                                overlay.arrow(from, to, OverlayColor::Tactical);
-                            }
-                        }
-                    }
-                }
-            }
-            Some(chess_client::tactical_pattern_proto::Pattern::HangingPiece(ref hanging)) => {
-                if let Some(ref piece) = hanging.piece {
-                    if let Some(sq) = parse_proto_square(piece) {
+                // Also tint victims as hanging squares
+                for victim_str in &tag.victims {
+                    if let Some(sq) = parse_square_str(victim_str) {
                         overlay.tint(sq, OverlayColor::Blunder);
                     }
                 }
             }
-            Some(chess_client::tactical_pattern_proto::Pattern::BackRankWeakness(ref br)) => {
-                if let Some(ref king_square) = br.king_square {
-                    if let Some(sq) = parse_proto_square(king_square) {
+            Some(TacticalTagKindProto::TacticalTagKindBackRankWeakness) => {
+                if let Some(ref target_str) = tag.target_square {
+                    if let Some(sq) = parse_square_str(target_str) {
                         overlay.tint(sq, OverlayColor::Danger);
                     }
                 }
             }
-            None => {}
+            _ => {}
         }
     }
 }

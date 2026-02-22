@@ -6,8 +6,7 @@ use crate::persistence::traits::AdvancedAnalysisRepository;
 use crate::persistence::PersistenceError;
 use analysis::advanced::types::{AdvancedGameAnalysis, AdvancedPositionAnalysis, PsychologicalProfile};
 use analysis::board_analysis::{
-    KingSafetyMetrics, PositionKingSafety, PositionTensionMetrics, TacticalAnalysis,
-    TacticalPattern,
+    KingSafetyMetrics, PositionKingSafety, PositionTensionMetrics, TacticalTag,
 };
 
 /// SQLite implementation of [`AdvancedAnalysisRepository`].
@@ -137,14 +136,7 @@ impl AdvancedAnalysisRepository for SqliteAdvancedAnalysisRepository {
                     ks_black_attacker_count, ks_black_attack_weight, \
                     ks_black_attacked_king_zone_sq, ks_black_king_zone_size, \
                     ks_black_exposure_score, \
-                    tactics_before_fork_count, tactics_before_pin_count, \
-                    tactics_before_skewer_count, tactics_before_discovered_attack_count, \
-                    tactics_before_hanging_piece_count, tactics_before_has_back_rank_weakness, \
-                    tactics_before_patterns, \
-                    tactics_after_fork_count, tactics_after_pin_count, \
-                    tactics_after_skewer_count, tactics_after_discovered_attack_count, \
-                    tactics_after_hanging_piece_count, tactics_after_has_back_rank_weakness, \
-                    tactics_after_patterns \
+                    tactics_before_tags, tactics_after_tags \
              FROM advanced_position_analyses WHERE game_id = ? ORDER BY ply",
         )
         .bind(game_id)
@@ -266,25 +258,10 @@ async fn insert_position(
     let ksb_zone_size = pos.king_safety.black.king_zone_size as i32;
     let ksb_exposure = pos.king_safety.black.exposure_score as f64;
 
-    // Tactics before
-    let tb_fork = pos.tactics_before.fork_count as i32;
-    let tb_pin = pos.tactics_before.pin_count as i32;
-    let tb_skewer = pos.tactics_before.skewer_count as i32;
-    let tb_discovered = pos.tactics_before.discovered_attack_count as i32;
-    let tb_hanging = pos.tactics_before.hanging_piece_count as i32;
-    let tb_backrank: i32 = if pos.tactics_before.has_back_rank_weakness { 1 } else { 0 };
-    let tb_patterns =
-        serde_json::to_string(&pos.tactics_before.patterns).unwrap_or_else(|_| "[]".to_string());
-
-    // Tactics after
-    let ta_fork = pos.tactics_after.fork_count as i32;
-    let ta_pin = pos.tactics_after.pin_count as i32;
-    let ta_skewer = pos.tactics_after.skewer_count as i32;
-    let ta_discovered = pos.tactics_after.discovered_attack_count as i32;
-    let ta_hanging = pos.tactics_after.hanging_piece_count as i32;
-    let ta_backrank: i32 = if pos.tactics_after.has_back_rank_weakness { 1 } else { 0 };
-    let ta_patterns =
-        serde_json::to_string(&pos.tactics_after.patterns).unwrap_or_else(|_| "[]".to_string());
+    let tb_tags =
+        serde_json::to_string(&pos.tactical_tags_before).unwrap_or_else(|_| "[]".to_string());
+    let ta_tags =
+        serde_json::to_string(&pos.tactical_tags_after).unwrap_or_else(|_| "[]".to_string());
 
     sqlx::query(
         "INSERT INTO advanced_position_analyses \
@@ -301,15 +278,8 @@ async fn insert_position(
           ks_black_attacker_count, ks_black_attack_weight, \
           ks_black_attacked_king_zone_sq, ks_black_king_zone_size, \
           ks_black_exposure_score, \
-          tactics_before_fork_count, tactics_before_pin_count, \
-          tactics_before_skewer_count, tactics_before_discovered_attack_count, \
-          tactics_before_hanging_piece_count, tactics_before_has_back_rank_weakness, \
-          tactics_before_patterns, \
-          tactics_after_fork_count, tactics_after_pin_count, \
-          tactics_after_skewer_count, tactics_after_discovered_attack_count, \
-          tactics_after_hanging_piece_count, tactics_after_has_back_rank_weakness, \
-          tactics_after_patterns) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          tactics_before_tags, tactics_after_tags) \
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(game_id)
     .bind(ply)
@@ -336,20 +306,8 @@ async fn insert_position(
     .bind(ksb_zone_sq)
     .bind(ksb_zone_size)
     .bind(ksb_exposure)
-    .bind(tb_fork)
-    .bind(tb_pin)
-    .bind(tb_skewer)
-    .bind(tb_discovered)
-    .bind(tb_hanging)
-    .bind(tb_backrank)
-    .bind(&tb_patterns)
-    .bind(ta_fork)
-    .bind(ta_pin)
-    .bind(ta_skewer)
-    .bind(ta_discovered)
-    .bind(ta_hanging)
-    .bind(ta_backrank)
-    .bind(&ta_patterns)
+    .bind(tb_tags)
+    .bind(ta_tags)
     .execute(&mut **tx)
     .await?;
 
@@ -455,30 +413,17 @@ struct PositionRow {
     ks_black_attacked_king_zone_sq: i64,
     ks_black_king_zone_size: i64,
     ks_black_exposure_score: f64,
-    // Tactics before
-    tactics_before_fork_count: i64,
-    tactics_before_pin_count: i64,
-    tactics_before_skewer_count: i64,
-    tactics_before_discovered_attack_count: i64,
-    tactics_before_hanging_piece_count: i64,
-    tactics_before_has_back_rank_weakness: i64,
-    tactics_before_patterns: String,
-    // Tactics after
-    tactics_after_fork_count: i64,
-    tactics_after_pin_count: i64,
-    tactics_after_skewer_count: i64,
-    tactics_after_discovered_attack_count: i64,
-    tactics_after_hanging_piece_count: i64,
-    tactics_after_has_back_rank_weakness: i64,
-    tactics_after_patterns: String,
+    // Tactical tags (JSON)
+    tactics_before_tags: String,
+    tactics_after_tags: String,
 }
 
 impl PositionRow {
     fn into_domain(self) -> Result<AdvancedPositionAnalysis, PersistenceError> {
-        let tactics_before_patterns: Vec<TacticalPattern> =
-            serde_json::from_str(&self.tactics_before_patterns)?;
-        let tactics_after_patterns: Vec<TacticalPattern> =
-            serde_json::from_str(&self.tactics_after_patterns)?;
+        let tactical_tags_before: Vec<TacticalTag> =
+            serde_json::from_str(&self.tactics_before_tags).unwrap_or_default();
+        let tactical_tags_after: Vec<TacticalTag> =
+            serde_json::from_str(&self.tactics_after_tags).unwrap_or_default();
 
         Ok(AdvancedPositionAnalysis {
             ply: self.ply as u32,
@@ -517,24 +462,8 @@ impl PositionRow {
                     exposure_score: self.ks_black_exposure_score as f32,
                 },
             },
-            tactics_before: TacticalAnalysis {
-                patterns: tactics_before_patterns,
-                fork_count: self.tactics_before_fork_count as u8,
-                pin_count: self.tactics_before_pin_count as u8,
-                skewer_count: self.tactics_before_skewer_count as u8,
-                discovered_attack_count: self.tactics_before_discovered_attack_count as u8,
-                hanging_piece_count: self.tactics_before_hanging_piece_count as u8,
-                has_back_rank_weakness: self.tactics_before_has_back_rank_weakness != 0,
-            },
-            tactics_after: TacticalAnalysis {
-                patterns: tactics_after_patterns,
-                fork_count: self.tactics_after_fork_count as u8,
-                pin_count: self.tactics_after_pin_count as u8,
-                skewer_count: self.tactics_after_skewer_count as u8,
-                discovered_attack_count: self.tactics_after_discovered_attack_count as u8,
-                hanging_piece_count: self.tactics_after_hanging_piece_count as u8,
-                has_back_rank_weakness: self.tactics_after_has_back_rank_weakness != 0,
-            },
+            tactical_tags_before,
+            tactical_tags_after,
         })
     }
 }
@@ -547,18 +476,6 @@ impl PositionRow {
 mod tests {
     use super::*;
     use crate::persistence::sqlite::Database;
-
-    fn sample_tactics() -> TacticalAnalysis {
-        TacticalAnalysis {
-            patterns: vec![],
-            fork_count: 1,
-            pin_count: 0,
-            skewer_count: 0,
-            discovered_attack_count: 0,
-            hanging_piece_count: 2,
-            has_back_rank_weakness: false,
-        }
-    }
 
     fn sample_king_safety() -> PositionKingSafety {
         PositionKingSafety {
@@ -624,8 +541,8 @@ mod tests {
             positions: vec![
                 AdvancedPositionAnalysis {
                     ply: 0,
-                    tactics_before: sample_tactics(),
-                    tactics_after: sample_tactics(),
+                    tactical_tags_before: vec![],
+                    tactical_tags_after: vec![],
                     king_safety: sample_king_safety(),
                     tension: sample_tension(),
                     is_critical: false,
@@ -633,8 +550,8 @@ mod tests {
                 },
                 AdvancedPositionAnalysis {
                     ply: 1,
-                    tactics_before: sample_tactics(),
-                    tactics_after: sample_tactics(),
+                    tactical_tags_before: vec![],
+                    tactical_tags_after: vec![],
                     king_safety: sample_king_safety(),
                     tension: sample_tension(),
                     is_critical: true,
@@ -709,10 +626,9 @@ mod tests {
         let exp = loaded.positions[0].king_safety.black.exposure_score;
         assert!((exp - 0.55).abs() < 0.01, "exposure_score mismatch: {exp}");
 
-        // Tactics
-        assert_eq!(loaded.positions[0].tactics_before.fork_count, 1);
-        assert_eq!(loaded.positions[0].tactics_before.hanging_piece_count, 2);
-        assert!(!loaded.positions[0].tactics_before.has_back_rank_weakness);
+        // Tactical tags (empty in sample data)
+        assert!(loaded.positions[0].tactical_tags_before.is_empty());
+        assert!(loaded.positions[0].tactical_tags_after.is_empty());
 
         // Psychology - white
         let wp = &loaded.white_psychology;
