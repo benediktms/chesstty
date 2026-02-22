@@ -142,7 +142,7 @@ The actor uses `tokio::select! { biased; }` with priority ordering:
 
 ### Protocol Structure
 
-The protocol is defined in 9 `.proto` files organized by domain:
+The protocol is defined in 10 `.proto` files organized by domain:
 
 ```
 proto/proto/
@@ -154,19 +154,21 @@ proto/proto/
 ├── events.proto          # StreamEvents, SessionStreamEvent
 ├── persistence.proto     # Suspend, Resume, List, Delete sessions
 ├── positions.proto       # Save, List, Delete positions
-└── review.proto          # Post-game review messages
+├── review.proto          # Post-game review messages
+└── advanced_review.proto # Advanced analysis types
 ```
 
-### RPC Endpoints (25 total)
+### RPC Endpoints (28 total)
 
 | Domain | RPCs | Pattern |
 |--------|------|---------|
 | Session | CreateSession, GetSession, CloseSession | Unary |
 | Game | MakeMove, GetLegalMoves, UndoMove, RedoMove, ResetGame | Unary |
 | Engine | SetEngine, StopEngine, PauseSession, ResumeSession | Unary |
-| Persistence | SuspendSession, ListSuspendedSessions, ResumeSuspendedSession, DeleteSuspendedSession | Unary |
+| Persistence | SuspendSession, ListSuspendedSessions, ResumeSuspendedSession, DeleteSuspendedSession, SaveSnapshot | Unary |
 | Positions | SavePosition, ListPositions, DeletePosition | Unary |
-| Review | ListFinishedGames, EnqueueReview, GetReviewStatus, GetGameReview, ExportReviewPgn | Unary |
+| Review | ListFinishedGames, EnqueueReview, GetReviewStatus, GetGameReview, ExportReviewPgn, DeleteFinishedGame | Unary |
+| Advanced | GetAdvancedAnalysis | Unary |
 | Events | StreamEvents | Server streaming |
 
 **Key design choice**: There is no `TriggerEngineMove` RPC. The server auto-triggers engine moves based on game mode after every state change, keeping the client thin.
@@ -227,12 +229,13 @@ The client maintains a `ClientState` as a single source of truth for rendering. 
 
 ```
 chesstty/
-├── proto/          # gRPC protocol definitions (9 .proto files)
+├── proto/          # gRPC protocol definitions (10 .proto files)
 ├── server/         # Authoritative game server (actor model, session management)
 ├── chess-client/   # Reusable gRPC client library
 ├── client-tui/     # Terminal UI (ratatui + crossterm)
 ├── chess/          # Core chess logic (cozy-chess wrapper, FEN, SAN, game state)
-└── engine/         # Stockfish UCI engine wrapper (async process management)
+├── engine/         # Stockfish UCI engine wrapper (async process management)
+└── analysis/       # Post-game analysis (board analysis, tactics, advanced metrics)
 ```
 
 See crate-level READMEs for detailed documentation:
@@ -242,6 +245,7 @@ See crate-level READMEs for detailed documentation:
 - [chess-client/README.md](chess-client/README.md) - Client library API
 - [chess/README.md](chess/README.md) - Game logic, move generation, FEN handling
 - [engine/README.md](engine/README.md) - Stockfish process management, UCI protocol
+- [analysis/README.md](analysis/README.md) - Board analysis, tactics, king safety, advanced metrics
 
 ## Quick Start
 
@@ -332,6 +336,60 @@ A real-time visualization of position strength throughout the game:
 - Zero unsafe code (`unsafe_code = "forbid"`)
 - Strict lints (`enum_glob_use = "deny"`)
 - Structured tracing throughout
+
+## Keyboard Shortcuts
+
+### Game Mode
+| Key | Action |
+|-----|--------|
+| Click/type square (e.g., `e2` then `e4`) | Select piece and make move |
+| `i` | Activate typeahead move input |
+| `p` | Pause/unpause game |
+| `u` | Undo last move |
+| `Tab` | Enter panel selection mode |
+| `1`-`9` | Select panel by number |
+| `@` | Toggle UCI debug panel |
+| `Esc` | Open pause menu |
+| `Ctrl+C` | Quit |
+
+### Panel Selection Mode
+| Key | Action |
+|-----|--------|
+| `h`/`l` or Left/Right | Navigate between columns |
+| `j`/`k` or Up/Down | Navigate within column |
+| `J`/`K` (Shift) | Scroll panel content |
+| `Enter` | Expand panel to fill board area |
+| `Esc` | Return to board |
+
+### Review Mode
+| Key | Action |
+|-----|--------|
+| `j`/`k` or arrows | Navigate through moves |
+| `Space` | Toggle auto-play (750ms per move) |
+| `Home`/`End` | Jump to first/last move |
+| `n`/`p` | Jump to next/previous critical moment |
+| `Esc` | Return to menu |
+
+### Start Screen / Match Summary
+| Key | Action |
+|-----|--------|
+| `Enter` | Select menu item / Return to menu |
+| `n` | New game (match summary) |
+| `q` | Quit |
+
+## Troubleshooting
+
+1.  **Stockfish not found**: The engine crate searches `/usr/local/bin`, `/usr/bin`, `/opt/homebrew/bin`, `/usr/games`, and then the system `PATH`. You can install it via `just stockfish` (which runs `scripts/install-stockfish.sh`) or `brew install stockfish` on macOS.
+
+2.  **Server connection refused**: Ensure the server is running before the client (`just server`). It binds to `[::1]:50051` (IPv6 localhost). The connection will fail if your system has IPv6 disabled.
+
+3.  **Build fails on proto compilation**: The project requires the `protoc` compiler for its gRPC services. You can install it via `brew install protobuf` on macOS or `apt install protobuf-compiler` on Linux.
+
+4.  **Terminal rendering issues**: The TUI requires a terminal emulator that supports at least 256 colors and Unicode characters. The board display adapts to different terminal sizes (Small, Medium, Large), but the minimum recommended size is 80x24.
+
+## Configuration
+
+See [server/CONFIGURATION.md](server/CONFIGURATION.md) for data directory configuration, environment variables, and deployment options.
 
 ## License
 

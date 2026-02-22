@@ -6,7 +6,7 @@ Protocol buffer definitions for the ChessTTY chess server. The protocol is organ
 
 ```
 proto/proto/
-├── chess_service.proto   # Main service definition (25 RPCs, imports all others)
+├── chess_service.proto   # Main service definition (28 RPCs, imports all others)
 ├── common.proto          # Shared types used across domains
 ├── session.proto         # Session lifecycle messages + SessionSnapshot
 ├── game.proto            # Game action messages (moves, undo, redo, reset)
@@ -14,12 +14,13 @@ proto/proto/
 ├── events.proto          # Event streaming messages
 ├── persistence.proto     # Session suspend/resume messages
 ├── positions.proto       # Saved position management messages
-└── review.proto          # Post-game review messages
+├── review.proto          # Post-game review messages
+└── advanced_review.proto   # Advanced analysis (tactics, king safety, patterns)
 ```
 
 ## Service Definition
 
-`ChessService` provides 25 RPC endpoints:
+`ChessService` provides 28 RPC endpoints:
 
 | Domain | RPC | Request -> Response | Type |
 |--------|-----|-------------------|------|
@@ -39,6 +40,7 @@ proto/proto/
 | | ListSuspendedSessions | ListSuspendedSessionsRequest -> ListSuspendedSessionsResponse | Unary |
 | | ResumeSuspendedSession | ResumeSuspendedSessionRequest -> SessionSnapshot | Unary |
 | | DeleteSuspendedSession | DeleteSuspendedSessionRequest -> Empty | Unary |
+| | SaveSnapshot | SaveSnapshotRequest -> SaveSnapshotResponse | Unary |
 | **Positions** | SavePosition | SavePositionRequest -> SavePositionResponse | Unary |
 | | ListPositions | ListPositionsRequest -> ListPositionsResponse | Unary |
 | | DeletePosition | DeletePositionRequest -> Empty | Unary |
@@ -47,6 +49,8 @@ proto/proto/
 | | GetReviewStatus | GetReviewStatusRequest -> GetReviewStatusResponse | Unary |
 | | GetGameReview | GetGameReviewRequest -> GetGameReviewResponse | Unary |
 | | ExportReviewPgn | ExportReviewPgnRequest -> ExportReviewPgnResponse | Unary |
+| | DeleteFinishedGame | DeleteFinishedGameRequest -> Empty | Unary |
+| **Advanced** | GetAdvancedAnalysis | GetAdvancedAnalysisRequest -> GetAdvancedAnalysisResponse | Unary |
 | **Events** | StreamEvents | StreamEventsRequest -> **stream** SessionStreamEvent | Server streaming |
 
 **Notable**: There is no `TriggerEngineMove` RPC. The server auto-triggers engine moves based on game mode.

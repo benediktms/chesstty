@@ -33,12 +33,10 @@ The data directory contains:
 ```
 $CHESSTTY_DATA_DIR/
 ├── sessions/          # Suspended game sessions (JSON files)
-│   ├── session_1234567890.json
-│   └── session_9876543210.json
-└── positions/         # User-created and default positions (JSON files)
-    ├── default_standard_starting_position.json
-    ├── default_sicilian_defense.json
-    └── pos_1234567890.json
+├── positions/         # User-created and default positions (JSON files)
+├── finished_games/    # Completed game records for review (JSON files)
+├── reviews/           # Post-game analysis results (JSON files)
+└── advanced_reviews/  # Advanced tactical analysis cache (JSON files)
 ```
 
 ### Default Positions

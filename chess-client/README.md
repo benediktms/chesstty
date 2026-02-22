@@ -124,5 +124,7 @@ pub use chess_proto::*;
 chess-client/src/
 ├── lib.rs      # Public API: ChessClient, ClientError, proto re-exports
 ├── client.rs   # ChessClient implementation (all gRPC calls)
-└── error.rs    # ClientError enum with thiserror derives
+├── error.rs    # ClientError enum with thiserror derives
+├── traits.rs   # ChessService trait abstraction for client and mock implementations
+└── mock.rs     # MockChessService for testing with configurable responses and call logging
 ```

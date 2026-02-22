@@ -1,6 +1,6 @@
 # ChessTTY Agent Guidelines
 
-Terminal-based chess app in Rust. Server-authoritative client-server architecture. Cargo workspace with 8 crates.
+Terminal-based chess app in Rust. Server-authoritative client-server architecture. Cargo workspace with 7 crates.
 
 ## Structure
 ```
@@ -11,8 +11,7 @@ chesstty/
 ├── client-tui/     # Ratatui TUI
 ├── chess/          # Core logic (cozy-chess)
 ├── engine/         # Stockfish UCI wrapper
-├── analysis/       # Post-game analysis
-└── chesstty/      # Main binary
+└── analysis/       # Post-game analysis
 ```
 
 ## Commands
@@ -60,9 +59,6 @@ enum_glob_use = "deny"
 - Domain/Proto separation (conversion at service boundaries)
 - Actor model: `server/src/session/actor.rs`
 - Snapshot-based state: `SessionSnapshot` on every change
-
-## Deviation
-`chesstty/Cargo.toml` hardcodes deps instead of using `workspace = true`.
 
 ## Adding Features
 1. Domain types in appropriate crate
