@@ -140,4 +140,125 @@ impl Component {
                 | Component::AdvancedAnalysis
         )
     }
+
+    /// Returns the number key ('1'-'4') assigned to this component for direct selection
+    /// in the given UI mode, or `None` if this component is not selectable via number key.
+    ///
+    /// Game mode:   1=InfoPanel, 2=EnginePanel, 3=HistoryPanel, 4=DebugPanel
+    /// Review mode: 1=InfoPanel, 2=HistoryPanel, 3=AdvancedAnalysis, 4=ReviewSummary
+    pub fn number_key(&self, mode: &super::UiMode) -> Option<char> {
+        match (self, mode) {
+            (Component::InfoPanel, _) => Some('1'),
+            (Component::EnginePanel, _) => Some('2'),
+            (Component::HistoryPanel, super::UiMode::ReviewBoard) => Some('2'),
+            (Component::HistoryPanel, _) => Some('3'),
+            (Component::DebugPanel, _) => Some('4'),
+            (Component::AdvancedAnalysis, _) => Some('3'),
+            (Component::ReviewSummary, _) => Some('4'),
+            _ => None,
+        }
+    }
+
+    /// Reverse lookup: resolve a number key to a Component for the given UI mode.
+    ///
+    /// Returns `None` if the key does not map to any component in the given mode.
+    pub fn from_number_key(key: char, mode: &super::UiMode) -> Option<Component> {
+        match (key, mode) {
+            ('1', _) => Some(Component::InfoPanel),
+            ('2', super::UiMode::ReviewBoard) => Some(Component::HistoryPanel),
+            ('2', _) => Some(Component::EnginePanel),
+            ('3', super::UiMode::ReviewBoard) => Some(Component::AdvancedAnalysis),
+            ('3', _) => Some(Component::HistoryPanel),
+            ('4', super::UiMode::ReviewBoard) => Some(Component::ReviewSummary),
+            ('4', _) => Some(Component::DebugPanel),
+            _ => None,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ui::fsm::UiMode;
+
+    #[test]
+    fn number_key_game_mode_mapping() {
+        let mode = UiMode::GameBoard;
+        assert_eq!(Component::InfoPanel.number_key(&mode), Some('1'));
+        assert_eq!(Component::EnginePanel.number_key(&mode), Some('2'));
+        assert_eq!(Component::HistoryPanel.number_key(&mode), Some('3'));
+        assert_eq!(Component::DebugPanel.number_key(&mode), Some('4'));
+    }
+
+    #[test]
+    fn number_key_review_mode_mapping() {
+        let mode = UiMode::ReviewBoard;
+        assert_eq!(Component::InfoPanel.number_key(&mode), Some('1'));
+        assert_eq!(Component::HistoryPanel.number_key(&mode), Some('2'));
+        assert_eq!(Component::AdvancedAnalysis.number_key(&mode), Some('3'));
+        assert_eq!(Component::ReviewSummary.number_key(&mode), Some('4'));
+    }
+
+    #[test]
+    fn non_selectable_components_have_no_number_key() {
+        let mode = UiMode::GameBoard;
+        assert_eq!(Component::Board.number_key(&mode), None);
+        assert_eq!(Component::TabInput.number_key(&mode), None);
+        assert_eq!(Component::Controls.number_key(&mode), None);
+        assert_eq!(Component::ReviewTabs.number_key(&mode), None);
+    }
+
+    #[test]
+    fn from_number_key_game_board() {
+        let mode = UiMode::GameBoard;
+        assert_eq!(Component::from_number_key('1', &mode), Some(Component::InfoPanel));
+        assert_eq!(Component::from_number_key('2', &mode), Some(Component::EnginePanel));
+        assert_eq!(Component::from_number_key('3', &mode), Some(Component::HistoryPanel));
+        assert_eq!(Component::from_number_key('4', &mode), Some(Component::DebugPanel));
+    }
+
+    #[test]
+    fn from_number_key_review_board() {
+        let mode = UiMode::ReviewBoard;
+        assert_eq!(Component::from_number_key('1', &mode), Some(Component::InfoPanel));
+        assert_eq!(Component::from_number_key('2', &mode), Some(Component::HistoryPanel));
+        assert_eq!(Component::from_number_key('3', &mode), Some(Component::AdvancedAnalysis));
+        assert_eq!(Component::from_number_key('4', &mode), Some(Component::ReviewSummary));
+    }
+
+    #[test]
+    fn from_number_key_invalid_keys_return_none() {
+        let mode = UiMode::GameBoard;
+        assert_eq!(Component::from_number_key('0', &mode), None);
+        assert_eq!(Component::from_number_key('5', &mode), None);
+        assert_eq!(Component::from_number_key('a', &mode), None);
+    }
+
+    #[test]
+    fn number_key_round_trip_game_mode() {
+        let mode = UiMode::GameBoard;
+        for component in [
+            Component::InfoPanel,
+            Component::EnginePanel,
+            Component::HistoryPanel,
+            Component::DebugPanel,
+        ] {
+            let key = component.number_key(&mode).unwrap();
+            assert_eq!(Component::from_number_key(key, &mode), Some(component));
+        }
+    }
+
+    #[test]
+    fn number_key_round_trip_review_mode() {
+        let mode = UiMode::ReviewBoard;
+        for component in [
+            Component::InfoPanel,
+            Component::HistoryPanel,
+            Component::AdvancedAnalysis,
+            Component::ReviewSummary,
+        ] {
+            let key = component.number_key(&mode).unwrap();
+            assert_eq!(Component::from_number_key(key, &mode), Some(component));
+        }
+    }
 }

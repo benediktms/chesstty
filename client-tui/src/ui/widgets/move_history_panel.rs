@@ -106,12 +106,15 @@ fn classification_marker(
 
 impl Widget for MoveHistoryPanel<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
+        let is_review = self.current_ply.is_some();
         let title = if self.expanded {
-            "\u{2654} Move History (Expanded) \u{2655}"
+            "Move History (Expanded)"
         } else if self.is_selected {
-            "\u{2654} Move History \u{2655} [SELECTED]"
+            "Move History [SELECTED]"
+        } else if is_review {
+            "[2] Move History"
         } else {
-            "\u{2654} Move History \u{2655}"
+            "[3] Move History"
         };
         let border_style = if self.is_selected || self.expanded {
             Style::default()

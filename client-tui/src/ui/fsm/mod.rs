@@ -183,7 +183,7 @@ impl UiStateMachine {
             }
             UiMode::ReviewBoard => {
                 vec![
-                    Control::new("Tab", "Tabs"),
+                    Control::new("1-4", "Panels"),
                     Control::new("j/k", "Moves"),
                     Control::new("Space", "Auto"),
                     Control::new("Home/End", "Jump"),
@@ -208,7 +208,12 @@ impl UiStateMachine {
                 }
 
                 controls.push(Control::new("Esc", "Menu"));
-                controls.push(Control::new("Tab", "Panels"));
+                let panel_hint = if self.is_component_visible(&Component::DebugPanel) {
+                    "1-4"
+                } else {
+                    "1-3"
+                };
+                controls.push(Control::new(panel_hint, "Panels"));
                 controls.push(Control::new("@", "UCI"));
                 controls.push(Control::new("Ctrl+C", "Quit"));
 

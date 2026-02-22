@@ -12,20 +12,35 @@ use ratatui::{
 pub struct GameInfoPanel<'a> {
     pub client_state: &'a GameSession,
     pub fsm: &'a UiStateMachine,
+    pub is_selected: bool,
 }
 
 impl<'a> GameInfoPanel<'a> {
-    pub fn new(client_state: &'a GameSession, fsm: &'a UiStateMachine) -> Self {
-        Self { client_state, fsm }
+    pub fn new(client_state: &'a GameSession, fsm: &'a UiStateMachine, is_selected: bool) -> Self {
+        Self {
+            client_state,
+            fsm,
+            is_selected,
+        }
     }
 }
 
 impl Widget for GameInfoPanel<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
+        let title = if self.is_selected {
+            "Game Info [SELECTED]"
+        } else {
+            "[1] Game Info"
+        };
+        let border_style = if self.is_selected {
+            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(Color::Cyan)
+        };
         let block = Block::default()
-            .title("♟ Game Info ♟")
+            .title(title)
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Cyan));
+            .border_style(border_style);
 
         let inner = block.inner(area);
         block.render(area, buf);

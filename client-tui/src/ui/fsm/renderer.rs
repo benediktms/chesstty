@@ -204,7 +204,8 @@ impl Renderer {
                 frame.render_widget(controls_line, area);
             }
             Component::InfoPanel => {
-                let widget = GameInfoPanel::new(game_session, fsm);
+                let is_selected = fsm.selected_component() == Some(Component::InfoPanel);
+                let widget = GameInfoPanel::new(game_session, fsm, is_selected);
                 frame.render_widget(widget, area);
             }
             Component::HistoryPanel => {

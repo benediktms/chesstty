@@ -20,11 +20,11 @@ pub struct ReviewSummaryPanel<'a> {
 impl Widget for ReviewSummaryPanel<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let title = if self.expanded {
-            "\u{2606} Review Summary (Expanded) \u{2606}"
+            "Review Summary (Expanded)"
         } else if self.is_selected {
-            "\u{2606} Review Summary \u{2606} [SELECTED]"
+            "Review Summary [SELECTED]"
         } else {
-            "\u{2606} Review Summary \u{2606}"
+            "[4] Review Summary"
         };
 
         let border_style = if self.is_selected || self.expanded {

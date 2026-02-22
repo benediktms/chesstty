@@ -49,29 +49,6 @@ fn handle_review_navigation(review: &mut ReviewState, key: KeyCode) -> bool {
     }
 }
 
-/// Handle Tab/Shift+Tab navigation between components.
-fn handle_tab_navigation(fsm: &mut UiStateMachine, state: &GameSession, key: &KeyEvent) {
-    let layout = fsm.layout(state);
-    let current = fsm.selected_component();
-    if key.modifiers.contains(KeyModifiers::SHIFT) {
-        if let Some(curr) = current {
-            if let Some(prev) = fsm.prev_component(curr, &layout) {
-                fsm.select_component(prev);
-            }
-        } else if let Some(first) = fsm.first_component(&layout) {
-            fsm.select_component(first);
-        }
-    } else {
-        if let Some(curr) = current {
-            if let Some(next) = fsm.next_component(curr, &layout) {
-                fsm.select_component(next);
-            }
-        } else if let Some(first) = fsm.first_component(&layout) {
-            fsm.select_component(first);
-        }
-    }
-}
-
 /// Actions returned from key handling that the main loop must process.
 pub enum AppAction {
     /// Continue the game loop normally.
@@ -180,8 +157,12 @@ async fn handle_board_context(
                         Some(SnapshotDialogState::new(current_ply, &game_id, positions));
                     return AppAction::Continue;
                 }
-                KeyCode::Tab => {
-                    handle_tab_navigation(fsm, state, &key);
+                KeyCode::Char(c) if ('1'..='4').contains(&c) => {
+                    if let Some(target) = Component::from_number_key(c, &fsm.mode) {
+                        if fsm.is_component_visible(&target) {
+                            fsm.select_component(target);
+                        }
+                    }
                     return AppAction::Continue;
                 }
                 KeyCode::Esc => {
@@ -199,8 +180,12 @@ async fn handle_board_context(
             fsm.tab_input.activate();
             return AppAction::Continue;
         }
-        KeyCode::Tab => {
-            handle_tab_navigation(fsm, state, &key);
+        KeyCode::Char(c) if ('1'..='4').contains(&c) => {
+            if let Some(target) = Component::from_number_key(c, &fsm.mode) {
+                if fsm.is_component_visible(&target) {
+                    fsm.select_component(target);
+                }
+            }
         }
         // Pause toggle (any engine mode) — must be before Char(c) catch-all
         KeyCode::Char('p')
@@ -520,22 +505,15 @@ fn handle_component_selected_context(
                 fsm.select_component(next);
             }
         }
-        KeyCode::Tab => {
-            if key.modifiers.contains(KeyModifiers::SHIFT) {
-                if let Some(prev) = fsm.prev_component(component, &layout) {
-                    fsm.select_component(prev);
-                }
-            } else {
-                if let Some(next) = fsm.next_component(component, &layout) {
-                    fsm.select_component(next);
+        KeyCode::Char(c) if ('1'..='4').contains(&c) => {
+            // ReviewSummary internal tab switching takes priority
+            if component == Component::ReviewSummary && (c == '1' || c == '2') {
+                fsm.review_tab = if c == '1' { 0 } else { 1 };
+            } else if let Some(target) = Component::from_number_key(c, &fsm.mode) {
+                if fsm.is_component_visible(&target) && target != component {
+                    fsm.select_component(target);
                 }
             }
-        }
-        KeyCode::Char('1') if component == Component::ReviewSummary => {
-            fsm.review_tab = 0;
-        }
-        KeyCode::Char('2') if component == Component::ReviewSummary => {
-            fsm.review_tab = 1;
         }
         KeyCode::Up | KeyCode::Char('j') if key.modifiers.contains(KeyModifiers::SHIFT) => {
             let scroll = fsm.component_scroll_mut(&component);

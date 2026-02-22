@@ -26,9 +26,9 @@ impl<'a> UciDebugPanel<'a> {
 impl Widget for UciDebugPanel<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let title = if self.is_selected {
-            "🔧 UCI Debug Panel [SELECTED] 🔧"
+            "UCI Debug Panel [SELECTED]"
         } else {
-            "🔧 UCI Debug Panel (@ to toggle) 🔧"
+            "[4] UCI Debug Panel (@ to toggle)"
         };
         let border_style = if self.is_selected {
             Style::default()

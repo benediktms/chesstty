@@ -34,14 +34,14 @@ impl Widget for EngineAnalysisPanel<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let title = if self.is_selected {
             if self.is_thinking {
-                "⚙ Engine Analysis (Thinking...) [SELECTED]"
+                "Engine Analysis (Thinking...) [SELECTED]"
             } else {
-                "⚙ Engine Analysis [SELECTED]"
+                "Engine Analysis [SELECTED]"
             }
         } else if self.is_thinking {
-            "⚙ Engine Analysis (Thinking...)"
+            "[2] Engine Analysis (Thinking...)"
         } else {
-            "⚙ Engine Analysis"
+            "[2] Engine Analysis"
         };
 
         let border_style = if self.is_selected {

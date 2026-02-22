@@ -19,11 +19,11 @@ pub struct AdvancedAnalysisPanel<'a> {
 impl Widget for AdvancedAnalysisPanel<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let title = if self.expanded {
-            "\u{2606} Advanced Analysis (Expanded) \u{2606}"
+            "Advanced Analysis (Expanded)"
         } else if self.is_selected {
-            "\u{2606} Advanced Analysis \u{2606} [SELECTED]"
+            "Advanced Analysis [SELECTED]"
         } else {
-            "\u{2606} Advanced Analysis \u{2606}"
+            "[3] Advanced Analysis"
         };
 
         let border_style = if self.is_selected || self.expanded {
