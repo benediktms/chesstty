@@ -159,27 +159,27 @@ Every command embeds a `oneshot::Sender` for its reply, creating a request/respo
 sequenceDiagram
     participant Endpoint as gRPC Endpoint
     participant Handle as SessionHandle
-    participant Actor as Session Actor
+    participant SA as Session Actor
 
     Endpoint->>Handle: make_move(mv)
     Handle->>Handle: create oneshot reply channel
-    Handle->>Actor: send SessionCommand::MakeMove { mv, reply }
-    Note over Actor: state.apply_move(mv)
-    Note over Actor: event_tx.send(StateChanged)
-    Note over Actor: maybe_auto_trigger()
-    Actor-->>Handle: reply via oneshot (SessionSnapshot)
-    Handle-->>Endpoint: Result<SessionSnapshot>
+    Handle->>SA: send SessionCommand::MakeMove { mv, reply }
+    Note over SA: state.apply_move(mv)
+    Note over SA: event_tx.send(StateChanged)
+    Note over SA: maybe_auto_trigger()
+    SA-->>Handle: reply via oneshot (SessionSnapshot)
+    Handle-->>Endpoint: Result&lt;SessionSnapshot&gt;
 ```
 
 ### Engine Event Handling
 
-| Engine Event | Actor Response |
-|-------------|----------------|
-| `BestMove(mv)` | Convert UCI castling notation, validate legality, apply move, broadcast `StateChanged`, call `maybe_auto_trigger()` for EvE chaining |
-| `Info(info)` | Convert to `EngineAnalysis`, store in state, broadcast `EngineThinking` |
-| `RawUciMessage` | Broadcast as `UciMessage` for the debug panel |
-| `Ready` | Log only (readyok/uciok) |
-| `Error(msg)` | Log error, broadcast `Error` event |
+| Engine Event    | Actor Response                                                                                                                       |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `BestMove(mv)`  | Convert UCI castling notation, validate legality, apply move, broadcast `StateChanged`, call `maybe_auto_trigger()` for EvE chaining |
+| `Info(info)`    | Convert to `EngineAnalysis`, store in state, broadcast `EngineThinking`                                                              |
+| `RawUciMessage` | Broadcast as `UciMessage` for the debug panel                                                                                        |
+| `Ready`         | Log only (readyok/uciok)                                                                                                             |
+| `Error(msg)`    | Log error, broadcast `Error` event                                                                                                   |
 
 ### Auto-Trigger Logic
 
@@ -198,12 +198,12 @@ should_auto_trigger_engine() =
 Search parameters scale with skill level:
 
 | Skill Level | Search Parameter |
-|-------------|-----------------|
-| 0-3 | `depth 4` |
-| 4-7 | `depth 8` |
-| 8-12 | `movetime 500` |
-| 13-17 | `movetime 1000` |
-| 18-20 | `movetime 2000` |
+| ----------- | ---------------- |
+| 0-3         | `depth 4`        |
+| 4-7         | `depth 8`        |
+| 8-12        | `movetime 500`   |
+| 13-17       | `movetime 1000`  |
+| 18-20       | `movetime 2000`  |
 
 ## Service Layer
 
@@ -211,15 +211,15 @@ Search parameters scale with skill level:
 
 `ChessServiceImpl` implements the tonic `ChessService` trait and delegates each RPC to a specialized endpoint handler. Each handler holds an `Arc<SessionManager>`:
 
-| Handler | RPCs | Responsibility |
-|---------|------|----------------|
-| `SessionEndpoints` | Create, Get, Close | Session lifecycle |
-| `GameEndpoints` | MakeMove, GetLegalMoves, Undo, Redo, Reset | Game actions |
-| `EngineEndpoints` | SetEngine, StopEngine, Pause, Resume | Engine + pause control |
-| `EventsEndpoints` | StreamEvents | gRPC server streaming |
-| `PersistenceEndpoints` | Suspend, Resume, List, Delete, SaveSnapshot | Session persistence |
-| `PositionsEndpoints` | Save, List, Delete | Saved positions |
-| `ReviewEndpoints` | ListFinishedGames, EnqueueReview, GetReviewStatus, GetGameReview, ExportReviewPgn, DeleteFinishedGame, GetAdvancedAnalysis | Post-game review + advanced analysis |
+| Handler                | RPCs                                                                                                                       | Responsibility                       |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ |
+| `SessionEndpoints`     | Create, Get, Close                                                                                                         | Session lifecycle                    |
+| `GameEndpoints`        | MakeMove, GetLegalMoves, Undo, Redo, Reset                                                                                 | Game actions                         |
+| `EngineEndpoints`      | SetEngine, StopEngine, Pause, Resume                                                                                       | Engine + pause control               |
+| `EventsEndpoints`      | StreamEvents                                                                                                               | gRPC server streaming                |
+| `PersistenceEndpoints` | Suspend, Resume, List, Delete, SaveSnapshot                                                                                | Session persistence                  |
+| `PositionsEndpoints`   | Save, List, Delete                                                                                                         | Saved positions                      |
+| `ReviewEndpoints`      | ListFinishedGames, EnqueueReview, GetReviewStatus, GetGameReview, ExportReviewPgn, DeleteFinishedGame, GetAdvancedAnalysis | Post-game review + advanced analysis |
 
 ### Proto Boundary
 
@@ -316,7 +316,15 @@ Reviews are stored in SQLite (`reviews` + related per-position rows):
 {
   "game_id": "game_1704067200000",
   "status": "Complete",
-  "positions": [{ "ply": 0, "fen": "...", "played_san": "e4", "classification": "Best", "cp_loss": 0 }],
+  "positions": [
+    {
+      "ply": 0,
+      "fen": "...",
+      "played_san": "e4",
+      "classification": "Best",
+      "cp_loss": 0
+    }
+  ],
   "white_accuracy": 87.3,
   "black_accuracy": 72.1,
   "analysis_depth": 18
@@ -338,6 +346,7 @@ The ReviewManager runs background engine analysis of completed games:
 For each move (ply) in a finished game, the worker performs this sequence:
 
 #### 1. Evaluate Position Before Move
+
 - Set engine position to the FEN **before** the move
 - Search at fixed depth (configurable, typically 18 plies)
 - Extract:
@@ -346,14 +355,17 @@ For each move (ply) in a finished game, the worker performs this sequence:
   - **pv** - Principal variation (best line of play)
 
 #### 2. Evaluate Position After Move
+
 The handling differs for terminal vs ongoing positions:
 
 **Ongoing positions:**
+
 - Set engine position to FEN **after** the move
 - Search at same depth
 - Extract **played_eval** (from opponent's perspective)
 
 **Terminal positions (checkmate/stalemate):**
+
 - Skip engine call (Stockfish returns `bestmove (none)` which parser can't handle)
 - Infer eval from game status:
   - Checkmate: `Mate(0)` - the side to move is checkmated
@@ -377,6 +389,7 @@ cp_loss = max(0, best_cp - played_cp)
 ```
 
 **Example**: White plays e4
+
 1. Before: Engine says White is +50 (White's perspective) → best_cp = 50
 2. After: Engine says White is -20 (Black's perspective) → played_cp = 20 (from White's perspective)
 3. Loss: max(0, 50 - 20) = 30 cp
@@ -408,10 +421,12 @@ pub fn from_cp_loss(cp_loss: i32, is_forced: bool) -> MoveClassification {
 For consistency in storage, evaluations are always stored from White's perspective:
 
 **For White's moves:**
+
 - `eval_before = best_eval` (already from White's perspective)
 - `eval_after = -played_eval` (negate to get White's perspective)
 
 **For Black's moves:**
+
 - `eval_before = -best_eval` (negate to get White's perspective)
 - `eval_after = played_eval` (already from White's perspective, since it's Black's perspective of the resulting position)
 
@@ -455,6 +470,7 @@ pub fn compute_accuracy(positions: &[PositionReview], is_white: bool) -> f64 {
 - **Clamped to [0, 100]**: Even with extreme cp_loss, accuracy is bounded
 
 **Edge cases:**
+
 - Empty game (no moves) → 100% accuracy
 - Mate positions with high cp_loss → Capped at 1000, so max contribution is 1000/count
 - Empty position list for one side → 100% accuracy
@@ -462,17 +478,20 @@ pub fn compute_accuracy(positions: &[PositionReview], is_white: bool) -> f64 {
 ### Rounding and Precision
 
 **Floating-point handling:**
+
 - `exp()` function uses full f64 precision; no pre-rounding
 - Final accuracy is formatted to 1 decimal place for display
 - Centipawn values are stored as i32 (integer)
 - Evaluations use `AnalysisScore` enum (Centipawns(i32) or Mate(i32))
 
 **Mate score conversion to centipawns:**
+
 - `Mate(N)` where N > 0 → `20000 - (N as i32 * 500)` (converts to high positive score)
 - `Mate(-N)` where N > 0 → `-(20000 - (N as i32 * 500))` (converts to negative)
 - This ensures mate-in-1 (M1) > mate-in-2 (M2) in value, but both are extremely high/low
 
 **Terminal position handling:**
+
 - Checkmate positions return `Mate(0)` (immediate mate) from the side-to-move's perspective
 - Stalemate returns `Centipawns(0)` (draw)
 
@@ -483,8 +502,10 @@ Reviews are stored with positions written **after every ply**:
 ```json
 {
   "game_id": "game_123",
-  "status": { "Analyzing": {"current_ply": 15, "total_plies": 42} },
-  "positions": [/* 15 completed positions */],
+  "status": { "Analyzing": { "current_ply": 15, "total_plies": 42 } },
+  "positions": [
+    /* 15 completed positions */
+  ],
   "white_accuracy": null,
   "black_accuracy": null,
   "total_plies": 42,
@@ -493,12 +514,14 @@ Reviews are stored with positions written **after every ply**:
 ```
 
 On worker crash or restart:
+
 1. Load the partial review
 2. Check `analyzed_plies` (15)
 3. Resume from ply 16
 4. Skip initial 15 iterations
 
 On successful completion:
+
 1. Compute accuracy for both sides
 2. Set status to "Complete"
 3. Record `completed_at` timestamp
@@ -523,11 +546,11 @@ Server binds to `[::1]:50051` (IPv6 localhost).
 
 All errors are returned as gRPC `Status` codes:
 
-| Status Code | Scenarios |
-|-------------|-----------|
-| `NOT_FOUND` | Session or position doesn't exist |
-| `INVALID_ARGUMENT` | Illegal move, invalid FEN, bad square format |
-| `INTERNAL` | Lock poisoned, engine spawn failure, channel closed |
+| Status Code        | Scenarios                                           |
+| ------------------ | --------------------------------------------------- |
+| `NOT_FOUND`        | Session or position doesn't exist                   |
+| `INVALID_ARGUMENT` | Illegal move, invalid FEN, bad square format        |
+| `INTERNAL`         | Lock poisoned, engine spawn failure, channel closed |
 
 ## Testing
 

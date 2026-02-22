@@ -22,36 +22,36 @@ proto/proto/
 
 `ChessService` provides 28 RPC endpoints:
 
-| Domain | RPC | Request -> Response | Type |
-|--------|-----|-------------------|------|
-| **Session** | CreateSession | CreateSessionRequest -> SessionSnapshot | Unary |
-| | GetSession | GetSessionRequest -> SessionSnapshot | Unary |
-| | CloseSession | CloseSessionRequest -> Empty | Unary |
-| **Game** | MakeMove | MakeMoveRequest -> SessionSnapshot | Unary |
-| | GetLegalMoves | GetLegalMovesRequest -> LegalMovesResponse | Unary |
-| | UndoMove | UndoMoveRequest -> SessionSnapshot | Unary |
-| | RedoMove | RedoMoveRequest -> SessionSnapshot | Unary |
-| | ResetGame | ResetGameRequest -> SessionSnapshot | Unary |
-| **Engine** | SetEngine | SetEngineRequest -> Empty | Unary |
-| | StopEngine | StopEngineRequest -> Empty | Unary |
-| | PauseSession | PauseSessionRequest -> Empty | Unary |
-| | ResumeSession | ResumeSessionRequest -> Empty | Unary |
-| **Persistence** | SuspendSession | SuspendSessionRequest -> SuspendSessionResponse | Unary |
-| | ListSuspendedSessions | ListSuspendedSessionsRequest -> ListSuspendedSessionsResponse | Unary |
-| | ResumeSuspendedSession | ResumeSuspendedSessionRequest -> SessionSnapshot | Unary |
-| | DeleteSuspendedSession | DeleteSuspendedSessionRequest -> Empty | Unary |
-| | SaveSnapshot | SaveSnapshotRequest -> SaveSnapshotResponse | Unary |
-| **Positions** | SavePosition | SavePositionRequest -> SavePositionResponse | Unary |
-| | ListPositions | ListPositionsRequest -> ListPositionsResponse | Unary |
-| | DeletePosition | DeletePositionRequest -> Empty | Unary |
-| **Review** | ListFinishedGames | ListFinishedGamesRequest -> ListFinishedGamesResponse | Unary |
-| | EnqueueReview | EnqueueReviewRequest -> EnqueueReviewResponse | Unary |
-| | GetReviewStatus | GetReviewStatusRequest -> GetReviewStatusResponse | Unary |
-| | GetGameReview | GetGameReviewRequest -> GetGameReviewResponse | Unary |
-| | ExportReviewPgn | ExportReviewPgnRequest -> ExportReviewPgnResponse | Unary |
-| | DeleteFinishedGame | DeleteFinishedGameRequest -> Empty | Unary |
-| **Advanced** | GetAdvancedAnalysis | GetAdvancedAnalysisRequest -> GetAdvancedAnalysisResponse | Unary |
-| **Events** | StreamEvents | StreamEventsRequest -> **stream** SessionStreamEvent | Server streaming |
+| Domain          | RPC                    | Request -> Response                                           | Type             |
+| --------------- | ---------------------- | ------------------------------------------------------------- | ---------------- |
+| **Session**     | CreateSession          | CreateSessionRequest -> SessionSnapshot                       | Unary            |
+|                 | GetSession             | GetSessionRequest -> SessionSnapshot                          | Unary            |
+|                 | CloseSession           | CloseSessionRequest -> Empty                                  | Unary            |
+| **Game**        | MakeMove               | MakeMoveRequest -> SessionSnapshot                            | Unary            |
+|                 | GetLegalMoves          | GetLegalMovesRequest -> LegalMovesResponse                    | Unary            |
+|                 | UndoMove               | UndoMoveRequest -> SessionSnapshot                            | Unary            |
+|                 | RedoMove               | RedoMoveRequest -> SessionSnapshot                            | Unary            |
+|                 | ResetGame              | ResetGameRequest -> SessionSnapshot                           | Unary            |
+| **Engine**      | SetEngine              | SetEngineRequest -> Empty                                     | Unary            |
+|                 | StopEngine             | StopEngineRequest -> Empty                                    | Unary            |
+|                 | PauseSession           | PauseSessionRequest -> Empty                                  | Unary            |
+|                 | ResumeSession          | ResumeSessionRequest -> Empty                                 | Unary            |
+| **Persistence** | SuspendSession         | SuspendSessionRequest -> SuspendSessionResponse               | Unary            |
+|                 | ListSuspendedSessions  | ListSuspendedSessionsRequest -> ListSuspendedSessionsResponse | Unary            |
+|                 | ResumeSuspendedSession | ResumeSuspendedSessionRequest -> SessionSnapshot              | Unary            |
+|                 | DeleteSuspendedSession | DeleteSuspendedSessionRequest -> Empty                        | Unary            |
+|                 | SaveSnapshot           | SaveSnapshotRequest -> SaveSnapshotResponse                   | Unary            |
+| **Positions**   | SavePosition           | SavePositionRequest -> SavePositionResponse                   | Unary            |
+|                 | ListPositions          | ListPositionsRequest -> ListPositionsResponse                 | Unary            |
+|                 | DeletePosition         | DeletePositionRequest -> Empty                                | Unary            |
+| **Review**      | ListFinishedGames      | ListFinishedGamesRequest -> ListFinishedGamesResponse         | Unary            |
+|                 | EnqueueReview          | EnqueueReviewRequest -> EnqueueReviewResponse                 | Unary            |
+|                 | GetReviewStatus        | GetReviewStatusRequest -> GetReviewStatusResponse             | Unary            |
+|                 | GetGameReview          | GetGameReviewRequest -> GetGameReviewResponse                 | Unary            |
+|                 | ExportReviewPgn        | ExportReviewPgnRequest -> ExportReviewPgnResponse             | Unary            |
+|                 | DeleteFinishedGame     | DeleteFinishedGameRequest -> Empty                            | Unary            |
+| **Advanced**    | GetAdvancedAnalysis    | GetAdvancedAnalysisRequest -> GetAdvancedAnalysisResponse     | Unary            |
+| **Events**      | StreamEvents           | StreamEventsRequest -> **stream** SessionStreamEvent          | Server streaming |
 
 **Notable**: There is no `TriggerEngineMove` RPC. The server auto-triggers engine moves based on game mode.
 
@@ -148,13 +148,13 @@ sequenceDiagram
     participant Client
     participant Server
     participant SessionManager
-    participant Actor
+    participant SA as Session Actor
 
     Client->>Server: CreateSession(fen?, game_mode?, timer?)
     Server->>SessionManager: create_session(fen, game_mode)
     SessionManager->>SessionManager: Generate UUID
     SessionManager->>SessionManager: Create Game + channels
-    SessionManager->>Actor: tokio::spawn(run_session_actor)
+    SessionManager->>SA: tokio::spawn(run_session_actor)
     SessionManager->>SessionManager: Store SessionHandle
     SessionManager-->>Server: SessionSnapshot
     Server-->>Client: SessionSnapshot
@@ -166,27 +166,27 @@ sequenceDiagram
 sequenceDiagram
     participant Client
     participant Server
-    participant Actor
+    participant SA as Session Actor
     participant Engine
 
     Client->>Server: MakeMove(session_id, "e2", "e4")
-    Server->>Actor: SessionCommand::MakeMove (via mpsc)
-    Actor->>Actor: state.apply_move()
-    Actor->>Client: broadcast StateChanged
-    Actor-->>Server: reply SessionSnapshot (via oneshot)
+    Server->>SA: SessionCommand::MakeMove (via mpsc)
+    SA->>SA: state.apply_move()
+    SA->>Client: broadcast StateChanged
+    SA-->>Server: reply SessionSnapshot (via oneshot)
     Server-->>Client: SessionSnapshot
 
-    Note over Actor: maybe_auto_trigger()
-    Actor->>Engine: SetPosition(fen) + Go(params)
+    Note over SA: maybe_auto_trigger()
+    SA->>Engine: SetPosition(fen) + Go(params)
 
     loop Engine Analysis
-        Engine->>Actor: EngineEvent::Info
-        Actor->>Client: broadcast EngineThinking
+        Engine->>SA: EngineEvent::Info
+        SA->>Client: broadcast EngineThinking
     end
 
-    Engine->>Actor: EngineEvent::BestMove
-    Actor->>Actor: state.apply_move(engine_move)
-    Actor->>Client: broadcast StateChanged
+    Engine->>SA: EngineEvent::BestMove
+    SA->>SA: state.apply_move(engine_move)
+    SA->>Client: broadcast StateChanged
 ```
 
 ### Suspend and Resume
@@ -222,11 +222,11 @@ sequenceDiagram
 
 All RPCs return `tonic::Status` on error:
 
-| Status Code | Scenarios |
-|-------------|-----------|
+| Status Code        | Scenarios                                                        |
+| ------------------ | ---------------------------------------------------------------- |
 | `INVALID_ARGUMENT` | Invalid FEN, illegal move, bad square format, skill out of range |
-| `NOT_FOUND` | Session or position doesn't exist |
-| `INTERNAL` | Server error (channel closed, engine failure) |
+| `NOT_FOUND`        | Session or position doesn't exist                                |
+| `INTERNAL`         | Server error (channel closed, engine failure)                    |
 
 ## Building
 
