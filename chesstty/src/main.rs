@@ -2,6 +2,7 @@ use clap::{Parser, Subcommand};
 
 mod config;
 mod daemon;
+mod wait;
 
 #[derive(Parser)]
 #[command(name = "chesstty", about = "Chess TUI with integrated engine analysis")]
