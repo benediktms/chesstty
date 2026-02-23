@@ -32,7 +32,7 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("ChessTTY Client starting up");
 
     println!("ChessTTY - Terminal Chess Client");
-    println!("Connecting to server at http://[::1]:50051");
+    println!("Connecting to server via UDS");
     println!();
     println!("ChessTTY - Starting menu...");
     println!("Debug logs: logs/chesstty-client-tui.YYYY-MM-DD");
