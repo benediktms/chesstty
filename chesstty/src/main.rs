@@ -10,6 +10,9 @@
 //!    gracefully (SIGTERM) or immediately (`--force` → SIGKILL).
 
 
+use std::fs::OpenOptions;
+use std::process::{Command, Stdio};
+use std::path::PathBuf;
 use std::time::Duration;
 
 use clap::{Parser, Subcommand};
@@ -57,6 +60,42 @@ enum CliError {
     ProcessError(String),
 }
 
+fn resolve_sibling_binary(name: &str) -> PathBuf {
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            let candidate = dir.join(name);
+            if candidate.exists() {
+                return candidate;
+            }
+        }
+    }
+
+    PathBuf::from(name)
+}
+
+fn server_log_stdio_for_path(log_path: &std::path::Path) -> Result<(Stdio, Stdio), CliError> {
+    if log_path == std::path::Path::new("/dev/null") {
+        return Ok((Stdio::null(), Stdio::null()));
+    }
+
+    let stdout_file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log_path)
+        .map_err(|e| CliError::ProcessError(format!("failed to open server log file: {}", e)))?;
+
+    let stderr_file = stdout_file
+        .try_clone()
+        .map_err(|e| CliError::ProcessError(format!("failed to clone server log file: {}", e)))?;
+
+    Ok((Stdio::from(stdout_file), Stdio::from(stderr_file)))
+}
+
+fn server_log_stdio() -> Result<(Stdio, Stdio), CliError> {
+    let log_path = config::get_server_log_path();
+    server_log_stdio_for_path(&log_path)
+}
+
 /// Start the server as a background process.
 fn spawn_server() -> Result<(), CliError> {
     let pid_path = config::get_pid_path();
@@ -64,11 +103,37 @@ fn spawn_server() -> Result<(), CliError> {
     // Remove stale PID file if it exists
     let _ = daemon::remove_stale_pid(&pid_path);
 
-    // Spawn the server as a background process
-    let child = std::process::Command::new("cargo")
-        .args(["run", "-p", "chesstty-server"])
+    let server_bin = resolve_sibling_binary("chesstty-server");
+    let (stdout_stdio, stderr_stdio) = server_log_stdio()?;
+    let child = match Command::new(&server_bin)
+        .stdin(Stdio::null())
+        .stdout(stdout_stdio)
+        .stderr(stderr_stdio)
         .spawn()
-        .map_err(|e| CliError::ProcessError(format!("failed to spawn server: {}", e)))?;
+    {
+        Ok(child) => child,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            let (fallback_stdout, fallback_stderr) = server_log_stdio()?;
+            Command::new("cargo")
+                .args(["run", "-p", "chesstty-server"])
+                .stdin(Stdio::null())
+                .stdout(fallback_stdout)
+                .stderr(fallback_stderr)
+                .spawn()
+                .map_err(|spawn_err| {
+                    CliError::ProcessError(format!(
+                        "failed to spawn server (binary: {}, cargo fallback: {})",
+                        e, spawn_err
+                    ))
+                })?
+        }
+        Err(e) => {
+            return Err(CliError::ProcessError(format!(
+                "failed to spawn server binary: {}",
+                e
+            )))
+        }
+    };
 
     // Write the PID to the PID file
     let pid = child.id();
@@ -76,6 +141,21 @@ fn spawn_server() -> Result<(), CliError> {
         .map_err(|e| CliError::ProcessError(format!("failed to write PID file: {}", e)))?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::server_log_stdio_for_path;
+
+    #[test]
+    fn test_server_log_stdio_creates_log_file_for_path_sink() {
+        let tempdir = tempfile::tempdir().expect("failed to create temp dir");
+        let log_path = tempdir.path().join("server.log");
+
+        assert!(!log_path.exists());
+        let _ = server_log_stdio_for_path(&log_path).expect("failed to create log stdio");
+        assert!(log_path.exists());
+    }
 }
 
 /// Wait for the server socket to become available.
@@ -91,10 +171,20 @@ async fn wait_for_server_socket() -> Result<(), CliError> {
 
 /// Spawn the TUI client process.
 fn spawn_tui_client() -> Result<(), CliError> {
-    let mut child = std::process::Command::new("cargo")
-        .args(["run", "-p", "client-tui"])
-        .spawn()
-        .map_err(|e| CliError::ProcessError(format!("failed to spawn TUI: {}", e)))?;
+    let client_bin = resolve_sibling_binary("client-tui");
+    let mut child = match Command::new(&client_bin).spawn() {
+        Ok(child) => child,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Command::new("cargo")
+            .args(["run", "-p", "client-tui"])
+            .spawn()
+            .map_err(|spawn_err| {
+                CliError::ProcessError(format!(
+                    "failed to spawn TUI (binary: {}, cargo fallback: {})",
+                    e, spawn_err
+                ))
+            })?,
+        Err(e) => return Err(CliError::ProcessError(format!("failed to spawn TUI: {}", e))),
+    };
 
     // Wait for the client to finish
     let status = child.wait()

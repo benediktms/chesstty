@@ -21,6 +21,8 @@ const DEFAULT_SOCKET_TIMEOUT_SECS: u64 = 5;
 #[allow(dead_code)]
 const DEFAULT_SOCKET_POLL_INTERVAL_MS: u64 = 100;
 
+const DEFAULT_SERVER_LOG_PATH: &str = "/dev/null";
+
 /// Get the socket path for server communication.
 ///
 /// Priority:
@@ -71,6 +73,14 @@ pub fn get_socket_poll_interval_ms() -> u64 {
     DEFAULT_SOCKET_POLL_INTERVAL_MS
 }
 
+pub fn get_server_log_path() -> PathBuf {
+    if let Ok(path) = std::env::var("CHESSTTY_SERVER_LOG_PATH") {
+        return PathBuf::from(path);
+    }
+
+    PathBuf::from(DEFAULT_SERVER_LOG_PATH)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -97,5 +107,11 @@ mod tests {
     fn test_get_socket_poll_interval_ms() {
         let interval = get_socket_poll_interval_ms();
         assert_eq!(interval, DEFAULT_SOCKET_POLL_INTERVAL_MS);
+    }
+
+    #[test]
+    fn test_get_server_log_path_default() {
+        let path = get_server_log_path();
+        assert_eq!(path, PathBuf::from(DEFAULT_SERVER_LOG_PATH));
     }
 }
