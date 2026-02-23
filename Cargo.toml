@@ -29,6 +29,7 @@ prost-types = "0.13"
 # Error handling
 thiserror = "2.0"
 anyhow = "1.0"
+tempfile = "3.14"
 
 # Logging
 tracing = "0.1"
