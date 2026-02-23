@@ -17,6 +17,11 @@ server:
 tui:
     cargo run -p client-tui
 
+# Run the shim CLI (starts server as daemon)
+[group('app')]
+start:
+    cargo run -p chesstty
+
 # Run all tests
 [group('test')]
 test scope="--workspace" *opt:
