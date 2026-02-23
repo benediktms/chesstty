@@ -215,7 +215,7 @@ The server uses `tokio::broadcast::channel(100)`. If a client falls behind, it s
 
 The `chess-client` crate wraps the gRPC client into a high-level async API. The TUI uses it to:
 
-1. **Connect** to the server at `http://[::1]:50051` via `ChessClient::connect()`
+1. **Connect** to the server over UDS (default `/tmp/chesstty.sock`) via `ChessClient::connect_uds()`
 2. **Create a session** with game mode, optional FEN, and optional timer
 3. **Open an event stream** via `stream_events()` for real-time updates
 4. **Send actions** (make_move, undo, set_engine, pause, etc.) as unary RPCs
@@ -255,6 +255,12 @@ See crate-level READMEs for detailed documentation:
 - **just** command runner (optional, `cargo install just`)
 
 ### Running
+
+```bash
+# Single-command shim (recommended)
+just start
+# or: cargo run -p chesstty
+```
 
 ```bash
 # Terminal 1: Start server
@@ -396,13 +402,20 @@ A real-time visualization of position strength throughout the game:
 
 1.  **Stockfish not found**: The engine crate searches `/usr/local/bin`, `/usr/bin`, `/opt/homebrew/bin`, `/usr/games`, and then the system `PATH`. You can install it via `just stockfish` (which runs `scripts/install-stockfish.sh`) or `brew install stockfish` on macOS.
 
-2.  **Server connection refused**: Ensure the server is running before the client (`just server`). It binds to `[::1]:50051` (IPv6 localhost). The connection will fail if your system has IPv6 disabled.
+2.  **Server connection failed**: Ensure the server is running before the client (`just start` or `just server`). By default it uses a Unix domain socket at `/tmp/chesstty.sock`.
 
 3.  **Build fails on proto compilation**: The project requires the `protoc` compiler for its gRPC services. You can install it via `brew install protobuf` on macOS or `apt install protobuf-compiler` on Linux.
 
 4.  **Terminal rendering issues**: The TUI requires a terminal emulator that supports at least 256 colors and Unicode characters. The board display adapts to different terminal sizes (Small, Medium, Large), but the minimum recommended size is 80x24.
 
 ## Configuration
+
+Shim/runtime environment variables:
+
+- `CHESSTTY_SOCKET_PATH`: override server/client UDS socket path (default `/tmp/chesstty.sock`)
+- `CHESSTTY_PID_PATH`: override shim PID file path (default `/tmp/chesstty.pid`)
+- `CHESSTTY_SOCKET_TIMEOUT_SECS`: socket readiness timeout in seconds (default `5`)
+- `CHESSTTY_SERVER_LOG_PATH`: server log sink for shim-launched daemon (default `/dev/null`)
 
 See [server/CONFIGURATION.md](server/CONFIGURATION.md) for data directory configuration, environment variables, and deployment options.
 

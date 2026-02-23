@@ -3,7 +3,12 @@
 use crate::error::{ClientError, ClientResult};
 use chess_proto::chess_service_client::ChessServiceClient;
 use chess_proto::*;
-use tonic::transport::Channel;
+use std::path::Path;
+
+use hyper_util::rt::TokioIo;
+use tokio::net::UnixStream;
+use tonic::transport::{Channel, Endpoint, Uri};
+use tower::service_fn;
 
 /// Network client for communicating with the chess server
 pub struct ChessClient {
@@ -17,6 +22,31 @@ impl ChessClient {
         let channel = Channel::from_shared(addr.to_string())
             .map_err(|e| ClientError::InvalidAddress(e.to_string()))?
             .connect()
+            .await?;
+
+        let client = ChessServiceClient::new(channel);
+
+        Ok(Self {
+            client,
+            session_id: None,
+        })
+    }
+
+    /// Connect to the chess server via Unix Domain Socket
+    ///
+    /// # Arguments
+    /// * `socket_path` - Path to the Unix Domain Socket
+    pub async fn connect_uds(socket_path: &Path) -> ClientResult<Self> {
+        let socket_path = socket_path.to_path_buf();
+        let channel = Endpoint::try_from("http://[::]:50051")
+            .map_err(|e| ClientError::InvalidAddress(e.to_string()))?
+            .connect_with_connector(service_fn(move |_: Uri| {
+                let path = socket_path.clone();
+                async move {
+                    let stream = UnixStream::connect(path).await?;
+                    Ok::<_, std::io::Error>(TokioIo::new(stream))
+                }
+            }))
             .await?;
 
         let client = ChessServiceClient::new(channel);

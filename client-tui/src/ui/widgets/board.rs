@@ -216,6 +216,18 @@ impl Widget for BoardWidget<'_> {
                         },
                     );
                 }
+
+                // Draw outline (border) around square if present
+                if let Some(outline_color) = self.overlay.square_outline(square) {
+                    draw_square_outline(
+                        buf,
+                        x,
+                        y,
+                        outline_color.resolve(is_light_square),
+                        board_size,
+                        inner,
+                    );
+                }
             }
         }
 

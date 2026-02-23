@@ -1,5 +1,7 @@
 export CHESSTTY_DATA_DIR := "data"
 export CHESSTTY_DB_PATH := "data/chesstty.db"
+export CHESSTTY_SOCKET_PATH := "data/chesstty.sock"
+export CHESSTTY_PID_PATH := "data/chesstty.pid"
 
 # Default recipe - show all available commands
 default:
@@ -14,6 +16,11 @@ server:
 [group('app')]
 tui:
     cargo run -p client-tui
+
+# Run the shim CLI (starts server as daemon)
+[group('app')]
+start:
+    cargo run -p chesstty
 
 # Run all tests
 [group('test')]

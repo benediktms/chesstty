@@ -5,6 +5,8 @@ mod service;
 mod session;
 
 use chess_proto::chess_service_server::ChessServiceServer;
+use tokio::net::UnixListener;
+use tokio_stream::wrappers::UnixListenerStream;
 use persistence::sqlite::{
     Database, SqliteAdvancedAnalysisRepository, SqliteFinishedGameRepository,
     SqlitePositionRepository, SqliteReviewRepository, SqliteSessionRepository,
@@ -74,14 +76,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create service
     let service = ChessServiceImpl::new(session_manager.clone(), review_manager.clone());
 
-    // Server address
-    let addr = "[::1]:50051".parse()?;
-    tracing::info!("Server listening on {}", addr);
+    // Server address (Unix Domain Socket)
+    let socket_path = config::get_socket_path();
+
+    // Remove stale socket file if it exists
+    if socket_path.exists() {
+        std::fs::remove_file(&socket_path)?;
+    }
+
+    let uds = UnixListener::bind(&socket_path)?;
+    let uds_stream = UnixListenerStream::new(uds);
+
+    tracing::info!("Server listening on {}", socket_path.display());
 
     // Start server
     Server::builder()
         .add_service(ChessServiceServer::new(service))
-        .serve(addr)
+        .serve_with_incoming(uds_stream)
         .await?;
 
     Ok(())

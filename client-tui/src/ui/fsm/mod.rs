@@ -9,6 +9,15 @@ pub mod render_spec;
 pub mod renderer;
 
 use std::collections::HashMap;
+use std::path::PathBuf;
+
+/// Get the socket path for server communication.
+fn get_socket_path() -> PathBuf {
+    if let Ok(path) = std::env::var("CHESSTTY_SOCKET_PATH") {
+        return PathBuf::from(path);
+    }
+    PathBuf::from("/tmp/chesstty.sock")
+}
 
 use render_spec::{Control, InputPhase, Layout, Section, SectionContent, TabInputState};
 
@@ -19,7 +28,7 @@ pub struct AppContext {
 impl Default for AppContext {
     fn default() -> Self {
         Self {
-            server_address: "http://[::1]:50051".to_string(),
+            server_address: get_socket_path().to_string_lossy().to_string(),
         }
     }
 }
@@ -52,6 +61,7 @@ pub struct UiStateMachine {
     pub expanded: bool,
     pub visibility: HashMap<Component, bool>,
     pub scroll_state: HashMap<Component, u16>,
+    pub typeahead_squares: Vec<cozy_chess::Square>,
 }
 
 impl Default for UiStateMachine {
@@ -86,6 +96,7 @@ impl Default for UiStateMachine {
             expanded: false,
             visibility,
             scroll_state,
+            typeahead_squares: Vec::new(),
         }
     }
 }
@@ -260,6 +271,11 @@ impl UiStateMachine {
         // Layer 4: Selected piece (highest priority)
         if let Some(sq) = game_session.selected_square {
             overlay.tint(sq, OverlayColor::Selected);
+        }
+
+        // Layer 5: Typeahead squares (pieces matching user input) - outline only
+        for &sq in &self.typeahead_squares {
+            overlay.outline(sq, OverlayColor::Typeahead);
         }
 
         overlay

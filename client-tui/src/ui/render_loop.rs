@@ -13,7 +13,21 @@ use ratatui::{
     Terminal,
 };
 use std::io;
+use std::path::PathBuf;
 use std::time::Duration;
+
+/// Get the socket path for server communication.
+///
+/// Priority:
+/// 1. CHESSTTY_SOCKET_PATH env variable if set
+/// 2. /tmp/chesstty.sock as fallback
+fn get_socket_path() -> PathBuf {
+    if let Ok(path) = std::env::var("CHESSTTY_SOCKET_PATH") {
+        return PathBuf::from(path);
+    }
+
+    PathBuf::from("/tmp/chesstty.sock")
+}
 
 /// Convert client-side GameMode to proto representation.
 fn game_mode_to_proto(mode: &GameMode) -> GameModeProto {
@@ -56,7 +70,7 @@ pub async fn run_app() -> anyhow::Result<()> {
     loop {
         // Pre-fetch data from server for the menu
         let (suspended, positions, finished_games) =
-            match chess_client::ChessClient::connect("http://[::1]:50051").await {
+            match chess_client::ChessClient::connect_uds(&get_socket_path()).await {
                 Ok(mut client) => {
                     let sessions = client.list_suspended_sessions().await.unwrap_or_else(|e| {
                         tracing::warn!("Failed to list suspended sessions: {}", e);
@@ -86,7 +100,7 @@ pub async fn run_app() -> anyhow::Result<()> {
             menu_app::MenuAction::EnqueueReview(game_id) => {
                 // Enqueue analysis and return to menu
                 if let Ok(mut client) =
-                    chess_client::ChessClient::connect("http://[::1]:50051").await
+                    chess_client::ChessClient::connect_uds(&get_socket_path()).await
                 {
                     match client.enqueue_review(&game_id).await {
                         Ok(_) => tracing::info!(game_id = %game_id, "Review enqueued"),
@@ -100,7 +114,7 @@ pub async fn run_app() -> anyhow::Result<()> {
                 if cfg.mode == crate::state::GameMode::ReviewMode {
                     if let Some(ref game_id) = cfg.resume_session_id {
                         tracing::info!(game_id = %game_id, "Fetching review data");
-                        match chess_client::ChessClient::connect("http://[::1]:50051").await {
+                        match chess_client::ChessClient::connect_uds(&get_socket_path()).await {
                             Ok(mut client) => match client.get_game_review(game_id).await {
                                 Ok(review) => {
                                     tracing::info!(
@@ -427,8 +441,8 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
             continue;
         }
 
-        // Calculate typeahead squares based on current input
-        let typeahead_squares = if fsm.tab_input.active
+        // Calculate typeahead squares based on current input and store on FSM
+        fsm.typeahead_squares = if fsm.tab_input.active
             && fsm.tab_input.current_tab == 0
             && !fsm.tab_input.typeahead_buffer.is_empty()
         {
