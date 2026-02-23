@@ -3,7 +3,16 @@ use chess_client::ChessClient;
 use chess_client::*;
 use cozy_chess::{Board, Piece, Square};
 use std::collections::HashMap;
+use std::path::PathBuf;
 use tonic::Streaming;
+
+/// Get the socket path for server communication.
+fn get_socket_path() -> PathBuf {
+    if let Ok(path) = std::env::var("CHESSTTY_SOCKET_PATH") {
+        return PathBuf::from(path);
+    }
+    PathBuf::from("/tmp/chesstty.sock")
+}
 
 /// Convert a proto GameModeProto to the client's local GameMode.
 pub fn game_mode_from_proto(proto: &GameModeProto) -> GameMode {
@@ -127,7 +136,7 @@ impl GameSession {
         game_mode_proto: Option<GameModeProto>,
         timer: Option<TimerState>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
-        let mut client = ChessClient::connect(server_addr).await?;
+        let mut client = ChessClient::connect_uds(&get_socket_path()).await?;
         let snapshot = client.create_session(fen, game_mode_proto, timer).await?;
 
         let board = snapshot
@@ -180,7 +189,7 @@ impl GameSession {
         review_skill_level: u8,
         advanced: Option<AdvancedGameAnalysisProto>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
-        let client = ChessClient::connect(server_addr).await?;
+        let client = ChessClient::connect_uds(&get_socket_path()).await?;
 
         let board = Board::default();
         let snapshot = SessionSnapshot::default();
