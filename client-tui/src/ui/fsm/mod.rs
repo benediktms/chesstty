@@ -182,13 +182,17 @@ impl UiStateMachine {
                 ]
             }
             UiMode::ReviewBoard => {
-                vec![
+                let mut controls = vec![
                     Control::new("1-4", "Panels"),
                     Control::new("j/k", "Moves"),
                     Control::new("Space", "Auto"),
                     Control::new("Home/End", "Jump"),
                     Control::new("Esc", "Menu"),
-                ]
+                ];
+                if self.focused_component.is_some() {
+                    controls.push(Control::new("J/K", "Scroll"));
+                }
+                controls
             }
             UiMode::GameBoard => {
                 let mut controls = vec![Control::new("i", "Input")];
@@ -216,6 +220,10 @@ impl UiStateMachine {
                 controls.push(Control::new(panel_hint, "Panels"));
                 controls.push(Control::new("@", "UCI"));
                 controls.push(Control::new("Ctrl+C", "Quit"));
+
+                if self.focused_component.is_some() {
+                    controls.push(Control::new("J/K", "Scroll"));
+                }
 
                 controls
             }

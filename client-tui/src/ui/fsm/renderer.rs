@@ -205,7 +205,8 @@ impl Renderer {
             }
             Component::InfoPanel => {
                 let is_selected = fsm.selected_component() == Some(Component::InfoPanel);
-                let widget = GameInfoPanel::new(game_session, fsm, is_selected);
+                let scroll = fsm.component_scroll(&Component::InfoPanel);
+                let widget = GameInfoPanel::new(game_session, fsm, is_selected, scroll);
                 frame.render_widget(widget, area);
             }
             Component::HistoryPanel => {

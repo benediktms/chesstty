@@ -13,14 +13,16 @@ pub struct GameInfoPanel<'a> {
     pub client_state: &'a GameSession,
     pub fsm: &'a UiStateMachine,
     pub is_selected: bool,
+    pub scroll: u16,
 }
 
 impl<'a> GameInfoPanel<'a> {
-    pub fn new(client_state: &'a GameSession, fsm: &'a UiStateMachine, is_selected: bool) -> Self {
+    pub fn new(client_state: &'a GameSession, fsm: &'a UiStateMachine, is_selected: bool, scroll: u16) -> Self {
         Self {
             client_state,
             fsm,
             is_selected,
+            scroll,
         }
     }
 }
@@ -51,7 +53,7 @@ impl Widget for GameInfoPanel<'_> {
             self.brender_stateld_game_lines()
         };
 
-        let paragraph = Paragraph::new(lines);
+        let paragraph = Paragraph::new(lines).scroll((self.scroll, 0));
         paragraph.render(inner, buf);
     }
 }
