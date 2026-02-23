@@ -1,5 +1,7 @@
 use clap::{Parser, Subcommand};
 
+mod config;
+
 #[derive(Parser)]
 #[command(name = "chesstty", about = "Chess TUI with integrated engine analysis")]
 struct Cli {
