@@ -6,14 +6,18 @@ use std::fs;
 use std::os::fd::AsRawFd;
 use std::path::Path;
 
+/// Error type for PID file and process-existence operations.
 #[derive(Debug, thiserror::Error)]
 pub enum ProcessError {
+    /// The PID file could not be read from disk.
     #[error("failed to read PID file: {0}")]
     ReadError(#[from] std::io::Error),
 
+    /// The PID file existed but did not contain a valid integer PID.
     #[error("invalid PID file content: expected integer, got '{0}'")]
     InvalidContent(String),
 
+    /// No process with the recorded PID exists on this system.
     #[error("process {0} does not exist")]
     ProcessNotFound(i32),
 }
@@ -174,6 +178,13 @@ use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
 
+/// Newtype wrapper around [`std::io::Error`] used as a `thiserror` source.
+///
+/// `thiserror` requires error sources to implement `std::error::Error`, but
+/// `std::io::Error` cannot be used directly as a named field inside
+/// `#[error(...)]` variants when the variant also needs to be constructed via
+/// `IoError::from`. This wrapper satisfies the trait bounds while keeping
+/// variant construction ergonomic.
 #[derive(Debug)]
 pub struct IoError(std::io::Error);
 
@@ -189,10 +200,16 @@ impl From<std::io::Error> for IoError {
     }
 }
 
-/// Represents a group for privilege dropping.
+/// Identifies a Unix group for privilege-dropping purposes.
+///
+/// A group can be specified either by name (resolved via `getgrnam_r`) or by
+/// numeric GID. Both variants are accepted wherever a `Group` is expected via
+/// the `From<&str>`, `From<String>`, and `From<u32>` implementations.
 #[derive(Debug, Clone)]
 pub enum Group {
+    /// Group identified by name; resolved to a GID via `getgrnam_r`.
     Name(String),
+    /// Group identified directly by its numeric GID.
     Id(u32),
 }
 
@@ -215,50 +232,69 @@ impl From<u32> for Group {
 }
 
 /// Error type for daemon operations.
+///
+/// Covers every failure that can occur during the double-fork daemonization
+/// sequence, privilege dropping, I/O redirection, and PID file management.
 #[derive(Debug, thiserror::Error)]
 pub enum DaemonError {
+    /// The first `fork(2)` call failed.
     #[error("first fork failed: {0}")]
     FirstForkFailed(IoError),
 
+    /// The second `fork(2)` call (used to prevent acquiring a controlling
+    /// terminal) failed.
     #[error("second fork failed: {0}")]
     SecondForkFailed(IoError),
 
+    /// The `setsid(2)` call to create a new session failed.
     #[error("setsid failed: {0}")]
     SetsidFailed(IoError),
 
+    /// The PID file could not be created or written.
     #[error("failed to write PID file: {0}")]
     PidFileWrite(IoError),
 
+    /// Changing ownership of the PID file (`chown`) failed.
     #[error("failed to chown PID file: {0}")]
     PidFileChown(IoError),
 
+    /// `setuid(2)` or `setgid(2)` failed when dropping privileges.
     #[error("failed to drop privileges: {0}")]
     PrivilegeDrop(String),
 
+    /// The user-supplied privileged action closure returned an error.
     #[error("privileged action failed: {0}")]
     PrivilegedAction(#[from] anyhow::Error),
 
-    #[error("failed to get user '{0}': {0}")]
+    /// The specified username could not be resolved to a UID via `getpwnam_r`.
+    #[error("failed to get user '{0}'")]
     UserNotFound(String),
 
-    #[error("failed to get group '{0}': {0}")]
+    /// The specified group name could not be resolved to a GID via `getgrnam_r`.
+    #[error("failed to get group '{0}'")]
     GroupNotFound(String),
 
+    /// `/dev/null` could not be opened for stdin/stdout/stderr redirection.
     #[error("failed to open /dev/null: {0}")]
     DevNullOpen(IoError),
 
+    /// `dup2(2)` failed when redirecting stdin.
     #[error("failed to redirect stdin: {0}")]
     StdinRedirect(IoError),
 
+    /// `dup2(2)` failed when redirecting stdout.
     #[error("failed to redirect stdout: {0}")]
     StdoutRedirect(IoError),
 
+    /// `dup2(2)` failed when redirecting stderr.
     #[error("failed to redirect stderr: {0}")]
     StderrRedirect(IoError),
 
+    /// `chdir(2)` to the configured working directory failed.
     #[error("failed to change directory: {0}")]
     ChdirFailed(IoError),
 
+    /// `umask(2)` call failed (rare but included for completeness).
     #[error("failed to set umask: {0}")]
     UmaskFailed(IoError),
 }
@@ -491,6 +527,16 @@ impl Daemon {
         Ok(())
     }
 
+    /// Drop process privileges to the configured user and group.
+    ///
+    /// Group is dropped first (while still root) so that supplementary group
+    /// membership is updated before the UID change locks us out of root
+    /// operations. If neither `user` nor `group` is configured this is a no-op.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DaemonError::PrivilegeDrop`] if `setgid` or `setuid` fails,
+    /// or any error from [`Self::resolve_group`] / [`Self::resolve_user`].
     fn drop_privileges(&self) -> Result<(), DaemonError> {
         // Drop group first (if user also set, we need primary group)
         if let Some(ref group) = self.group {
@@ -521,6 +567,15 @@ impl Daemon {
         Ok(())
     }
 
+    /// Resolve a username or numeric UID string to a `uid_t`.
+    ///
+    /// If `user` parses as a plain integer it is used directly as a UID.
+    /// Otherwise `getpwnam_r(3)` is called to look up the user by name.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DaemonError::UserNotFound`] if the name cannot be converted to
+    /// a C string or `getpwnam_r` returns no entry.
     fn resolve_user(&self, user: &str) -> Result<libc::uid_t, DaemonError> {
         // Try to parse as UID first
         if let Ok(uid) = user.parse::<libc::uid_t>() {
@@ -559,6 +614,16 @@ impl Daemon {
         Ok(unsafe { (*result).pw_uid })
     }
 
+    /// Resolve a [`Group`] value to a numeric `gid_t`.
+    ///
+    /// [`Group::Id`] is returned as-is. For [`Group::Name`], the name is first
+    /// tried as a numeric GID string; if that fails, `getgrnam_r(3)` is used to
+    /// look up the group by name.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DaemonError::GroupNotFound`] if the name cannot be converted to
+    /// a C string or `getgrnam_r` returns no entry.
     fn resolve_group(&self, group: &Group) -> Result<libc::gid_t, DaemonError> {
         match group {
             Group::Id(gid) => Ok(*gid),
@@ -601,6 +666,17 @@ impl Daemon {
         }
     }
 
+    /// Redirect stdin, stdout, and stderr for the daemon process.
+    ///
+    /// Stdin is always redirected to `/dev/null`. Stdout and stderr are
+    /// redirected to the files set via [`Daemon::stdout`] and [`Daemon::stderr`]
+    /// respectively; if either is not configured, it is also redirected to
+    /// `/dev/null`.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`DaemonError`] variant (`DevNullOpen`, `StdinRedirect`,
+    /// `StdoutRedirect`, or `StderrRedirect`) if any `dup2(2)` call fails.
     fn redirect_io(&self) -> Result<(), DaemonError> {
         // Open /dev/null
         let devnull =
@@ -653,6 +729,19 @@ impl Daemon {
         Ok(())
     }
 
+    /// Write the daemon's PID to the configured PID file.
+    ///
+    /// Creates any missing parent directories before writing. The file is
+    /// flushed and synced to disk so that readers see a complete PID even if
+    /// the system crashes shortly after. If `chown_pid_file` is set and both a
+    /// user and group are configured, the file's ownership is updated via
+    /// `chown(2)` after writing.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DaemonError::PidFileWrite`] if directory creation, file
+    /// creation, or write/sync fails. Returns [`DaemonError::PidFileChown`] if
+    /// the ownership change fails.
     fn write_pid_file(&self, pid_path: &PathBuf) -> Result<(), DaemonError> {
         let pid = std::process::id();
 

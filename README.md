@@ -227,6 +227,7 @@ The client maintains a `ClientState` as a single source of truth for rendering. 
 
 ```
 chesstty/
+├── chesstty/       # CLI shim and process supervisor (single-command startup)
 ├── proto/          # gRPC protocol definitions (10 .proto files)
 ├── server/         # Authoritative game server (actor model, session management)
 ├── chess-client/   # Reusable gRPC client library
@@ -238,6 +239,7 @@ chesstty/
 
 See crate-level READMEs for detailed documentation:
 
+- [chesstty/README.md](chesstty/README.md) - CLI shim, process supervisor, single-command startup
 - [server/README.md](server/README.md) - Actor model, session management, service layer
 - [client-tui/README.md](client-tui/README.md) - UI render workflow, focus system, widget inventory
 - [proto/README.md](proto/README.md) - Protocol definitions, message types, sequence diagrams

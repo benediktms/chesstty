@@ -1,34 +1,32 @@
-//! Configuration for ChessTTY runtime
+//! Configuration for ChessTTY runtime.
 //!
-//! Handles socket path, PID file path, and timeout configuration for IPC between
-//! the shim CLI and the server.
+//! Centralises all runtime tunables for the shim: socket path, PID file path,
+//! server log path, and timeout/poll-interval values for the socket-readiness
+//! wait. Every value has a compile-time default and can be overridden at runtime
+//! via a dedicated environment variable.
 
 use std::path::PathBuf;
 
 /// Default socket path for server communication.
-#[allow(dead_code)]
 const DEFAULT_SOCKET_PATH: &str = "/tmp/chesstty.sock";
 
 /// Default PID file path for server process tracking.
-#[allow(dead_code)]
 const DEFAULT_PID_PATH: &str = "/tmp/chesstty.pid";
 
 /// Default timeout for waiting on socket availability (in seconds).
-#[allow(dead_code)]
 const DEFAULT_SOCKET_TIMEOUT_SECS: u64 = 5;
 
 /// Default poll interval for socket availability checks (in milliseconds).
-#[allow(dead_code)]
 const DEFAULT_SOCKET_POLL_INTERVAL_MS: u64 = 100;
 
+/// Default server log path. `/dev/null` discards all server output.
 const DEFAULT_SERVER_LOG_PATH: &str = "/dev/null";
 
 /// Get the socket path for server communication.
 ///
 /// Priority:
-/// 1. CHESSTTY_SOCKET_PATH env variable if set
-/// 2. /tmp/chesstty.sock as fallback
-#[allow(dead_code)]
+/// 1. `CHESSTTY_SOCKET_PATH` env variable if set
+/// 2. `/tmp/chesstty.sock` as fallback
 pub fn get_socket_path() -> PathBuf {
     if let Ok(path) = std::env::var("CHESSTTY_SOCKET_PATH") {
         return PathBuf::from(path);
@@ -40,9 +38,8 @@ pub fn get_socket_path() -> PathBuf {
 /// Get the PID file path for server process tracking.
 ///
 /// Priority:
-/// 1. CHESSTTY_PID_PATH env variable if set
-/// 2. /tmp/chesstty.pid as fallback
-#[allow(dead_code)]
+/// 1. `CHESSTTY_PID_PATH` env variable if set
+/// 2. `/tmp/chesstty.pid` as fallback
 pub fn get_pid_path() -> PathBuf {
     if let Ok(path) = std::env::var("CHESSTTY_PID_PATH") {
         return PathBuf::from(path);
@@ -54,9 +51,9 @@ pub fn get_pid_path() -> PathBuf {
 /// Get the socket wait timeout in seconds.
 ///
 /// Priority:
-/// 1. CHESSTTY_SOCKET_TIMEOUT_SECS env variable if set
-/// 2. 5 seconds as fallback
-#[allow(dead_code)]
+/// 1. `CHESSTTY_SOCKET_TIMEOUT_SECS` env variable if set (falls back to default
+///    if the value cannot be parsed as a `u64`)
+/// 2. `5` seconds as fallback
 pub fn get_socket_timeout_secs() -> u64 {
     if let Ok(timeout) = std::env::var("CHESSTTY_SOCKET_TIMEOUT_SECS") {
         return timeout.parse().unwrap_or(DEFAULT_SOCKET_TIMEOUT_SECS);
@@ -67,12 +64,20 @@ pub fn get_socket_timeout_secs() -> u64 {
 
 /// Get the socket poll interval in milliseconds.
 ///
-/// This is a fixed value and not configurable via environment variable.
-#[allow(dead_code)]
+/// Returns the fixed default of 100 ms. This value is not currently overridable
+/// via an environment variable.
 pub fn get_socket_poll_interval_ms() -> u64 {
     DEFAULT_SOCKET_POLL_INTERVAL_MS
 }
 
+/// Get the file path where server stdout and stderr should be written.
+///
+/// Priority:
+/// 1. `CHESSTTY_SERVER_LOG_PATH` env variable if set
+/// 2. `/dev/null` as fallback (server output is discarded by default)
+///
+/// Set this variable to a writable file path to capture server logs for
+/// debugging, for example `CHESSTTY_SERVER_LOG_PATH=/tmp/chesstty-server.log`.
 pub fn get_server_log_path() -> PathBuf {
     if let Ok(path) = std::env::var("CHESSTTY_SERVER_LOG_PATH") {
         return PathBuf::from(path);
