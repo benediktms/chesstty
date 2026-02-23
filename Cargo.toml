@@ -1,7 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
-    "proto",
+    "chesstty",
     "server",
     "chess-client",
     "client-tui",
@@ -10,7 +10,13 @@ members = [
     "analysis",
 ]
 
+[workspace.package]
+version = "0.1.0"
+
 [workspace.dependencies]
+# CLI
+clap = { version = "4", features = ["derive"] }
+
 # Async runtime
 tokio = { version = "1.41", features = ["full"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
