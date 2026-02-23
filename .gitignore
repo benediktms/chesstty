@@ -24,3 +24,6 @@ Cargo.lock
 # Note: /server/defaults/ is version controlled (contains default positions)
 
 .claude/
+
+# bv (beads viewer) local config and caches
+.bv/
