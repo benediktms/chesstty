@@ -52,6 +52,7 @@ pub struct UiStateMachine {
     pub expanded: bool,
     pub visibility: HashMap<Component, bool>,
     pub scroll_state: HashMap<Component, u16>,
+    pub typeahead_squares: Vec<cozy_chess::Square>,
 }
 
 impl Default for UiStateMachine {
@@ -86,6 +87,7 @@ impl Default for UiStateMachine {
             expanded: false,
             visibility,
             scroll_state,
+            typeahead_squares: Vec::new(),
         }
     }
 }
@@ -260,6 +262,11 @@ impl UiStateMachine {
         // Layer 4: Selected piece (highest priority)
         if let Some(sq) = game_session.selected_square {
             overlay.tint(sq, OverlayColor::Selected);
+        }
+
+        // Layer 5: Typeahead squares (pieces matching user input) - outline only
+        for &sq in &self.typeahead_squares {
+            overlay.outline(sq, OverlayColor::Typeahead);
         }
 
         overlay

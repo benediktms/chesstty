@@ -427,8 +427,8 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
             continue;
         }
 
-        // Calculate typeahead squares based on current input
-        let typeahead_squares = if fsm.tab_input.active
+        // Calculate typeahead squares based on current input and store on FSM
+        fsm.typeahead_squares = if fsm.tab_input.active
             && fsm.tab_input.current_tab == 0
             && !fsm.tab_input.typeahead_buffer.is_empty()
         {
