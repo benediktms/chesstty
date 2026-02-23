@@ -1,13 +1,17 @@
 //! Configuration for ChessTTY server
 //!
-//! Handles data directory and database path configuration:
+//! Handles data directory, database path, and socket configuration:
 //! - Legacy JSON data directory (for migration): `get_legacy_data_dir()`
 //! - SQLite database path: `get_db_path()`
+//! - Unix Domain Socket path: `get_socket_path()`
 
 use std::path::PathBuf;
 
 const DEFAULT_CONFIG_DIR: &str = ".config/chesstty/data";
 const DEV_DATA_DIR: &str = "./data";
+
+/// Default socket path for server communication.
+const DEFAULT_SOCKET_PATH: &str = "/tmp/chesstty.sock";
 
 /// Get the data directory for JSON file migration only.
 ///
@@ -45,6 +49,19 @@ pub fn get_db_path() -> PathBuf {
     }
 
     PathBuf::from("./data/chesstty.db")
+}
+
+/// Get the Unix Domain Socket path for server communication.
+///
+/// Priority:
+/// 1. CHESSTTY_SOCKET_PATH env variable if set
+/// 2. /tmp/chesstty.sock as fallback
+pub fn get_socket_path() -> PathBuf {
+    if let Ok(path) = std::env::var("CHESSTTY_SOCKET_PATH") {
+        return PathBuf::from(path);
+    }
+
+    PathBuf::from(DEFAULT_SOCKET_PATH)
 }
 
 /// Get the directory containing default positions (version controlled).

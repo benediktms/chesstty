@@ -19,7 +19,7 @@ clap = { version = "4", features = ["derive"] }
 
 # Async runtime
 tokio = { version = "1.41", features = ["full"] }
-tokio-stream = { version = "0.1", features = ["sync"] }
+tokio-stream = { version = "0.1", features = ["sync", "net"] }
 
 # gRPC and Protocol Buffers
 tonic = "0.12"
