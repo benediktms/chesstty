@@ -91,29 +91,6 @@ mod tests {
     use crate::board_analysis::attack_map::AttackMap;
     use crate::board_analysis::detector::TacticalContext;
 
-    fn make_ctx<'a>(
-        before: &'a Board,
-        after: &'a Board,
-        before_attacks: &'a AttackMap,
-        after_attacks: &'a AttackMap,
-        mv: Option<Move>,
-        perspective: Color,
-        eval_before: Option<i32>,
-        eval_after: Option<i32>,
-    ) -> TacticalContext<'a> {
-        TacticalContext {
-            before,
-            after,
-            mv,
-            side_to_move_before: perspective,
-            before_attacks,
-            after_attacks,
-            eval_before,
-            eval_after,
-            best_line: None,
-        }
-    }
-
     #[test]
     fn detects_sacrifice_with_eval() {
         // White queen on d5 moves to f7, capturing a pawn (low value).
@@ -134,16 +111,17 @@ mod tests {
         };
 
         // eval_before=50 (white slightly better), eval_after=30 (still fine, small drop)
-        let ctx = make_ctx(
-            &before,
-            &after,
-            &before_attacks,
-            &after_attacks,
-            Some(mv),
-            Color::White,
-            Some(50),
-            Some(30),
-        );
+        let ctx = TacticalContext {
+            before: &before,
+            after: &after,
+            before_attacks: &before_attacks,
+            after_attacks: &after_attacks,
+            mv: Some(mv),
+            side_to_move_before: Color::White,
+            eval_before: Some(50),
+            eval_after: Some(30),
+            best_line: None,
+        };
 
         let tags = SacrificeDetector.detect(&ctx);
 
@@ -165,16 +143,17 @@ mod tests {
             promotion: None,
         };
 
-        let ctx = make_ctx(
-            &board,
-            &board,
-            &attacks,
-            &attacks,
-            Some(mv),
-            Color::White,
-            None,
-            None,
-        );
+        let ctx = TacticalContext {
+            before: &board,
+            after: &board,
+            before_attacks: &attacks,
+            after_attacks: &attacks,
+            mv: Some(mv),
+            side_to_move_before: Color::White,
+            eval_before: None,
+            eval_after: None,
+            best_line: None,
+        };
 
         let tags = SacrificeDetector.detect(&ctx);
         assert!(tags.is_empty());
@@ -196,16 +175,17 @@ mod tests {
         };
 
         // Large eval drop from white's perspective → not sound
-        let ctx = make_ctx(
-            &before,
-            &after,
-            &before_attacks,
-            &after_attacks,
-            Some(mv),
-            Color::White,
-            Some(200),
-            Some(-500),
-        );
+        let ctx = TacticalContext {
+            before: &before,
+            after: &after,
+            before_attacks: &before_attacks,
+            after_attacks: &after_attacks,
+            mv: Some(mv),
+            side_to_move_before: Color::White,
+            eval_before: Some(200),
+            eval_after: Some(-500),
+            best_line: None,
+        };
 
         let tags = SacrificeDetector.detect(&ctx);
         assert!(tags.is_empty());
