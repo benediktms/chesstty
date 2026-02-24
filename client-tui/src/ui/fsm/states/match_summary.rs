@@ -1,5 +1,6 @@
 use crate::state::{GameMode, PlayerColor};
 
+#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub struct MatchSummaryState {
     pub game_result: Option<(i32, String)>,
@@ -19,6 +20,7 @@ impl Default for MatchSummaryState {
     }
 }
 
+#[allow(dead_code)]
 impl MatchSummaryState {
     pub fn new(result: Option<(i32, String)>, move_count: u32, game_mode: GameMode) -> Self {
         let winner = result.as_ref().and_then(|(status, _)| {

@@ -129,7 +129,6 @@ impl BoardOverlay {
     }
 
     /// Add a square outline/border.
-    #[allow(dead_code)]
     pub fn outline(&mut self, square: Square, color: OverlayColor) -> &mut Self {
         self.outline_on_layer(square, color, Layer::Highlights)
     }
@@ -237,42 +236,6 @@ impl BoardOverlay {
         result
     }
 
-    /// Get arrow annotations landing on a specific square.
-    /// Returns the arrow direction character and color for the destination square.
-    #[allow(dead_code)]
-    pub fn arrow_annotation(&self, square: Square) -> Option<(&'static str, OverlayColor)> {
-        self.arrow_annotation_on_layer(square, Layer::Highlights)
-    }
-
-    /// Get arrow annotations on a specific layer.
-    #[allow(dead_code)]
-    pub fn arrow_annotation_on_layer(
-        &self,
-        square: Square,
-        layer: Layer,
-    ) -> Option<(&'static str, OverlayColor)> {
-        for (l, elements) in &self.layers {
-            if *l > layer {
-                break;
-            }
-            for element in elements.iter().rev() {
-                if let OverlayElement::Arrow {
-                    from,
-                    to,
-                    color,
-                    layer: elem_layer,
-                } = element
-                {
-                    if *to == square && *elem_layer == layer {
-                        let symbol = arrow_symbol(*from, *to);
-                        return Some((symbol, *color));
-                    }
-                }
-            }
-        }
-        None
-    }
-
     /// Get all elements (for iteration), ordered by layer.
     pub fn elements(&self) -> Vec<&OverlayElement> {
         let mut result = Vec::new();
@@ -282,21 +245,6 @@ impl BoardOverlay {
             }
         }
         result
-    }
-
-    /// Get elements on a specific layer.
-    #[allow(dead_code)]
-    pub fn elements_on_layer(&self, layer: Layer) -> Vec<&OverlayElement> {
-        self.layers
-            .get(&layer)
-            .map(|elements| elements.iter().collect())
-            .unwrap_or_default()
-    }
-
-    /// Get all layers that have elements.
-    #[allow(dead_code)]
-    pub fn layers(&self) -> impl Iterator<Item = &Layer> {
-        self.layers.keys()
     }
 }
 
@@ -409,29 +357,6 @@ fn add_tactical_tag_overlays(overlay: &mut BoardOverlay, tags: &[chess_client::T
     }
 }
 
-/// Compute an arrow-head symbol based on the direction from `from` to `to`.
-#[allow(dead_code)]
-fn arrow_symbol(from: Square, to: Square) -> &'static str {
-    let df = to.file() as i8 - from.file() as i8;
-    let dr = to.rank() as i8 - from.rank() as i8;
-
-    // Normalize to direction
-    let df = df.signum();
-    let dr = dr.signum();
-
-    match (df, dr) {
-        (0, 1) => "↑",
-        (0, -1) => "↓",
-        (1, 0) => "→",
-        (-1, 0) => "←",
-        (1, 1) => "↗",
-        (-1, 1) => "↖",
-        (1, -1) => "↘",
-        (-1, -1) => "↙",
-        _ => "•",
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -467,42 +392,6 @@ mod tests {
 
         assert_eq!(overlay.square_tint(e2), Some(OverlayColor::BestMove));
         assert_eq!(overlay.square_tint(e4), Some(OverlayColor::BestMove));
-    }
-
-    #[test]
-    fn test_arrow_annotation_on_destination() {
-        let mut overlay = BoardOverlay::new();
-        let e2 = sq(File::E, Rank::Second);
-        let e4 = sq(File::E, Rank::Fourth);
-        overlay.arrow(e2, e4, OverlayColor::BestMove);
-
-        let ann = overlay.arrow_annotation(e4);
-        assert!(ann.is_some());
-        let (symbol, color) = ann.unwrap();
-        assert_eq!(symbol, "↑");
-        assert_eq!(color, OverlayColor::BestMove);
-
-        // No annotation on the from square
-        assert!(overlay.arrow_annotation(e2).is_none());
-    }
-
-    #[test]
-    fn test_arrow_symbol_directions() {
-        let e4 = sq(File::E, Rank::Fourth);
-
-        // Up
-        assert_eq!(arrow_symbol(e4, sq(File::E, Rank::Eighth)), "↑");
-        // Down
-        assert_eq!(arrow_symbol(e4, sq(File::E, Rank::First)), "↓");
-        // Right
-        assert_eq!(arrow_symbol(e4, sq(File::H, Rank::Fourth)), "→");
-        // Left
-        assert_eq!(arrow_symbol(e4, sq(File::A, Rank::Fourth)), "←");
-        // Diagonal
-        assert_eq!(arrow_symbol(e4, sq(File::G, Rank::Sixth)), "↗");
-        assert_eq!(arrow_symbol(e4, sq(File::C, Rank::Sixth)), "↖");
-        assert_eq!(arrow_symbol(e4, sq(File::G, Rank::Second)), "↘");
-        assert_eq!(arrow_symbol(e4, sq(File::C, Rank::Second)), "↙");
     }
 
     #[test]

@@ -607,7 +607,7 @@ fn handle_component_expanded_context(
 /// Handle keys when the promotion dialog is active (modal overlay).
 fn handle_promotion_input(
     state: &mut GameSession,
-    fsm: &mut UiStateMachine,
+    _fsm: &mut UiStateMachine,
     input_buffer: &mut String,
     key: KeyEvent,
 ) -> AppAction {

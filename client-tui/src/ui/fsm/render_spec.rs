@@ -83,24 +83,23 @@ impl Control {
 
 /// Overlay types - dialogs
 /// Note: Dialog state is managed in GameSession, this just tracks what's active
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Default)]
 pub enum Overlay {
+    #[default]
     None,
     PopupMenu,
     SnapshotDialog,
-    PromotionDialog { from: Square, to: Square },
-}
-
-impl Default for Overlay {
-    fn default() -> Self {
-        Overlay::None
-    }
+    PromotionDialog {
+        from: Square,
+        to: Square,
+    },
 }
 
 // ============================================================================
 // Review UI State - UI navigation state for review mode
 // ============================================================================
 
+#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub struct ReviewUIState {
     pub current_ply: u32,
@@ -116,6 +115,7 @@ impl Default for ReviewUIState {
     }
 }
 
+#[allow(dead_code)]
 impl ReviewUIState {
     pub fn new() -> Self {
         Self {
@@ -127,7 +127,7 @@ impl ReviewUIState {
         }
     }
 
-    pub fn with_review(review: &chess_client::GameReviewProto) -> Self {
+    pub fn with_review(_review: &chess_client::GameReviewProto) -> Self {
         let board = Board::default();
         let fen = board.to_string();
         Self {
@@ -207,6 +207,7 @@ pub struct Section {
 }
 
 impl Section {
+    #[allow(dead_code)] // generic constructor, callers use component()/nested() instead
     pub fn new(constraint: Constraint, content: SectionContent) -> Self {
         Self {
             constraint,
@@ -250,10 +251,6 @@ pub struct Layout {
 }
 
 impl Layout {
-    pub fn new(rows: Vec<Row>, overlay: Overlay) -> Self {
-        Self { rows, overlay }
-    }
-
     /// Start screen - just the menu, no special layout needed
     pub fn start_screen() -> Self {
         Self::default()

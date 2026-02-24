@@ -15,8 +15,6 @@ pub enum FenDialogFocus {
 
 pub struct FenDialogState {
     pub input_buffer: String,
-    #[allow(dead_code)]
-    pub name_buffer: String,
     pub focus: FenDialogFocus,
     pub position_table: SelectableTableState,
     pub validation_error: Option<String>,
@@ -26,7 +24,6 @@ impl FenDialogState {
     pub fn new(position_count: usize) -> Self {
         Self {
             input_buffer: String::new(),
-            name_buffer: String::new(),
             focus: FenDialogFocus::Input,
             position_table: SelectableTableState::new(position_count),
             validation_error: None,

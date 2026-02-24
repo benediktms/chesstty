@@ -12,6 +12,7 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph, Widget},
 };
 
+#[allow(dead_code)]
 pub struct MoveAnalysisPanel<'a> {
     pub review_state: &'a ReviewState,
     pub scroll: u16,
@@ -19,6 +20,7 @@ pub struct MoveAnalysisPanel<'a> {
     pub expanded: bool,
 }
 
+#[allow(dead_code)]
 impl<'a> MoveAnalysisPanel<'a> {
     pub fn new(review_state: &'a ReviewState, scroll: u16, is_selected: bool) -> Self {
         Self {
@@ -215,6 +217,7 @@ impl Widget for MoveAnalysisPanel<'_> {
     }
 }
 
+#[allow(dead_code)]
 fn classification_display_name(classification: i32) -> &'static str {
     match MoveClassification::try_from(classification) {
         Ok(MoveClassification::ClassificationBrilliant) => "BRILLIANT",
@@ -230,6 +233,7 @@ fn classification_display_name(classification: i32) -> &'static str {
     }
 }
 
+#[allow(dead_code)]
 fn classification_marker_str(classification: i32) -> &'static str {
     match MoveClassification::try_from(classification) {
         Ok(MoveClassification::ClassificationBrilliant) => "!!",
@@ -242,6 +246,7 @@ fn classification_marker_str(classification: i32) -> &'static str {
     }
 }
 
+#[allow(dead_code)]
 fn format_mate_info(score: &chess_client::ReviewScore) -> String {
     match score.score.as_ref() {
         Some(review_score::Score::Mate(m)) => {
@@ -251,6 +256,7 @@ fn format_mate_info(score: &chess_client::ReviewScore) -> String {
     }
 }
 
+#[allow(dead_code)]
 fn wrap_text(text: &str, max_width: usize) -> Vec<String> {
     let mut lines = Vec::new();
     let mut current_line = String::new();
@@ -278,6 +284,7 @@ fn wrap_text(text: &str, max_width: usize) -> Vec<String> {
     lines
 }
 
+#[allow(dead_code)]
 fn render_tactical_tags_inline(lines: &mut Vec<Line<'_>>, tags: &[TacticalTagProto]) {
     lines.push(Line::from(Span::styled(
         "Tactics",
@@ -334,6 +341,7 @@ fn render_tactical_tags_inline(lines: &mut Vec<Line<'_>>, tags: &[TacticalTagPro
     }
 }
 
+#[allow(dead_code)]
 fn tactical_tag_kind_name_inline(kind: i32) -> &'static str {
     match TacticalTagKindProto::try_from(kind) {
         Ok(TacticalTagKindProto::TacticalTagKindFork) => "Fork",
@@ -350,6 +358,7 @@ fn tactical_tag_kind_name_inline(kind: i32) -> &'static str {
     }
 }
 
+#[allow(dead_code)]
 fn render_king_safety_inline(lines: &mut Vec<Line<'_>>, ks: &PositionKingSafetyProto) {
     lines.push(Line::from(Span::styled(
         "King Safety",
@@ -427,6 +436,7 @@ fn render_king_safety_inline(lines: &mut Vec<Line<'_>>, ks: &PositionKingSafetyP
     }
 }
 
+#[allow(dead_code)]
 fn render_tension_inline(lines: &mut Vec<Line<'_>>, tension: &PositionTensionMetricsProto) {
     lines.push(Line::from(Span::styled(
         "Tension",
@@ -470,6 +480,7 @@ fn render_tension_inline(lines: &mut Vec<Line<'_>>, tension: &PositionTensionMet
     ]));
 }
 
+#[allow(dead_code)]
 fn exposure_color(score: f32) -> Color {
     if score < 0.3 {
         Color::Green
@@ -480,6 +491,7 @@ fn exposure_color(score: f32) -> Color {
     }
 }
 
+#[allow(dead_code)]
 fn volatility_bar_inline(score: f32, width: usize) -> String {
     let filled = ((score.clamp(0.0, 1.0)) * width as f32).round() as usize;
     let empty = width.saturating_sub(filled);

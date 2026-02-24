@@ -7,7 +7,7 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use ratatui::{backend::CrosstermBackend, layout::Layout, Terminal};
+use ratatui::{backend::CrosstermBackend, Terminal};
 use std::io;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -449,10 +449,10 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
         };
 
         // Snapshot pane state for rendering (avoids borrow conflicts)
-        let is_review_mode = matches!(state.mode, GameMode::ReviewMode);
+        let _is_review_mode = matches!(state.mode, GameMode::ReviewMode);
 
         // Draw UI using FSM-based renderer
-        terminal.draw(|f| {
+        let _ = terminal.draw(|f| {
             use crate::ui::fsm::renderer::Renderer;
             // Get layout from FSM
             let layout = fsm.layout(state);

@@ -11,13 +11,6 @@ pub struct PromotionWidget {
     pub selected_piece: Piece,
 }
 
-impl PromotionWidget {
-    #[allow(dead_code)]
-    pub fn new(selected_piece: Piece) -> Self {
-        Self { selected_piece }
-    }
-}
-
 impl Widget for PromotionWidget {
     fn render(self, area: Rect, buf: &mut Buffer) {
         // Clear the background

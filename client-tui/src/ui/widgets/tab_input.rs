@@ -132,7 +132,7 @@ fn render_destination_content(
         .map(|moves| {
             moves
                 .iter()
-                .filter_map(|m| parse_square(&m.to).map(|to| format_square(to)))
+                .filter_map(|m| parse_square(&m.to).map(format_square))
                 .collect::<Vec<String>>()
         })
         .unwrap_or_default();

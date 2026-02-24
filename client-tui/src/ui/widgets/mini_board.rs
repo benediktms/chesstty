@@ -26,12 +26,14 @@ pub fn piece_to_unicode(piece: Piece, color: ChessColor) -> &'static str {
 }
 
 /// Symbol for an empty square.
+#[allow(dead_code)]
 pub fn empty_square_symbol() -> &'static str {
     "\u{00b7}" // ·
 }
 
 /// Compact board widget using Unicode chess symbols on a white background.
 /// Size: ~18 wide x 10 tall (including file/rank labels and border).
+#[allow(dead_code)]
 pub struct MiniBoardWidget<'a> {
     pub board: &'a Board,
     pub flipped: bool,

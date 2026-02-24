@@ -4,7 +4,6 @@ use crate::ui::fsm::UiStateMachine;
 use crate::ui::widgets::{
     advanced_analysis_panel::AdvancedAnalysisPanel, board_overlay::build_review_overlay,
     review_summary_panel::ReviewSummaryPanel, review_tabs_panel::ReviewTabsPanel, BoardWidget,
-    MiniBoardWidget,
 };
 use ratatui::{layout::Rect, Frame};
 
@@ -285,14 +284,10 @@ impl Renderer {
         frame: &mut Frame,
         area: Rect,
         overlay: Overlay,
-        game_session: &GameSession,
+        _game_session: &GameSession,
         fsm: &UiStateMachine,
     ) {
-        use crate::ui::widgets::{
-            EngineAnalysisPanel, GameInfoPanel, MoveAnalysisPanel, MoveHistoryPanel,
-            PopupMenuWidget, PromotionWidget, ReviewSummaryPanel, SnapshotDialogWidget,
-            UciDebugPanel,
-        };
+        use crate::ui::widgets::{PopupMenuWidget, PromotionWidget, SnapshotDialogWidget};
 
         match overlay {
             Overlay::None => {}

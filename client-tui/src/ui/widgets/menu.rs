@@ -32,16 +32,6 @@ pub enum ThreadsOption {
 }
 
 impl ThreadsOption {
-    #[allow(dead_code)]
-    pub fn value(&self) -> Option<u32> {
-        match self {
-            ThreadsOption::Auto => None, // Will be resolved at engine init
-            ThreadsOption::One => Some(1),
-            ThreadsOption::Two => Some(2),
-            ThreadsOption::Four => Some(4),
-        }
-    }
-
     /// Resolve Auto to an actual thread count (capped at 4).
     pub fn resolve(&self) -> u32 {
         match self {
@@ -165,20 +155,6 @@ impl Default for MenuState {
 }
 
 impl MenuState {
-    #[allow(dead_code)]
-    pub fn move_up(&mut self) {
-        if self.selected_index > 0 {
-            self.selected_index -= 1;
-        }
-    }
-
-    #[allow(dead_code)]
-    pub fn move_down(&mut self, max: usize) {
-        if self.selected_index < max - 1 {
-            self.selected_index += 1;
-        }
-    }
-
     pub fn items(&self) -> Vec<MenuItem> {
         let has_engine = matches!(
             self.game_mode,
@@ -224,54 +200,10 @@ impl MenuState {
             PlayAsOption::Black => PlayAsOption::White,
         };
     }
-
-    #[allow(dead_code)]
-    pub fn cycle_start_position(&mut self) {
-        self.start_position = match self.start_position {
-            StartPositionOption::Standard => StartPositionOption::CustomFen,
-            StartPositionOption::CustomFen => StartPositionOption::Standard,
-        };
-    }
-
-    #[allow(dead_code)]
-    pub fn cycle_game_mode(&mut self) {
-        self.game_mode = match self.game_mode {
-            GameModeOption::HumanVsHuman => GameModeOption::HumanVsEngine,
-            GameModeOption::HumanVsEngine => GameModeOption::EngineVsEngine,
-            GameModeOption::EngineVsEngine => GameModeOption::HumanVsHuman,
-        };
-    }
-
-    #[allow(dead_code)]
-    pub fn cycle_difficulty(&mut self) {
-        self.difficulty = match self.difficulty {
-            DifficultyOption::Beginner => DifficultyOption::Intermediate,
-            DifficultyOption::Intermediate => DifficultyOption::Advanced,
-            DifficultyOption::Advanced => DifficultyOption::Master,
-            DifficultyOption::Master => DifficultyOption::Beginner,
-        };
-    }
-
-    #[allow(dead_code)]
-    pub fn cycle_time_control(&mut self) {
-        self.time_control = match self.time_control {
-            TimeControlOption::None => TimeControlOption::Blitz,
-            TimeControlOption::Blitz => TimeControlOption::Rapid,
-            TimeControlOption::Rapid => TimeControlOption::Classical,
-            TimeControlOption::Classical => TimeControlOption::None,
-        };
-    }
 }
 
 pub struct MenuWidget<'a> {
     pub menu_state: &'a MenuState,
-}
-
-impl<'a> MenuWidget<'a> {
-    #[allow(dead_code)]
-    pub fn new(menu_state: &'a MenuState) -> Self {
-        Self { menu_state }
-    }
 }
 
 impl Widget for MenuWidget<'_> {
@@ -450,18 +382,6 @@ impl Widget for MenuWidget<'_> {
 
         let paragraph = Paragraph::new(lines).alignment(Alignment::Left);
         paragraph.render(inner, buf);
-    }
-}
-
-impl DifficultyOption {
-    #[allow(dead_code)]
-    pub fn skill_level(&self) -> u8 {
-        match self {
-            DifficultyOption::Beginner => 2,
-            DifficultyOption::Intermediate => 10,
-            DifficultyOption::Advanced => 17,
-            DifficultyOption::Master => 20,
-        }
     }
 }
 

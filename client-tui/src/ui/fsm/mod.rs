@@ -9,45 +9,24 @@ pub mod render_spec;
 pub mod renderer;
 
 use std::collections::HashMap;
-use std::path::PathBuf;
-
-/// Get the socket path for server communication.
-fn get_socket_path() -> PathBuf {
-    if let Ok(path) = std::env::var("CHESSTTY_SOCKET_PATH") {
-        return PathBuf::from(path);
-    }
-    PathBuf::from("/tmp/chesstty.sock")
-}
 
 use render_spec::{Control, InputPhase, Layout, Section, SectionContent, TabInputState};
 
-pub struct AppContext {
-    pub server_address: String,
-}
+#[derive(Default)]
+pub struct AppContext {}
 
-impl Default for AppContext {
-    fn default() -> Self {
-        Self {
-            server_address: get_socket_path().to_string_lossy().to_string(),
-        }
-    }
-}
-
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Default)]
 pub enum UiMode {
+    #[default]
     StartScreen,
     GameBoard,
     ReviewBoard,
+    #[allow(dead_code)] // covered by ct-mv0
     MatchSummary,
 }
 
-impl Default for UiMode {
-    fn default() -> Self {
-        UiMode::StartScreen
-    }
-}
-
 pub struct UiStateMachine {
+    #[allow(dead_code)] // FSM context, wired up as states are implemented
     pub context: AppContext,
     pub mode: UiMode,
     pub tab_input: TabInputState,
@@ -55,6 +34,7 @@ pub struct UiStateMachine {
     pub popup_menu: Option<crate::ui::widgets::popup_menu::PopupMenuState>,
     pub snapshot_dialog: Option<crate::ui::widgets::snapshot_dialog::SnapshotDialogState>,
     pub review_tab: u8,
+    #[allow(dead_code)] // used once review board navigation is complete
     pub review_moves_selection: Option<u32>,
     pub selected_promotion_piece: cozy_chess::Piece,
     pub focused_component: Option<Component>,
@@ -282,6 +262,7 @@ impl UiStateMachine {
     }
 }
 
+#[allow(dead_code)] // FSM navigation methods, wired up as states are implemented
 impl UiStateMachine {
     pub fn is_board_focused(&self) -> bool {
         self.focused_component.is_none()
@@ -341,7 +322,7 @@ impl UiStateMachine {
     }
 
     pub fn component_scroll_mut(&mut self, component: &Component) -> &mut u16 {
-        self.scroll_state.entry(component.clone()).or_insert(0)
+        self.scroll_state.entry(*component).or_insert(0)
     }
 
     // Navigation methods

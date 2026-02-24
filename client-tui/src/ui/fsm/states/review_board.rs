@@ -9,7 +9,7 @@ impl ReviewBoardState {
     pub fn layout_with_expanded(
         &self,
         component: Component,
-        shared: &crate::ui::fsm::UiStateMachine,
+        _shared: &crate::ui::fsm::UiStateMachine,
     ) -> Layout {
         // Left column: Advanced Analysis (35%) on top, Review Summary below
         let left_columns = vec![

@@ -424,6 +424,7 @@ fn format_game_mode(mode: &crate::state::GameMode) -> &'static str {
 }
 
 /// Format a ReviewScore as a human-readable string with appropriate color.
+#[allow(dead_code)]
 pub(crate) fn format_review_score(score: &ReviewScore) -> (String, Color) {
     match score.score.as_ref() {
         Some(review_score::Score::Centipawns(cp)) => {
@@ -451,6 +452,7 @@ pub(crate) fn format_review_score(score: &ReviewScore) -> (String, Color) {
 }
 
 /// Get the color for a classification value.
+#[allow(dead_code)]
 pub(crate) fn classification_color(classification: i32) -> Color {
     match MoveClassification::try_from(classification) {
         Ok(MoveClassification::ClassificationBrilliant) => Color::Cyan,

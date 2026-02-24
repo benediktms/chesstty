@@ -88,6 +88,7 @@ impl ReviewState {
     }
 
     /// Build a ReviewState from review data, constructing move_history from positions.
+    #[cfg(test)]
     pub fn new(review: GameReviewProto) -> Self {
         Self::with_metadata(review, None, 0, None)
     }
@@ -410,7 +411,7 @@ mod tests {
             mode: GameModeType::HumanVsEngine.into(),
             human_side: Some(PlayerSideProto::White.into()),
         });
-        let rs = ReviewState::with_metadata(review, game_mode.clone(), 12, None);
+        let rs = ReviewState::with_metadata(review, game_mode, 12, None);
 
         assert_eq!(rs.skill_level, 12);
         assert!(rs.game_mode.is_some());
