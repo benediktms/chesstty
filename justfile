@@ -51,3 +51,28 @@ stockfish:
 [group('checks')]
 lint:
     cargo clippy --workspace -- -W warnings
+
+# Show what cargo-dist will build (validates release config)
+[group('release')]
+dist-plan:
+    dist plan
+
+# Build release artifacts for the current machine
+[group('release')]
+dist-build:
+    dist build --artifacts=host --output-format=human
+
+# Build release artifacts for a specific version tag
+[group('release')]
+dist-build-tag tag:
+    dist build --tag={{tag}} --artifacts=host --output-format=human
+
+# Check dynamic library linkage of release binaries
+[group('release')]
+dist-linkage:
+    dist build --artifacts=host --print=linkage --output-format=human
+
+# Regenerate the release CI workflow from dist-workspace.toml
+[group('release')]
+dist-generate:
+    dist generate
