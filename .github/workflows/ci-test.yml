@@ -1,0 +1,96 @@
+# CI: Build and test
+#
+# Builds the full workspace and runs the test suite on Linux and macOS.
+# protoc is required because the proto crate's build.rs uses tonic-build
+# to compile .proto files, and the build step needs to compile the full workspace.
+# Stockfish is installed from the system package manager for engine integration tests.
+# SQLite test isolation is achieved via CHESSTTY_DATA_DIR pointing at runner.temp.
+
+name: CI Test
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+# Cancel in-progress runs for PRs; let master pushes complete.
+concurrency:
+  group: ci-test-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  test:
+    name: Build and test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+
+    # runner.temp is only available at the job level, not the workflow level.
+    env:
+      CHESSTTY_DATA_DIR: ${{ runner.temp }}/chesstty-test-data
+      CHESSTTY_DB_PATH: ${{ runner.temp }}/chesstty-test-data/chesstty.db
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest  # arm64
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Install the stable toolchain. No extra components needed for tests.
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      # Install protoc so tonic-build can compile the 10 .proto files
+      # in the proto crate's build.rs during the workspace build.
+      - name: Install protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          version: "25.x"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      # Cache compiled dependencies. Only save the cache on master pushes
+      # to prevent PR cache pollution.
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
+
+      # Install Stockfish for engine integration tests in the server crate.
+      - name: Install Stockfish (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y stockfish
+
+      - name: Install Stockfish (macOS)
+        if: runner.os == 'macOS'
+        run: brew install stockfish
+
+      # Create the temp data directory that SQLite tests write into.
+      - name: Create test data directory
+        run: mkdir -p $CHESSTTY_DATA_DIR
+
+      # Build the entire workspace with --locked to ensure Cargo.lock is respected.
+      - name: Build workspace
+        run: cargo build --workspace --locked
+
+      # Install cargo-nextest for faster parallel test execution (~35-40% faster
+      # than cargo test). Use the official installer for pre-built binaries
+      # instead of compiling from source. Doctests are run separately below
+      # as nextest does not support them.
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@nextest
+
+      # Run all unit and integration tests via nextest.
+      - name: Run tests (nextest)
+        run: cargo nextest run --workspace
+
+      # Run doctests separately because cargo-nextest does not support them.
+      - name: Run doctests
+        run: cargo test --doc --workspace
