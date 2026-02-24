@@ -124,10 +124,6 @@ pub enum DaemonError {
     /// `chdir(2)` to the configured working directory failed.
     #[error("failed to change directory: {0}")]
     ChdirFailed(IoError),
-
-    /// `umask(2)` call failed (rare but included for completeness).
-    #[error("failed to set umask: {0}")]
-    UmaskFailed(IoError),
 }
 
 /// Builder for creating a UNIX daemon process.
@@ -204,6 +200,7 @@ impl Daemon {
     ///
     /// Requires `user` or `group` to be set.
     #[must_use]
+    #[allow(dead_code)] // planned API: privilege dropping not yet wired up in main.rs
     pub fn chown_pid_file(mut self, chown: bool) -> Self {
         self.chown_pid_file = chown;
         self
@@ -222,6 +219,7 @@ impl Daemon {
     ///
     /// Can be a username string or UID (via `Into<Group>`).
     #[must_use]
+    #[allow(dead_code)] // planned API: privilege dropping not yet wired up in main.rs
     pub fn user(mut self, user: impl Into<String>) -> Self {
         self.user = Some(user.into());
         self
@@ -231,6 +229,7 @@ impl Daemon {
     ///
     /// Can be a group name string or GID.
     #[must_use]
+    #[allow(dead_code)] // planned API: privilege dropping not yet wired up in main.rs
     pub fn group(mut self, group: impl Into<Group>) -> Self {
         self.group = Some(group.into());
         self
@@ -269,6 +268,7 @@ impl Daemon {
     /// dropping privileges. Useful for operations that need elevated
     /// permissions (e.g., binding to privileged ports).
     #[must_use]
+    #[allow(dead_code)] // planned API: privilege dropping not yet wired up in main.rs
     pub fn privileged_action<F>(mut self, f: F) -> Self
     where
         F: FnOnce() -> anyhow::Result<()> + 'static,
@@ -555,7 +555,7 @@ fn write_pid_file(
     // Chown if requested
     if chown {
         let uid = user.as_ref().map(|u| resolve_user(u)).transpose()?;
-        let gid = group.as_ref().map(|g| resolve_group(g)).transpose()?;
+        let gid = group.as_ref().map(resolve_group).transpose()?;
 
         if let (Some(uid), Some(gid)) = (uid, gid) {
             let c_path =

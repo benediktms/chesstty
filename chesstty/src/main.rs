@@ -303,9 +303,21 @@ fn handle_engine_stop(force: bool) -> Result<(), CliError> {
     let pid_path = config::get_pid_path();
 
     // Check if server is running
-    if !process::is_server_running(&pid_path) {
-        println!("Server is not running.");
-        return Ok(());
+    match process::is_server_running(&pid_path) {
+        Err(process::ProcessError::ProcessNotFound(_))
+        | Err(process::ProcessError::ReadError(_)) => {
+            println!("Server is not running.");
+            return Ok(());
+        }
+        Err(e) => {
+            return Err(CliError::ProcessError(format!(
+                "failed to check server status: {}",
+                e
+            )));
+        }
+        Ok(_) => {
+            // Server is running, continue with stop logic
+        }
     }
 
     // Read the PID and send the appropriate signal
@@ -380,7 +392,16 @@ fn main() -> Result<(), CliError> {
             tracing::debug!("PID file: {:?}", pid_path);
 
             // Check if server is already running
-            let server_running = process::is_server_running(&pid_path);
+            let server_running = match process::is_server_running(&pid_path) {
+                Ok(true) => true,
+                Ok(false) => false, // shouldn't happen with new API but handle it
+                Err(process::ProcessError::ProcessNotFound(_)) => {
+                    // Stale PID file — clean up
+                    let _ = std::fs::remove_file(&pid_path);
+                    false
+                }
+                Err(_) => false, // PID file missing or corrupt — need to start server
+            };
 
             if !server_running {
                 tracing::info!("Server not running, starting...");

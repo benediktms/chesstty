@@ -30,10 +30,11 @@ pub enum WaitError {
 ///
 /// # Errors
 ///
-/// Returns `WaitError::Timeout` if the socket doesn't become available within
-/// the timeout period.
+/// Returns `WaitError::Connect` if the socket file exists but connections
+/// consistently fail until the timeout expires.
 ///
-/// Returns `WaitError::Connect` if a connection attempt fails.
+/// Returns `WaitError::Timeout` if the socket doesn't become available within
+/// the timeout period and no connection was attempted.
 ///
 /// # Example
 ///
@@ -54,33 +55,34 @@ pub async fn wait_for_socket(
     let socket_path = socket_path.as_ref();
     let socket_path_str = socket_path.display().to_string();
     let deadline = Instant::now() + timeout;
+    let mut last_connect_err: Option<std::io::Error> = None;
 
     loop {
-        // Check if we've exceeded the timeout
         if Instant::now() > deadline {
+            // If socket existed but connections failed, return Connect
+            if socket_path.exists() {
+                if let Some(err) = last_connect_err {
+                    return Err(WaitError::Connect(socket_path_str, err));
+                }
+            }
             return Err(WaitError::Timeout(socket_path_str, timeout));
         }
 
-        // Phase 1: Check if the socket file exists
         if !socket_path.exists() {
+            last_connect_err = None;
             tokio::time::sleep(poll_interval).await;
             continue;
         }
 
-        // Phase 2: Try to connect to the socket
         match tokio::net::UnixStream::connect(socket_path).await {
-            Ok(_stream) => {
-                // Connection successful - socket is ready
-                return Ok(());
-            }
+            Ok(_) => return Ok(()),
             Err(e) => {
-                // Connection failed - socket might not be ready yet
-                // Log for debugging (don't fail on connection errors)
                 tracing::debug!(
                     "Socket {} not ready yet, connection attempt failed: {}",
                     socket_path_str,
                     e
                 );
+                last_connect_err = Some(e);
                 tokio::time::sleep(poll_interval).await;
             }
         }
@@ -95,6 +97,7 @@ pub async fn wait_for_socket(
 ///
 /// Returns `WaitError::Timeout` if the socket doesn't become available within
 /// 5 seconds.
+#[allow(dead_code)]
 pub async fn wait_for_socket_default(socket_path: impl AsRef<Path>) -> Result<(), WaitError> {
     wait_for_socket(
         socket_path,
@@ -107,7 +110,6 @@ pub async fn wait_for_socket_default(socket_path: impl AsRef<Path>) -> Result<()
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
     use tempfile::TempDir;
 
     #[tokio::test]
