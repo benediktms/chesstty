@@ -9,6 +9,9 @@ shared-version = true
 tag-name = "v{{version}}"
 pre-release-commit-message = "chore: release v{{version}}"
 
+# Update CHANGELOG.md before the version commit
+pre-release-hook = ["git-cliff", "-o", "CHANGELOG.md", "--tag", "v{{version}}"]
+
 # None of these crates are published to crates.io
 publish = false
 # Push the tag and commit to the remote

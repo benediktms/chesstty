@@ -76,3 +76,13 @@ dist-linkage:
 [group('release')]
 dist-generate:
     dist generate
+
+# Preview changelog output (stdout only)
+[group('release')]
+changelog:
+    git-cliff
+
+# Update CHANGELOG.md in-place
+[group('release')]
+changelog-update:
+    git-cliff -o CHANGELOG.md
