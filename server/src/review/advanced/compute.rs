@@ -48,7 +48,11 @@ pub fn compute_advanced_analysis(
                     after_attacks: &after_attacks,
                     eval_before: Some(pos.eval_before.to_cp()),
                     eval_after: Some(pos.eval_after.to_cp()),
-                    best_line: if pos.pv.is_empty() { None } else { Some(&pos.pv) },
+                    best_line: if pos.pv.is_empty() {
+                        None
+                    } else {
+                        Some(&pos.pv)
+                    },
                 };
                 detect_tactics(&ctx, None)
             }
@@ -59,23 +63,18 @@ pub fn compute_advanced_analysis(
         // King safety (from the resulting position)
         let king_safety = board_after
             .as_ref()
-            .map(|board| compute_king_safety(board))
+            .map(compute_king_safety)
             .unwrap_or_else(empty_king_safety);
 
         // Position tension (from the resulting position)
         let tension = board_after
             .as_ref()
-            .map(|board| compute_tension(board))
+            .map(compute_tension)
             .unwrap_or_else(empty_tension);
 
         // Critical position detection
-        let is_critical = is_critical_position(
-            pos,
-            prev_pos,
-            &tactical_tags_after,
-            &king_safety,
-            &tension,
-        );
+        let is_critical =
+            is_critical_position(pos, prev_pos, &tactical_tags_after, &king_safety, &tension);
 
         if is_critical {
             critical_count += 1;
@@ -146,10 +145,7 @@ fn empty_king_safety() -> PositionKingSafety {
     };
     PositionKingSafety {
         white: m.clone(),
-        black: KingSafetyMetrics {
-            color: 'b',
-            ..m
-        },
+        black: KingSafetyMetrics { color: 'b', ..m },
     }
 }
 

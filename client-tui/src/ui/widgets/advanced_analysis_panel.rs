@@ -273,13 +273,19 @@ fn render_tactical_tags(lines: &mut Vec<Line<'_>>, tags: &[TacticalTagProto]) {
 
         let mut spans = vec![
             Span::raw("    "),
-            Span::styled(kind_name, Style::default().fg(conf_color).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                kind_name,
+                Style::default().fg(conf_color).add_modifier(Modifier::BOLD),
+            ),
         ];
 
         // Attacker info
         if let Some(ref attacker) = tag.attacker {
             spans.push(Span::raw(": "));
-            spans.push(Span::styled(attacker.clone(), Style::default().fg(Color::White)));
+            spans.push(Span::styled(
+                attacker.clone(),
+                Style::default().fg(Color::White),
+            ));
         }
 
         // Victims

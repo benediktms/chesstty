@@ -4,7 +4,9 @@ use sqlx::SqlitePool;
 
 use crate::persistence::traits::AdvancedAnalysisRepository;
 use crate::persistence::PersistenceError;
-use analysis::advanced::types::{AdvancedGameAnalysis, AdvancedPositionAnalysis, PsychologicalProfile};
+use analysis::advanced::types::{
+    AdvancedGameAnalysis, AdvancedPositionAnalysis, PsychologicalProfile,
+};
 use analysis::board_analysis::{
     KingSafetyMetrics, PositionKingSafety, PositionTensionMetrics, TacticalTag,
 };
@@ -21,10 +23,7 @@ impl SqliteAdvancedAnalysisRepository {
 }
 
 impl AdvancedAnalysisRepository for SqliteAdvancedAnalysisRepository {
-    async fn save_analysis(
-        &self,
-        analysis: &AdvancedGameAnalysis,
-    ) -> Result<(), PersistenceError> {
+    async fn save_analysis(&self, analysis: &AdvancedGameAnalysis) -> Result<(), PersistenceError> {
         let pipeline_version = analysis.pipeline_version as i32;
         let shallow_depth = analysis.shallow_depth as i32;
         let deep_depth = analysis.deep_depth as i32;
@@ -77,7 +76,7 @@ impl AdvancedAnalysisRepository for SqliteAdvancedAnalysisRepository {
         game_id: &str,
     ) -> Result<Option<AdvancedGameAnalysis>, PersistenceError> {
         // 1. Load header.
-        let header: Option<(String, i64, i64, i64, i64, i64)> = sqlx::query_as(
+        let header: Option<AnalysisHeaderRow> = sqlx::query_as(
             "SELECT game_id, pipeline_version, shallow_depth, deep_depth, \
                     critical_positions_count, computed_at \
              FROM advanced_game_analyses WHERE game_id = ?",
@@ -116,10 +115,8 @@ impl AdvancedAnalysisRepository for SqliteAdvancedAnalysisRepository {
             }
         }
 
-        let white_psychology =
-            white_psychology.unwrap_or_else(|| default_profile('w'));
-        let black_psychology =
-            black_psychology.unwrap_or_else(|| default_profile('b'));
+        let white_psychology = white_psychology.unwrap_or_else(|| default_profile('w'));
+        let black_psychology = black_psychology.unwrap_or_else(|| default_profile('b'));
 
         // 3. Load position analyses.
         let pos_rows: Vec<PositionRow> = sqlx::query_as(
@@ -147,15 +144,15 @@ impl AdvancedAnalysisRepository for SqliteAdvancedAnalysisRepository {
             pos_rows.into_iter().map(|r| r.into_domain()).collect();
 
         Ok(Some(AdvancedGameAnalysis {
-            game_id: header.0,
+            game_id: header.game_id,
             positions: positions?,
             white_psychology,
             black_psychology,
-            pipeline_version: header.1 as u32,
-            shallow_depth: header.2 as u32,
-            deep_depth: header.3 as u32,
-            critical_positions_count: header.4 as u32,
-            computed_at: header.5 as u64,
+            pipeline_version: header.pipeline_version as u32,
+            shallow_depth: header.shallow_depth as u32,
+            deep_depth: header.deep_depth as u32,
+            critical_positions_count: header.critical_positions_count as u32,
+            computed_at: header.computed_at as u64,
         }))
     }
 
@@ -337,7 +334,18 @@ fn default_profile(color: char) -> PsychologicalProfile {
 // Row types for `query_as` tuple mapping
 // ---------------------------------------------------------------------------
 
-/// Maps a row from `psychological_profiles` to a tuple.
+/// Row type for analysis header queries, mapped via `sqlx::FromRow`.
+#[derive(sqlx::FromRow)]
+struct AnalysisHeaderRow {
+    game_id: String,
+    pipeline_version: i64,
+    shallow_depth: i64,
+    deep_depth: i64,
+    critical_positions_count: i64,
+    computed_at: i64,
+}
+
+/// Maps a row from `psychological_profiles`.
 #[derive(sqlx::FromRow)]
 struct ProfileRow {
     color: String,
@@ -359,7 +367,10 @@ struct ProfileRow {
 
 impl ProfileRow {
     fn into_domain(self) -> PsychologicalProfile {
-        let blunder_cluster_range = match (self.blunder_cluster_range_start, self.blunder_cluster_range_end) {
+        let blunder_cluster_range = match (
+            self.blunder_cluster_range_start,
+            self.blunder_cluster_range_end,
+        ) {
             (Some(s), Some(e)) => Some((s as u32, e as u32)),
             _ => None,
         };
@@ -601,7 +612,10 @@ mod tests {
         assert_eq!(loaded.pipeline_version, original.pipeline_version);
         assert_eq!(loaded.shallow_depth, original.shallow_depth);
         assert_eq!(loaded.deep_depth, original.deep_depth);
-        assert_eq!(loaded.critical_positions_count, original.critical_positions_count);
+        assert_eq!(
+            loaded.critical_positions_count,
+            original.critical_positions_count
+        );
         assert_eq!(loaded.computed_at, original.computed_at);
 
         // Positions
@@ -617,7 +631,10 @@ mod tests {
         assert_eq!(loaded.positions[0].tension.mutually_attacked_pairs, 3);
         assert_eq!(loaded.positions[0].tension.contested_squares, 12);
         let vol = loaded.positions[0].tension.volatility_score;
-        assert!((vol - 0.42).abs() < 0.001, "volatility_score mismatch: {vol}");
+        assert!(
+            (vol - 0.42).abs() < 0.001,
+            "volatility_score mismatch: {vol}"
+        );
 
         // King safety
         assert_eq!(loaded.positions[0].king_safety.white.pawn_shield_count, 3);
@@ -639,7 +656,10 @@ mod tests {
         assert_eq!(wp.unfavorable_swings, 4);
         assert_eq!(wp.blunder_cluster_range, Some((10, 20)));
         let tqc = wp.time_quality_correlation.unwrap();
-        assert!((tqc - 0.35).abs() < 0.001, "time_quality_correlation mismatch: {tqc}");
+        assert!(
+            (tqc - 0.35).abs() < 0.001,
+            "time_quality_correlation mismatch: {tqc}"
+        );
         assert_eq!(wp.avg_blunder_time_ms, Some(2500));
         assert!((wp.opening_avg_cp_loss - 15.5).abs() < 0.001);
 
@@ -673,11 +693,12 @@ mod tests {
         assert!(loaded.is_none());
 
         // Verify child tables are empty via cascade.
-        let profile_count: (i64,) =
-            sqlx::query_as("SELECT COUNT(*) FROM psychological_profiles WHERE game_id = 'test_game_1'")
-                .fetch_one(&pool)
-                .await
-                .unwrap();
+        let profile_count: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM psychological_profiles WHERE game_id = 'test_game_1'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
         assert_eq!(profile_count.0, 0);
 
         let pos_count: (i64,) = sqlx::query_as(

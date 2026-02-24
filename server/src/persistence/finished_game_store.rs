@@ -87,7 +87,10 @@ impl super::traits::FinishedGameRepository for FinishedGameStore {
         self.list()
     }
 
-    async fn load_game(&self, id: &str) -> Result<Option<FinishedGameData>, super::PersistenceError> {
+    async fn load_game(
+        &self,
+        id: &str,
+    ) -> Result<Option<FinishedGameData>, super::PersistenceError> {
         self.load(id)
     }
 

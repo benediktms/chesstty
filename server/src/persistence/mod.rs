@@ -22,9 +22,9 @@
 //!
 //! ## Manager generics
 //!
-//! `SessionManager<S, P, F>` and `ReviewManager<F, R, A>` are generic over the
-//! repository traits. Concrete type parameters are resolved in `main.rs`, keeping
-//! the managers independent of any specific backend.
+//! `SessionManager<D>` and `ReviewManager<D>` are generic over `D: Persistence`.
+//! Concrete type parameters are resolved in `main.rs`, keeping the managers
+//! independent of any specific backend.
 
 mod finished_game_store;
 mod json_store;
@@ -36,8 +36,8 @@ pub mod traits;
 
 pub(crate) use json_store::{JsonStore, Storable};
 pub use traits::{
-    AdvancedAnalysisRepository, FinishedGameRepository, PositionRepository, ReviewRepository,
-    SessionRepository,
+    AdvancedAnalysisRepository, FinishedGameRepository, Persistence, PositionRepository,
+    ReviewRepository, SessionRepository,
 };
 
 pub use finished_game_store::{FinishedGameData, StoredMoveRecord};
@@ -50,6 +50,19 @@ pub use finished_game_store::FinishedGameStore;
 pub use position_store::PositionStore;
 #[cfg(test)]
 pub use session_store::SessionStore;
+
+/// Test persistence provider backed by JSON file stores.
+#[cfg(test)]
+pub struct JsonPersistence;
+
+#[cfg(test)]
+impl Persistence for JsonPersistence {
+    type Sessions = SessionStore;
+    type Positions = PositionStore;
+    type FinishedGames = FinishedGameStore;
+    type Reviews = crate::review::store::ReviewStore;
+    type Advanced = crate::review::advanced::store::AdvancedAnalysisStore;
+}
 
 use std::time::{SystemTime, UNIX_EPOCH};
 

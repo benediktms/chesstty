@@ -1,0 +1,59 @@
+# CI: Lint and format check
+#
+# Runs cargo fmt and cargo clippy for the entire workspace.
+# protoc is required because the proto crate's build.rs uses tonic-build
+# to compile .proto files, and clippy needs to build the full workspace.
+
+name: CI Lint
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+# Cancel in-progress runs for PRs; let master pushes complete.
+concurrency:
+  group: ci-lint-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  lint:
+    name: Format and Clippy
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Install stable toolchain with rustfmt and clippy components.
+      - name: Install Rust stable (rustfmt + clippy)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      # Install protoc so tonic-build can compile the .proto files
+      # during the clippy build step.
+      - name: Install protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          version: "25.x"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      # Cache compiled dependencies. Only save the cache on master pushes
+      # to prevent PR cache pollution.
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/master' }}
+
+      # Fail if any file is not formatted according to rustfmt defaults.
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      # Fail on any clippy warning across all workspace crates and targets.
+      - name: Run Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings

@@ -6,8 +6,8 @@ use tracing::info;
 
 use super::helpers::{encode_classification, encode_score, encode_status, normalize_game_mode};
 use crate::persistence::{
-    FinishedGameData, JsonStore, PersistenceError, SavedPositionData, Storable,
-    SuspendedSessionData, now_timestamp,
+    now_timestamp, FinishedGameData, JsonStore, PersistenceError, SavedPositionData, Storable,
+    SuspendedSessionData,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -467,7 +467,9 @@ mod tests {
         AdvancedAnalysisRepository, FinishedGameRepository, PositionRepository, ReviewRepository,
         SessionRepository,
     };
-    use crate::persistence::{FinishedGameData, SavedPositionData, StoredMoveRecord, SuspendedSessionData};
+    use crate::persistence::{
+        FinishedGameData, SavedPositionData, StoredMoveRecord, SuspendedSessionData,
+    };
 
     fn sample_session(id: &str, ts: u64) -> SuspendedSessionData {
         SuspendedSessionData {
@@ -649,7 +651,9 @@ mod tests {
 
         sessions.save(&sample_session("sess_1", 1_000)).unwrap();
         sessions.save(&sample_session("sess_2", 2_000)).unwrap();
-        positions.save(&sample_position("pos_1", 1_500, true)).unwrap();
+        positions
+            .save(&sample_position("pos_1", 1_500, true))
+            .unwrap();
         positions
             .save(&sample_position("pos_2", 1_600, false))
             .unwrap();
@@ -662,17 +666,22 @@ mod tests {
     }
 
     fn write_json_fixtures_doubled(root: &Path) {
-        let sessions = JsonStore::<SuspendedSessionData>::new(root.join("sessions").join("sessions"));
-        let positions = JsonStore::<SavedPositionData>::new(root.join("positions").join("positions"));
+        let sessions =
+            JsonStore::<SuspendedSessionData>::new(root.join("sessions").join("sessions"));
+        let positions =
+            JsonStore::<SavedPositionData>::new(root.join("positions").join("positions"));
         let finished_games =
             JsonStore::<FinishedGameData>::new(root.join("finished_games").join("finished_games"));
         let reviews = JsonStore::<GameReview>::new(root.join("reviews").join("reviews"));
-        let advanced =
-            JsonStore::<AdvancedGameAnalysis>::new(root.join("advanced_reviews").join("advanced_reviews"));
+        let advanced = JsonStore::<AdvancedGameAnalysis>::new(
+            root.join("advanced_reviews").join("advanced_reviews"),
+        );
 
         sessions.save(&sample_session("sess_1", 1_000)).unwrap();
         sessions.save(&sample_session("sess_2", 2_000)).unwrap();
-        positions.save(&sample_position("pos_1", 1_500, true)).unwrap();
+        positions
+            .save(&sample_position("pos_1", 1_500, true))
+            .unwrap();
         positions
             .save(&sample_position("pos_2", 1_600, false))
             .unwrap();

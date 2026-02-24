@@ -25,10 +25,8 @@ pub trait SessionRepository: Send + Sync {
         &self,
         id: &str,
     ) -> impl Future<Output = Result<Option<SuspendedSessionData>, PersistenceError>> + Send;
-    fn delete_session(
-        &self,
-        id: &str,
-    ) -> impl Future<Output = Result<(), PersistenceError>> + Send;
+    fn delete_session(&self, id: &str)
+        -> impl Future<Output = Result<(), PersistenceError>> + Send;
 }
 
 /// Repository for saved board positions.
@@ -67,10 +65,7 @@ pub trait FinishedGameRepository: Send + Sync {
         &self,
         id: &str,
     ) -> impl Future<Output = Result<Option<FinishedGameData>, PersistenceError>> + Send;
-    fn delete_game(
-        &self,
-        id: &str,
-    ) -> impl Future<Output = Result<(), PersistenceError>> + Send;
+    fn delete_game(&self, id: &str) -> impl Future<Output = Result<(), PersistenceError>> + Send;
 }
 
 /// Repository for engine-analysis game reviews.
@@ -112,4 +107,20 @@ pub trait AdvancedAnalysisRepository: Send + Sync {
         &self,
         game_id: &str,
     ) -> impl Future<Output = Result<(), PersistenceError>> + Send;
+}
+
+/// Bundles all repository types into a single generic parameter.
+///
+/// Instead of `Foo<S, P, F, R, A>` with 5 type params and repeated where-clauses,
+/// code only needs `Foo<D: Persistence>` and accesses repos as `D::Sessions`, etc.
+///
+/// Two implementations exist:
+/// - [`super::sqlite::SqlitePersistence`] — production backend
+/// - `JsonPersistence` (cfg(test)) — test backend using JSON file stores
+pub trait Persistence: Send + Sync + 'static {
+    type Sessions: SessionRepository + Send + Sync + 'static;
+    type Positions: PositionRepository + Send + Sync + 'static;
+    type FinishedGames: FinishedGameRepository + Send + Sync + 'static;
+    type Reviews: ReviewRepository + Send + Sync + 'static;
+    type Advanced: AdvancedAnalysisRepository + Send + Sync + 'static;
 }

@@ -29,8 +29,7 @@ impl TacticalDetector for SkewerDetector {
                         continue;
                     };
 
-                    let Some(back_sq) = find_piece_behind(board, slider_sq, front_sq, enemy)
-                    else {
+                    let Some(back_sq) = find_piece_behind(board, slider_sq, front_sq, enemy) else {
                         continue;
                     };
 
@@ -66,10 +65,7 @@ impl TacticalDetector for SkewerDetector {
                                 through,
                                 to: back_sq.to_string(),
                             }],
-                            threatened_pieces: vec![
-                                front_sq.to_string(),
-                                back_sq.to_string(),
-                            ],
+                            threatened_pieces: vec![front_sq.to_string(), back_sq.to_string()],
                             defended_by: vec![],
                         },
                     });
@@ -208,8 +204,14 @@ mod tests {
             .find(|t| t.attacker.as_deref() == Some("a1"))
             .expect("expected skewer from a1");
         assert_eq!(skewer.kind, TacticalTagKind::Skewer);
-        assert!(skewer.victims.contains(&"a5".to_string()), "front piece (queen) should be a victim");
-        assert!(skewer.victims.contains(&"a8".to_string()), "back piece (bishop) should be a victim");
+        assert!(
+            skewer.victims.contains(&"a5".to_string()),
+            "front piece (queen) should be a victim"
+        );
+        assert!(
+            skewer.victims.contains(&"a8".to_string()),
+            "back piece (bishop) should be a victim"
+        );
         assert_eq!(skewer.target_square.as_deref(), Some("a8"));
         assert_eq!(skewer.confidence, 0.75);
         assert!(skewer.note.as_ref().unwrap().contains("skewer"));
@@ -234,8 +236,14 @@ mod tests {
             .expect("expected bishop to skewer the king on c4");
 
         assert_eq!(king_skewer.attacker.as_deref(), Some("a2"));
-        assert_eq!(king_skewer.confidence, 0.9, "king skewer should have 0.9 confidence");
-        assert!(king_skewer.victims.contains(&"e6".to_string()), "rook behind king should be a victim");
+        assert_eq!(
+            king_skewer.confidence, 0.9,
+            "king skewer should have 0.9 confidence"
+        );
+        assert!(
+            king_skewer.victims.contains(&"e6".to_string()),
+            "rook behind king should be a victim"
+        );
     }
 
     #[test]
@@ -245,7 +253,10 @@ mod tests {
         let ctx = ctx_from_after(&board, &attacks, Color::White);
 
         let tags = SkewerDetector.detect(&ctx);
-        assert!(tags.is_empty(), "no skewers should be detected from the starting position");
+        assert!(
+            tags.is_empty(),
+            "no skewers should be detected from the starting position"
+        );
     }
 
     #[test]
@@ -279,7 +290,13 @@ mod tests {
             .iter()
             .find(|t| t.attacker.as_deref() == Some("h8"))
             .expect("expected skewer from h8");
-        assert!(skewer.victims.contains(&"h4".to_string()), "queen on h4 should be front victim");
-        assert!(skewer.victims.contains(&"h1".to_string()), "bishop on h1 should be back victim");
+        assert!(
+            skewer.victims.contains(&"h4".to_string()),
+            "queen on h4 should be front victim"
+        );
+        assert!(
+            skewer.victims.contains(&"h1".to_string()),
+            "bishop on h1 should be back victim"
+        );
     }
 }

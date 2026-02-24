@@ -105,7 +105,7 @@ mod tests {
         let board: Board = Board::default();
         let white_attacks = attacked_squares(&board, Color::White);
         // White pawns attack ranks 3 squares, knights attack some squares
-        assert!(white_attacks.len() > 0);
+        assert!(!white_attacks.is_empty());
     }
 
     #[test]

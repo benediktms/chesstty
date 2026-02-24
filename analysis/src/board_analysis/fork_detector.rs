@@ -92,7 +92,8 @@ impl TacticalDetector for DoubleAttackDetector {
                 let mut vulnerable_targets: Vec<String> = Vec::new();
 
                 for target_sq in attacks {
-                    let our_attackers = ctx.after_attacks.attackers_of(target_sq, perspective).len();
+                    let our_attackers =
+                        ctx.after_attacks.attackers_of(target_sq, perspective).len();
                     let their_defenders = ctx.after_attacks.attackers_of(target_sq, enemy).len();
 
                     if our_attackers > their_defenders {
@@ -188,7 +189,10 @@ mod tests {
         let tags = ForkDetector.detect(&ctx);
 
         assert!(!tags.is_empty(), "should detect fork of rook and bishop");
-        let fork = tags.iter().find(|t| t.attacker.as_deref() == Some("d5")).unwrap();
+        let fork = tags
+            .iter()
+            .find(|t| t.attacker.as_deref() == Some("d5"))
+            .unwrap();
         assert_eq!(fork.kind, TacticalTagKind::Fork);
         assert!(fork.victims.contains(&"c7".to_string()));
         assert!(fork.victims.contains(&"f6".to_string()));

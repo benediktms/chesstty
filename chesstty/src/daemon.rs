@@ -124,10 +124,6 @@ pub enum DaemonError {
     /// `chdir(2)` to the configured working directory failed.
     #[error("failed to change directory: {0}")]
     ChdirFailed(IoError),
-
-    /// `umask(2)` call failed (rare but included for completeness).
-    #[error("failed to set umask: {0}")]
-    UmaskFailed(IoError),
 }
 
 /// Builder for creating a UNIX daemon process.
@@ -204,6 +200,7 @@ impl Daemon {
     ///
     /// Requires `user` or `group` to be set.
     #[must_use]
+    #[allow(dead_code)] // planned API: privilege dropping not yet wired up in main.rs
     pub fn chown_pid_file(mut self, chown: bool) -> Self {
         self.chown_pid_file = chown;
         self
@@ -222,6 +219,7 @@ impl Daemon {
     ///
     /// Can be a username string or UID (via `Into<Group>`).
     #[must_use]
+    #[allow(dead_code)] // planned API: privilege dropping not yet wired up in main.rs
     pub fn user(mut self, user: impl Into<String>) -> Self {
         self.user = Some(user.into());
         self
@@ -231,6 +229,7 @@ impl Daemon {
     ///
     /// Can be a group name string or GID.
     #[must_use]
+    #[allow(dead_code)] // planned API: privilege dropping not yet wired up in main.rs
     pub fn group(mut self, group: impl Into<Group>) -> Self {
         self.group = Some(group.into());
         self
@@ -269,6 +268,7 @@ impl Daemon {
     /// dropping privileges. Useful for operations that need elevated
     /// permissions (e.g., binding to privileged ports).
     #[must_use]
+    #[allow(dead_code)] // planned API: privilege dropping not yet wired up in main.rs
     pub fn privileged_action<F>(mut self, f: F) -> Self
     where
         F: FnOnce() -> anyhow::Result<()> + 'static,
@@ -428,8 +428,8 @@ fn resolve_user(user: &str) -> Result<libc::uid_t, DaemonError> {
         return Ok(uid);
     }
 
-    let c_str = std::ffi::CString::new(user)
-        .map_err(|_| DaemonError::UserNotFound(user.to_string()))?;
+    let c_str =
+        std::ffi::CString::new(user).map_err(|_| DaemonError::UserNotFound(user.to_string()))?;
 
     // SAFETY: getpwnam_r is the thread-safe reentrant version.
     let mut passwd: libc::passwd = unsafe { std::mem::zeroed() };
@@ -493,8 +493,7 @@ fn resolve_group(group: &Group) -> Result<libc::gid_t, DaemonError> {
 
 /// Redirect stdin, stdout, and stderr for the daemon process.
 fn redirect_io(stdout: &Option<File>, stderr: &Option<File>) -> Result<(), DaemonError> {
-    let devnull =
-        File::open("/dev/null").map_err(|err| DaemonError::DevNullOpen(err.into()))?;
+    let devnull = File::open("/dev/null").map_err(|err| DaemonError::DevNullOpen(err.into()))?;
 
     // Redirect stdin to /dev/null
     // SAFETY: dup2 is safe for redirecting file descriptors.
@@ -543,14 +542,12 @@ fn write_pid_file(
     // Create parent directory if it doesn't exist
     if let Some(parent) = pid_path.parent() {
         if !parent.as_os_str().is_empty() {
-            std::fs::create_dir_all(parent)
-                .map_err(|err| DaemonError::PidFileWrite(err.into()))?;
+            std::fs::create_dir_all(parent).map_err(|err| DaemonError::PidFileWrite(err.into()))?;
         }
     }
 
     // Write PID file
-    let mut file =
-        File::create(pid_path).map_err(|err| DaemonError::PidFileWrite(err.into()))?;
+    let mut file = File::create(pid_path).map_err(|err| DaemonError::PidFileWrite(err.into()))?;
     writeln!(file, "{}", pid).map_err(|err| DaemonError::PidFileWrite(err.into()))?;
     file.sync_all()
         .map_err(|err| DaemonError::PidFileWrite(err.into()))?;
@@ -558,21 +555,19 @@ fn write_pid_file(
     // Chown if requested
     if chown {
         let uid = user.as_ref().map(|u| resolve_user(u)).transpose()?;
-        let gid = group.as_ref().map(|g| resolve_group(g)).transpose()?;
+        let gid = group.as_ref().map(resolve_group).transpose()?;
 
         if let (Some(uid), Some(gid)) = (uid, gid) {
-            let c_path = std::ffi::CString::new(
-                pid_path.as_os_str().as_encoded_bytes(),
-            )
-            .map_err(|_| {
-                DaemonError::PidFileChown(
-                    std::io::Error::new(
-                        std::io::ErrorKind::InvalidInput,
-                        "PID path contains null byte",
+            let c_path =
+                std::ffi::CString::new(pid_path.as_os_str().as_encoded_bytes()).map_err(|_| {
+                    DaemonError::PidFileChown(
+                        std::io::Error::new(
+                            std::io::ErrorKind::InvalidInput,
+                            "PID path contains null byte",
+                        )
+                        .into(),
                     )
-                    .into(),
-                )
-            })?;
+                })?;
 
             // SAFETY: chown is safe here as we're just changing ownership.
             if unsafe { libc::chown(c_path.as_ptr(), uid, gid) } != 0 {

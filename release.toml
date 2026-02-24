@@ -1,0 +1,16 @@
+# cargo-release configuration
+# Usage: cargo release patch --execute  (or minor/major)
+# This bumps all workspace crate versions, commits, tags, and pushes.
+# The tag push triggers the cargo-dist release workflow.
+
+# Only allow releases from master
+allow-branch = ["master"]
+shared-version = true
+tag-name = "v{{version}}"
+pre-release-commit-message = "chore: release v{{version}}"
+
+# None of these crates are published to crates.io
+publish = false
+# Push the tag and commit to the remote
+push = true
+tag = true

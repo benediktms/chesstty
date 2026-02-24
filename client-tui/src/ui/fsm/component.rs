@@ -1,4 +1,3 @@
-use ratatui::style::Color;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -16,12 +15,12 @@ pub enum Component {
 }
 
 pub struct ComponentProperties {
+    #[allow(dead_code)] // structural field, used when component API is fully wired
     pub component: Component,
+    #[allow(dead_code)] // used by Component::title() once callers exist
     pub title: &'static str,
     pub is_selectable: bool,
     pub is_expandable: bool,
-    pub border_color: Color,
-    pub preferred_height: u16,
 }
 
 impl ComponentProperties {
@@ -32,80 +31,60 @@ impl ComponentProperties {
                 title: "Board",
                 is_selectable: false,
                 is_expandable: false,
-                border_color: Color::Reset,
-                preferred_height: 0,
             },
             Component::TabInput => ComponentProperties {
                 component: Component::TabInput,
                 title: "Tab Input",
                 is_selectable: false,
                 is_expandable: false,
-                border_color: Color::Reset,
-                preferred_height: 3,
             },
             Component::Controls => ComponentProperties {
                 component: Component::Controls,
                 title: "Controls",
                 is_selectable: false,
                 is_expandable: false,
-                border_color: Color::Reset,
-                preferred_height: 1,
             },
             Component::InfoPanel => ComponentProperties {
                 component: Component::InfoPanel,
                 title: "Game Info",
                 is_selectable: true,
                 is_expandable: false,
-                border_color: Color::Cyan,
-                preferred_height: 10,
             },
             Component::HistoryPanel => ComponentProperties {
                 component: Component::HistoryPanel,
                 title: "Move History",
                 is_selectable: true,
                 is_expandable: true,
-                border_color: Color::Cyan,
-                preferred_height: 15,
             },
             Component::EnginePanel => ComponentProperties {
                 component: Component::EnginePanel,
                 title: "Engine Analysis",
                 is_selectable: true,
                 is_expandable: true,
-                border_color: Color::Cyan,
-                preferred_height: 12,
             },
             Component::DebugPanel => ComponentProperties {
                 component: Component::DebugPanel,
                 title: "UCI Debug",
                 is_selectable: true,
                 is_expandable: true,
-                border_color: Color::Magenta,
-                preferred_height: 15,
             },
             Component::ReviewTabs => ComponentProperties {
                 component: Component::ReviewTabs,
                 title: "Review Tabs",
                 is_selectable: false,
                 is_expandable: false,
-                border_color: Color::Green,
-                preferred_height: 3,
             },
             Component::ReviewSummary => ComponentProperties {
                 component: Component::ReviewSummary,
                 title: "Review Summary",
                 is_selectable: true,
                 is_expandable: true,
-                border_color: Color::Green,
-                preferred_height: 15,
             },
             Component::AdvancedAnalysis => ComponentProperties {
                 component: Component::AdvancedAnalysis,
                 title: "Advanced Analysis",
                 is_selectable: true,
                 is_expandable: true,
-                border_color: Color::Magenta,
-                preferred_height: 18,
             },
         }
     }
@@ -116,6 +95,7 @@ impl Component {
         ComponentProperties::for_component(self)
     }
 
+    #[allow(dead_code)] // part of component API, callers pending
     pub fn title(&self) -> &'static str {
         self.properties().title
     }
@@ -128,24 +108,12 @@ impl Component {
         self.properties().is_expandable
     }
 
-    pub fn is_panel(&self) -> bool {
-        matches!(
-            self,
-            Component::InfoPanel
-                | Component::HistoryPanel
-                | Component::EnginePanel
-                | Component::DebugPanel
-                | Component::ReviewTabs
-                | Component::ReviewSummary
-                | Component::AdvancedAnalysis
-        )
-    }
-
     /// Returns the number key ('1'-'4') assigned to this component for direct selection
     /// in the given UI mode, or `None` if this component is not selectable via number key.
     ///
     /// Game mode:   1=InfoPanel, 2=EnginePanel, 3=HistoryPanel, 4=DebugPanel
     /// Review mode: 1=InfoPanel, 2=HistoryPanel, 3=AdvancedAnalysis, 4=ReviewSummary
+    #[allow(dead_code)] // part of component API, callers pending
     pub fn number_key(&self, mode: &super::UiMode) -> Option<char> {
         match (self, mode) {
             (Component::InfoPanel, _) => Some('1'),
@@ -211,19 +179,43 @@ mod tests {
     #[test]
     fn from_number_key_game_board() {
         let mode = UiMode::GameBoard;
-        assert_eq!(Component::from_number_key('1', &mode), Some(Component::InfoPanel));
-        assert_eq!(Component::from_number_key('2', &mode), Some(Component::EnginePanel));
-        assert_eq!(Component::from_number_key('3', &mode), Some(Component::HistoryPanel));
-        assert_eq!(Component::from_number_key('4', &mode), Some(Component::DebugPanel));
+        assert_eq!(
+            Component::from_number_key('1', &mode),
+            Some(Component::InfoPanel)
+        );
+        assert_eq!(
+            Component::from_number_key('2', &mode),
+            Some(Component::EnginePanel)
+        );
+        assert_eq!(
+            Component::from_number_key('3', &mode),
+            Some(Component::HistoryPanel)
+        );
+        assert_eq!(
+            Component::from_number_key('4', &mode),
+            Some(Component::DebugPanel)
+        );
     }
 
     #[test]
     fn from_number_key_review_board() {
         let mode = UiMode::ReviewBoard;
-        assert_eq!(Component::from_number_key('1', &mode), Some(Component::InfoPanel));
-        assert_eq!(Component::from_number_key('2', &mode), Some(Component::HistoryPanel));
-        assert_eq!(Component::from_number_key('3', &mode), Some(Component::AdvancedAnalysis));
-        assert_eq!(Component::from_number_key('4', &mode), Some(Component::ReviewSummary));
+        assert_eq!(
+            Component::from_number_key('1', &mode),
+            Some(Component::InfoPanel)
+        );
+        assert_eq!(
+            Component::from_number_key('2', &mode),
+            Some(Component::HistoryPanel)
+        );
+        assert_eq!(
+            Component::from_number_key('3', &mode),
+            Some(Component::AdvancedAnalysis)
+        );
+        assert_eq!(
+            Component::from_number_key('4', &mode),
+            Some(Component::ReviewSummary)
+        );
     }
 
     #[test]

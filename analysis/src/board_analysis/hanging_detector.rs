@@ -129,7 +129,8 @@ mod tests {
         let tags = HangingPieceDetector.detect(&ctx);
         // Knight has 1 attacker and 1 defender — not hanging
         assert!(
-            tags.iter().all(|t| t.target_square.as_deref() != Some("d5")),
+            tags.iter()
+                .all(|t| t.target_square.as_deref() != Some("d5")),
             "defended knight should not be flagged as hanging"
         );
     }

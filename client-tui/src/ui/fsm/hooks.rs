@@ -1,10 +1,12 @@
 use crate::ui::fsm::UiMode;
 
+#[allow(dead_code)]
 pub trait UiTransitionHook {
     fn on_before_transition(&mut self, from: &UiMode, to: &UiMode);
     fn on_after_transition(&mut self, from: &UiMode, to: &UiMode);
 }
 
+#[allow(dead_code)]
 #[derive(Default)]
 pub struct LoggingHook;
 
@@ -18,6 +20,7 @@ impl UiTransitionHook for LoggingHook {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Default)]
 pub struct RpcHook {
     pub server_address: String,
@@ -42,6 +45,7 @@ impl UiTransitionHook for RpcHook {
     }
 }
 
+#[allow(dead_code)]
 pub struct CompositeHook<H1, H2> {
     pub hook1: H1,
     pub hook2: H2,

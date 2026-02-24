@@ -37,18 +37,21 @@ pub fn read_pid(pid_path: &Path) -> Result<i32, ProcessError> {
 /// Uses `kill(pid, 0)` to check process existence without actually sending a signal.
 /// This will detect if the process exists AND we have permission to signal it.
 ///
-/// # Safety
-/// The kill system call with signal 0 only checks existence, not actual signal delivery.
-pub fn is_server_running(pid_path: &Path) -> bool {
-    // Try to read the PID file first
-    let pid = match read_pid(pid_path) {
-        Ok(pid) => pid,
-        Err(_) => return false,
-    };
+/// # Errors
+///
+/// Returns `ProcessError::ReadError` if the PID file cannot be read.
+/// Returns `ProcessError::InvalidContent` if the PID file contains invalid content.
+/// Returns `ProcessError::ProcessNotFound` if the recorded PID is not running.
+pub fn is_server_running(pid_path: &Path) -> Result<bool, ProcessError> {
+    let pid = read_pid(pid_path)?;
 
     // SAFETY: kill(pid, 0) only checks if the process exists and we have permission.
     // It does not send any signal or modify process state.
-    unsafe { libc::kill(pid, 0) == 0 }
+    let exists = unsafe { libc::kill(pid, 0) == 0 };
+    if !exists {
+        return Err(ProcessError::ProcessNotFound(pid));
+    }
+    Ok(true)
 }
 
 /// Remove a stale PID file if the process is no longer running.
@@ -63,8 +66,18 @@ pub fn remove_stale_pid(pid_path: &Path) -> anyhow::Result<()> {
         return Ok(());
     }
 
-    if !is_server_running(pid_path) {
-        fs::remove_file(pid_path)?;
+    match is_server_running(pid_path) {
+        Err(ProcessError::ProcessNotFound(_)) => {
+            // PID is stale — process no longer exists, remove the file
+            fs::remove_file(pid_path)?;
+        }
+        Err(_) => {
+            // ReadError or InvalidContent — treat as stale and clean up
+            fs::remove_file(pid_path)?;
+        }
+        Ok(_) => {
+            // Process is still running — do not remove
+        }
     }
 
     Ok(())
@@ -113,7 +126,7 @@ mod tests {
         let pid_path = temp_dir.path().join("pid");
         fs::write(&pid_path, format!("{}\n", pid)).unwrap();
 
-        assert!(is_server_running(&pid_path));
+        assert!(is_server_running(&pid_path).unwrap());
     }
 
     #[test]
@@ -124,7 +137,8 @@ mod tests {
         fs::write(&pid_path, "999999\n").unwrap();
 
         // PID 999999 is extremely unlikely to be running
-        assert!(!is_server_running(&pid_path));
+        let result = is_server_running(&pid_path);
+        assert!(matches!(result, Err(ProcessError::ProcessNotFound(999999))));
     }
 
     #[test]

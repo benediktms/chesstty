@@ -17,7 +17,12 @@ pub struct GameInfoPanel<'a> {
 }
 
 impl<'a> GameInfoPanel<'a> {
-    pub fn new(client_state: &'a GameSession, fsm: &'a UiStateMachine, is_selected: bool, scroll: u16) -> Self {
+    pub fn new(
+        client_state: &'a GameSession,
+        fsm: &'a UiStateMachine,
+        is_selected: bool,
+        scroll: u16,
+    ) -> Self {
         Self {
             client_state,
             fsm,
@@ -35,7 +40,9 @@ impl Widget for GameInfoPanel<'_> {
             "[1] Game Info"
         };
         let border_style = if self.is_selected {
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(Color::Cyan)
         };
@@ -417,6 +424,7 @@ fn format_game_mode(mode: &crate::state::GameMode) -> &'static str {
 }
 
 /// Format a ReviewScore as a human-readable string with appropriate color.
+#[allow(dead_code)]
 pub(crate) fn format_review_score(score: &ReviewScore) -> (String, Color) {
     match score.score.as_ref() {
         Some(review_score::Score::Centipawns(cp)) => {
@@ -444,6 +452,7 @@ pub(crate) fn format_review_score(score: &ReviewScore) -> (String, Color) {
 }
 
 /// Get the color for a classification value.
+#[allow(dead_code)]
 pub(crate) fn classification_color(classification: i32) -> Color {
     match MoveClassification::try_from(classification) {
         Ok(MoveClassification::ClassificationBrilliant) => Color::Cyan,

@@ -5,17 +5,17 @@ mod service;
 mod session;
 
 use chess_proto::chess_service_server::ChessServiceServer;
-use tokio::net::UnixListener;
-use tokio_stream::wrappers::UnixListenerStream;
 use persistence::sqlite::{
-    Database, SqliteAdvancedAnalysisRepository, SqliteFinishedGameRepository,
-    SqlitePositionRepository, SqliteReviewRepository, SqliteSessionRepository,
-    migrate_json_to_sqlite,
+    migrate_json_to_sqlite, Database, SqliteAdvancedAnalysisRepository,
+    SqliteFinishedGameRepository, SqlitePersistence, SqlitePositionRepository,
+    SqliteReviewRepository, SqliteSessionRepository,
 };
 use service::ChessServiceImpl;
 use session::SessionManager;
 use std::sync::Arc;
+use tokio::net::UnixListener;
 use tokio::signal::unix::{signal, SignalKind};
+use tokio_stream::wrappers::UnixListenerStream;
 use tonic::transport::Server;
 
 #[tokio::main]
@@ -54,17 +54,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let position_store = SqlitePositionRepository::new(database.pool().clone());
     let finished_game_store = Arc::new(SqliteFinishedGameRepository::new(database.pool().clone()));
     let review_store = Arc::new(SqliteReviewRepository::new(database.pool().clone()));
-    let advanced_store = Arc::new(SqliteAdvancedAnalysisRepository::new(database.pool().clone()));
+    let advanced_store = Arc::new(SqliteAdvancedAnalysisRepository::new(
+        database.pool().clone(),
+    ));
 
     // Create session manager
-    let session_manager = Arc::new(SessionManager::new(
+    let session_manager = Arc::new(SessionManager::<SqlitePersistence>::new(
         session_store,
         position_store,
         finished_game_store.clone(),
     ));
 
     // Create review manager
-    let review_manager = Arc::new(review::ReviewManager::new(
+    let review_manager = Arc::new(review::ReviewManager::<SqlitePersistence>::new(
         finished_game_store,
         review_store,
         advanced_store,

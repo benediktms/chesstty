@@ -41,9 +41,8 @@ impl TacticalDetector for BackRankDetector {
         }
 
         // Check if we (perspective) have a rook or queen
-        let our_major =
-            (ctx.after.pieces(Piece::Rook) | ctx.after.pieces(Piece::Queen))
-                & ctx.after.colors(perspective);
+        let our_major = (ctx.after.pieces(Piece::Rook) | ctx.after.pieces(Piece::Queen))
+            & ctx.after.colors(perspective);
 
         if our_major.is_empty() {
             return vec![];
@@ -53,9 +52,7 @@ impl TacticalDetector for BackRankDetector {
         let attacks_back_rank = our_major.into_iter().any(|sq| {
             let piece = ctx.after.piece_on(sq).unwrap_or(Piece::Rook);
             let attacks = match piece {
-                Piece::Rook => {
-                    cozy_chess::get_rook_moves(sq, ctx.after.occupied())
-                }
+                Piece::Rook => cozy_chess::get_rook_moves(sq, ctx.after.occupied()),
                 Piece::Queen => {
                     cozy_chess::get_rook_moves(sq, ctx.after.occupied())
                         | cozy_chess::get_bishop_moves(sq, ctx.after.occupied())

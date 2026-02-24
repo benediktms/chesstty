@@ -1,6 +1,6 @@
 //! Event streaming endpoint
 
-use crate::persistence::{FinishedGameRepository, PositionRepository, SessionRepository};
+use crate::persistence::Persistence;
 use crate::service::converters::{convert_session_event_to_proto, convert_snapshot_to_proto};
 use crate::session::SessionManager;
 use chess_proto::*;
@@ -15,21 +15,12 @@ use tonic::{Request, Response, Status};
 /// When a client disconnects (network failure, crash, or explicit drop),
 /// tonic drops the stream future, which drops this guard, which spawns a
 /// task to close the session and shut down the engine process.
-struct CleanupGuard<
-    S: SessionRepository + Send + Sync + 'static,
-    P: PositionRepository + Send + Sync + 'static,
-    F: FinishedGameRepository + Send + Sync + 'static,
-> {
-    session_manager: Arc<SessionManager<S, P, F>>,
+struct CleanupGuard<D: Persistence> {
+    session_manager: Arc<SessionManager<D>>,
     session_id: String,
 }
 
-impl<S, P, F> Drop for CleanupGuard<S, P, F>
-where
-    S: SessionRepository + Send + Sync + 'static,
-    P: PositionRepository + Send + Sync + 'static,
-    F: FinishedGameRepository + Send + Sync + 'static,
-{
+impl<D: Persistence> Drop for CleanupGuard<D> {
     fn drop(&mut self) {
         let session_manager = self.session_manager.clone();
         let session_id = std::mem::take(&mut self.session_id);
@@ -57,21 +48,12 @@ where
     }
 }
 
-pub struct EventsEndpoints<
-    S: SessionRepository,
-    P: PositionRepository,
-    F: FinishedGameRepository,
-> {
-    session_manager: Arc<SessionManager<S, P, F>>,
+pub struct EventsEndpoints<D: Persistence> {
+    session_manager: Arc<SessionManager<D>>,
 }
 
-impl<S, P, F> EventsEndpoints<S, P, F>
-where
-    S: SessionRepository + Send + Sync + 'static,
-    P: PositionRepository + Send + Sync + 'static,
-    F: FinishedGameRepository + Send + Sync + 'static,
-{
-    pub fn new(session_manager: Arc<SessionManager<S, P, F>>) -> Self {
+impl<D: Persistence> EventsEndpoints<D> {
+    pub fn new(session_manager: Arc<SessionManager<D>>) -> Self {
         Self { session_manager }
     }
 

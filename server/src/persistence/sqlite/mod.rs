@@ -30,21 +30,35 @@
 //! JSON records. It is called from `main.rs` before the service starts accepting
 //! requests. Original JSON files are not deleted.
 
-mod database;
-mod session_repo;
-mod position_repo;
-mod finished_game_repo;
-mod review_repo;
 mod advanced_repo;
-mod migrate_json;
+mod database;
+mod finished_game_repo;
+pub(crate) mod helpers;
 #[cfg(test)]
 mod integration_tests;
-pub(crate) mod helpers;
+mod migrate_json;
+mod position_repo;
+mod review_repo;
+mod session_repo;
 
-pub use database::Database;
-pub use session_repo::SqliteSessionRepository;
-pub use position_repo::SqlitePositionRepository;
-pub use finished_game_repo::SqliteFinishedGameRepository;
-pub use review_repo::SqliteReviewRepository;
 pub use advanced_repo::SqliteAdvancedAnalysisRepository;
+pub use database::Database;
+pub use finished_game_repo::SqliteFinishedGameRepository;
 pub use migrate_json::migrate_json_to_sqlite;
+pub use position_repo::SqlitePositionRepository;
+pub use review_repo::SqliteReviewRepository;
+pub use session_repo::SqliteSessionRepository;
+
+/// Production persistence provider backed by SQLite.
+///
+/// Implements [`super::Persistence`] by mapping each associated type to the
+/// corresponding `Sqlite*Repository`.
+pub struct SqlitePersistence;
+
+impl crate::persistence::Persistence for SqlitePersistence {
+    type Sessions = SqliteSessionRepository;
+    type Positions = SqlitePositionRepository;
+    type FinishedGames = SqliteFinishedGameRepository;
+    type Reviews = SqliteReviewRepository;
+    type Advanced = SqliteAdvancedAnalysisRepository;
+}

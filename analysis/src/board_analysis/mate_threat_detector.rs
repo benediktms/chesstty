@@ -97,10 +97,7 @@ impl TacticalDetector for MateThreatDetector {
                     victims: vec![king_sq.to_string()],
                     target_square: Some(king_sq.to_string()),
                     confidence: 0.95,
-                    note: Some(format!(
-                        "mate threat: {:?} king faces mate in 1",
-                        opponent
-                    )),
+                    note: Some(format!("mate threat: {:?} king faces mate in 1", opponent)),
                     evidence: TacticalEvidence::default(),
                 }];
             }
@@ -197,8 +194,10 @@ mod tests {
         assert_eq!(tags[0].kind, TacticalTagKind::MateThreat);
         // In check, should have limited moves → confidence 0.9
         assert!(tags[0].confidence >= 0.9);
-        assert!(tags[0].note.as_ref().unwrap().contains("limited escape") ||
-                tags[0].note.as_ref().unwrap().contains("checkmated"));
+        assert!(
+            tags[0].note.as_ref().unwrap().contains("limited escape")
+                || tags[0].note.as_ref().unwrap().contains("checkmated")
+        );
     }
 
     #[test]

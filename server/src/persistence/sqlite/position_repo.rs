@@ -2,8 +2,30 @@
 
 use sqlx::SqlitePool;
 
-use crate::persistence::{PersistenceError, SavedPositionData};
 use crate::persistence::traits::PositionRepository;
+use crate::persistence::{PersistenceError, SavedPositionData};
+
+/// Row type for position queries, mapped via `sqlx::FromRow`.
+#[derive(sqlx::FromRow)]
+struct PositionRow {
+    position_id: String,
+    name: String,
+    fen: String,
+    is_default: i64,
+    created_at: i64,
+}
+
+impl From<PositionRow> for SavedPositionData {
+    fn from(r: PositionRow) -> Self {
+        Self {
+            position_id: r.position_id,
+            name: r.name,
+            fen: r.fen,
+            is_default: r.is_default != 0,
+            created_at: r.created_at as u64,
+        }
+    }
+}
 
 pub struct SqlitePositionRepository {
     pool: SqlitePool,
@@ -37,7 +59,7 @@ impl PositionRepository for SqlitePositionRepository {
     }
 
     async fn list_positions(&self) -> Result<Vec<SavedPositionData>, PersistenceError> {
-        let rows: Vec<(String, String, String, i64, i64)> = sqlx::query_as(
+        let rows: Vec<PositionRow> = sqlx::query_as(
             "SELECT position_id, name, fen, is_default, created_at \
              FROM saved_positions \
              ORDER BY is_default DESC, created_at DESC",
@@ -45,18 +67,7 @@ impl PositionRepository for SqlitePositionRepository {
         .fetch_all(&self.pool)
         .await?;
 
-        let positions = rows
-            .into_iter()
-            .map(|(position_id, name, fen, is_default, created_at)| SavedPositionData {
-                position_id,
-                name,
-                fen,
-                is_default: is_default != 0,
-                created_at: created_at as u64,
-            })
-            .collect();
-
-        Ok(positions)
+        Ok(rows.into_iter().map(SavedPositionData::from).collect())
     }
 
     async fn delete_position(&self, id: &str) -> Result<(), PersistenceError> {

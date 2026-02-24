@@ -1,6 +1,6 @@
 //! Session management endpoints
 
-use crate::persistence::{FinishedGameRepository, PositionRepository, SessionRepository};
+use crate::persistence::Persistence;
 use crate::service::converters::{convert_snapshot_to_proto, parse_game_mode_from_proto};
 use crate::session::SessionManager;
 use ::chess::GameMode;
@@ -8,21 +8,12 @@ use chess_proto::*;
 use std::sync::Arc;
 use tonic::{Request, Response, Status};
 
-pub struct SessionEndpoints<
-    S: SessionRepository,
-    P: PositionRepository,
-    F: FinishedGameRepository,
-> {
-    session_manager: Arc<SessionManager<S, P, F>>,
+pub struct SessionEndpoints<D: Persistence> {
+    session_manager: Arc<SessionManager<D>>,
 }
 
-impl<S, P, F> SessionEndpoints<S, P, F>
-where
-    S: SessionRepository + Send + Sync + 'static,
-    P: PositionRepository + Send + Sync + 'static,
-    F: FinishedGameRepository + Send + Sync + 'static,
-{
-    pub fn new(session_manager: Arc<SessionManager<S, P, F>>) -> Self {
+impl<D: Persistence> SessionEndpoints<D> {
+    pub fn new(session_manager: Arc<SessionManager<D>>) -> Self {
         Self { session_manager }
     }
 

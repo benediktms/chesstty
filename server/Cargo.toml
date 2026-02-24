@@ -1,7 +1,8 @@
 [package]
 name = "chesstty-server"
-version = "0.1.0"
+version.workspace = true
 edition = "2021"
+repository = "https://github.com/benediktms/chesstty"
 
 [[bin]]
 name = "chesstty-server"

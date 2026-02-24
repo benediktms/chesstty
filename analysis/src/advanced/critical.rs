@@ -109,13 +109,7 @@ mod tests {
     #[test]
     fn test_not_critical_quiet_position() {
         let pos = make_position_review(10, 20);
-        let result = is_critical_position(
-            &pos,
-            None,
-            &[],
-            &safe_king_safety(),
-            &quiet_tension(),
-        );
+        let result = is_critical_position(&pos, None, &[], &safe_king_safety(), &quiet_tension());
         assert!(!result, "Quiet position should not be critical");
     }
 
@@ -132,13 +126,8 @@ mod tests {
             evidence: TacticalEvidence::default(),
         }];
 
-        let result = is_critical_position(
-            &pos,
-            None,
-            &tactics,
-            &safe_king_safety(),
-            &quiet_tension(),
-        );
+        let result =
+            is_critical_position(&pos, None, &tactics, &safe_king_safety(), &quiet_tension());
         assert!(result, "High cp_loss + tactics should be critical");
     }
 
@@ -149,13 +138,7 @@ mod tests {
         let mut tension = quiet_tension();
         tension.volatility_score = 0.8;
 
-        let result = is_critical_position(
-            &pos,
-            Some(&prev),
-            &[],
-            &safe_king_safety(),
-            &tension,
-        );
+        let result = is_critical_position(&pos, Some(&prev), &[], &safe_king_safety(), &tension);
         assert!(result, "Eval swing + high volatility should be critical");
     }
 }

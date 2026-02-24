@@ -63,38 +63,12 @@ impl BoardSize {
             Self::SMALL
         }
     }
-
-    /// Get the minimum required dimensions for this board size
-    #[allow(dead_code)]
-    pub fn min_dimensions(&self) -> (u16, u16) {
-        (
-            self.square_width * 8 + 8,  // 8 squares + borders + rank labels + padding
-            self.square_height * 8 + 6, // 8 squares + borders + file labels + padding
-        )
-    }
 }
 
 pub struct BoardWidget<'a> {
     pub board: &'a Board,
     pub overlay: &'a BoardOverlay,
     pub flipped: bool,
-}
-
-impl<'a> BoardWidget<'a> {
-    #[allow(dead_code)]
-    pub fn new(board: &'a Board, overlay: &'a BoardOverlay) -> Self {
-        Self {
-            board,
-            overlay,
-            flipped: false,
-        }
-    }
-
-    /// Get minimum board dimensions
-    #[allow(dead_code)]
-    pub fn min_dimensions() -> (u16, u16) {
-        BoardSize::SMALL.min_dimensions()
-    }
 }
 
 impl Widget for BoardWidget<'_> {

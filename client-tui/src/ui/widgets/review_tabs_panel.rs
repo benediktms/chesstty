@@ -2,7 +2,9 @@
 
 use crate::review_state::ReviewState;
 use chess::is_white_ply;
-use chess_client::{review_score, MoveClassification, PositionReview, TacticalTagKindProto, TacticalTagProto};
+use chess_client::{
+    review_score, MoveClassification, PositionReview, TacticalTagKindProto, TacticalTagProto,
+};
 use ratatui::{
     buffer::Buffer,
     layout::Rect,

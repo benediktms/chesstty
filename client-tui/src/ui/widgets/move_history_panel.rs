@@ -31,17 +31,6 @@ impl<'a> MoveHistoryPanel<'a> {
         }
     }
 
-    pub fn expanded(history: &'a [MoveRecord], scroll: u16) -> Self {
-        Self {
-            history,
-            scroll,
-            is_selected: true,
-            expanded: true,
-            review_positions: None,
-            current_ply: None,
-        }
-    }
-
     pub fn with_review_positions(mut self, positions: Option<&'a [PositionReview]>) -> Self {
         self.review_positions = positions;
         self
@@ -54,12 +43,13 @@ impl<'a> MoveHistoryPanel<'a> {
 
     /// Calculate scroll position to keep current_ply visible.
     /// Centers the current ply in the visible area when possible.
+    #[allow(dead_code)]
     pub fn calculate_scroll(&self, visible_height: u16) -> u16 {
         if let Some(current_ply) = self.current_ply {
             if current_ply == 0 {
                 return 0;
             }
-            let total_rows = (self.history.len() + 1) / 2;
+            let total_rows = self.history.len().div_ceil(2);
             if total_rows <= visible_height as usize {
                 return 0;
             }
@@ -146,7 +136,7 @@ impl Widget for MoveHistoryPanel<'_> {
         let paragraph = Paragraph::new(lines).scroll((self.scroll, 0));
         paragraph.render(inner, buf);
 
-        let total_rows = (self.history.len() + 1) / 2;
+        let total_rows = self.history.len().div_ceil(2);
         if total_rows > inner.height as usize {
             let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
                 .thumb_style(Style::default().fg(Color::Cyan).bg(Color::DarkGray));

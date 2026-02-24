@@ -63,7 +63,10 @@ impl SessionStore {
 }
 
 impl super::traits::SessionRepository for SessionStore {
-    async fn save_session(&self, data: &SuspendedSessionData) -> Result<(), super::PersistenceError> {
+    async fn save_session(
+        &self,
+        data: &SuspendedSessionData,
+    ) -> Result<(), super::PersistenceError> {
         self.save(data)?;
         Ok(())
     }
@@ -72,7 +75,10 @@ impl super::traits::SessionRepository for SessionStore {
         self.list()
     }
 
-    async fn load_session(&self, id: &str) -> Result<Option<SuspendedSessionData>, super::PersistenceError> {
+    async fn load_session(
+        &self,
+        id: &str,
+    ) -> Result<Option<SuspendedSessionData>, super::PersistenceError> {
         self.load(id)
     }
 

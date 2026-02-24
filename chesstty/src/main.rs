@@ -167,8 +167,8 @@ fn spawn_server() -> Result<(), CliError> {
         0 => {
             // === CHILD PATH ===
             // Daemonize via builder (double-fork, setsid, IO redirect, PID write).
-            let stdout = File::create(&log_path)
-                .unwrap_or_else(|_| File::open("/dev/null").unwrap());
+            let stdout =
+                File::create(&log_path).unwrap_or_else(|_| File::open("/dev/null").unwrap());
             let stderr = stdout
                 .try_clone()
                 .unwrap_or_else(|_| File::open("/dev/null").unwrap());
@@ -261,11 +261,17 @@ fn spawn_tui_client() -> Result<(), CliError> {
                     e, spawn_err
                 ))
             })?,
-        Err(e) => return Err(CliError::ProcessError(format!("failed to spawn TUI: {}", e))),
+        Err(e) => {
+            return Err(CliError::ProcessError(format!(
+                "failed to spawn TUI: {}",
+                e
+            )))
+        }
     };
 
     // Wait for the client to finish
-    let status = child.wait()
+    let status = child
+        .wait()
         .map_err(|e| CliError::ProcessError(format!("failed to wait for TUI: {}", e)))?;
 
     // If the client exited with an error, propagate it
@@ -297,20 +303,28 @@ fn handle_engine_stop(force: bool) -> Result<(), CliError> {
     let pid_path = config::get_pid_path();
 
     // Check if server is running
-    if !process::is_server_running(&pid_path) {
-        println!("Server is not running.");
-        return Ok(());
+    match process::is_server_running(&pid_path) {
+        Err(process::ProcessError::ProcessNotFound(_))
+        | Err(process::ProcessError::ReadError(_)) => {
+            println!("Server is not running.");
+            return Ok(());
+        }
+        Err(e) => {
+            return Err(CliError::ProcessError(format!(
+                "failed to check server status: {}",
+                e
+            )));
+        }
+        Ok(_) => {
+            // Server is running, continue with stop logic
+        }
     }
 
     // Read the PID and send the appropriate signal
     let pid = process::read_pid(&pid_path)
         .map_err(|e| CliError::ProcessError(format!("failed to read PID: {}", e)))?;
 
-    let signal = if force {
-        libc::SIGKILL
-    } else {
-        libc::SIGTERM
-    };
+    let signal = if force { libc::SIGKILL } else { libc::SIGTERM };
 
     // SAFETY: kill is safe when sending signals to our own spawned processes
     let result = unsafe { libc::kill(pid, signal) };
@@ -326,7 +340,10 @@ fn handle_engine_stop(force: bool) -> Result<(), CliError> {
     // Remove the PID file
     let _ = std::fs::remove_file(&pid_path);
 
-    println!("Server stopped (signal: {}).", if force { "SIGKILL" } else { "SIGTERM" });
+    println!(
+        "Server stopped (signal: {}).",
+        if force { "SIGKILL" } else { "SIGTERM" }
+    );
 
     Ok(())
 }
@@ -375,7 +392,16 @@ fn main() -> Result<(), CliError> {
             tracing::debug!("PID file: {:?}", pid_path);
 
             // Check if server is already running
-            let server_running = process::is_server_running(&pid_path);
+            let server_running = match process::is_server_running(&pid_path) {
+                Ok(true) => true,
+                Ok(false) => false, // shouldn't happen with new API but handle it
+                Err(process::ProcessError::ProcessNotFound(_)) => {
+                    // Stale PID file — clean up
+                    let _ = std::fs::remove_file(&pid_path);
+                    false
+                }
+                Err(_) => false, // PID file missing or corrupt — need to start server
+            };
 
             if !server_running {
                 tracing::info!("Server not running, starting...");

@@ -1,5 +1,5 @@
-use analysis::AdvancedGameAnalysis;
 use crate::persistence::{JsonStore, PersistenceError, Storable};
+use analysis::AdvancedGameAnalysis;
 use std::path::PathBuf;
 
 impl Storable for AdvancedGameAnalysis {
@@ -39,11 +39,17 @@ impl AdvancedAnalysisStore {
 }
 
 impl crate::persistence::traits::AdvancedAnalysisRepository for AdvancedAnalysisStore {
-    async fn save_analysis(&self, analysis: &analysis::AdvancedGameAnalysis) -> Result<(), PersistenceError> {
+    async fn save_analysis(
+        &self,
+        analysis: &analysis::AdvancedGameAnalysis,
+    ) -> Result<(), PersistenceError> {
         self.save(analysis)
     }
 
-    async fn load_analysis(&self, game_id: &str) -> Result<Option<analysis::AdvancedGameAnalysis>, PersistenceError> {
+    async fn load_analysis(
+        &self,
+        game_id: &str,
+    ) -> Result<Option<analysis::AdvancedGameAnalysis>, PersistenceError> {
         self.load(game_id)
     }
 

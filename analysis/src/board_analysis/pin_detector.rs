@@ -17,9 +17,7 @@ impl TacticalDetector for PinDetector {
             .iter()
             .filter(|pin| {
                 // Keep pins where the pinner belongs to the side that just moved.
-                ctx.after
-                    .colors(perspective)
-                    .has(pin.pinner.from)
+                ctx.after.colors(perspective).has(pin.pinner.from)
             })
             .map(|pin| pin_to_tag(ctx, pin))
             .collect()
@@ -79,7 +77,11 @@ mod tests {
     use crate::board_analysis::attack_map::AttackMap;
     use crate::board_analysis::detector::TacticalContext;
 
-    fn ctx_from_after<'a>(board: &'a Board, attacks: &'a AttackMap, perspective: Color) -> TacticalContext<'a> {
+    fn ctx_from_after<'a>(
+        board: &'a Board,
+        attacks: &'a AttackMap,
+        perspective: Color,
+    ) -> TacticalContext<'a> {
         TacticalContext {
             before: board,
             after: board,

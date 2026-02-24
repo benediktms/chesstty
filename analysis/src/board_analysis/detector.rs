@@ -152,10 +152,7 @@ mod tests {
             Box::new(AlwaysForkDetector),
         ];
 
-        let tags: Vec<TacticalTag> = detectors
-            .iter()
-            .flat_map(|d| d.detect(&ctx))
-            .collect();
+        let tags: Vec<TacticalTag> = detectors.iter().flat_map(|d| d.detect(&ctx)).collect();
 
         assert_eq!(tags.len(), 2);
     }

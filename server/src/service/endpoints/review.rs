@@ -1,35 +1,25 @@
 //! Post-game review endpoints
 
-use analysis::board_analysis::{
-    KingSafetyMetrics, PositionKingSafety, PositionTensionMetrics,
-    TacticalEvidence, TacticalLine, TacticalTag, TacticalTagKind,
-};
+use crate::persistence::Persistence;
+use crate::review::types::{is_white_ply, AnalysisScore, MoveClassification, ReviewStatus};
+use crate::review::ReviewManager;
 use analysis::advanced::types::{
     AdvancedGameAnalysis, AdvancedPositionAnalysis, PsychologicalProfile,
 };
-use crate::persistence::{AdvancedAnalysisRepository, FinishedGameRepository, ReviewRepository};
-use crate::review::types::{is_white_ply, AnalysisScore, MoveClassification, ReviewStatus};
-use crate::review::ReviewManager;
+use analysis::board_analysis::{
+    KingSafetyMetrics, PositionKingSafety, PositionTensionMetrics, TacticalEvidence, TacticalLine,
+    TacticalTag, TacticalTagKind,
+};
 use chess_proto::*;
 use std::sync::Arc;
 use tonic::{Request, Response, Status};
 
-pub struct ReviewEndpoints<F, R, A>
-where
-    F: FinishedGameRepository,
-    R: ReviewRepository,
-    A: AdvancedAnalysisRepository,
-{
-    review_manager: Arc<ReviewManager<F, R, A>>,
+pub struct ReviewEndpoints<D: Persistence> {
+    review_manager: Arc<ReviewManager<D>>,
 }
 
-impl<F, R, A> ReviewEndpoints<F, R, A>
-where
-    F: FinishedGameRepository + Send + Sync + 'static,
-    R: ReviewRepository + Send + Sync + 'static,
-    A: AdvancedAnalysisRepository + Send + Sync + 'static,
-{
-    pub fn new(review_manager: Arc<ReviewManager<F, R, A>>) -> Self {
+impl<D: Persistence> ReviewEndpoints<D> {
+    pub fn new(review_manager: Arc<ReviewManager<D>>) -> Self {
         Self { review_manager }
     }
 
@@ -353,8 +343,16 @@ fn convert_advanced_position_to_proto(
         tension: Some(convert_tension_to_proto(&pos.tension)),
         is_critical: pos.is_critical,
         deep_depth: pos.deep_depth,
-        tactical_tags_before: pos.tactical_tags_before.iter().map(convert_tactical_tag_to_proto).collect(),
-        tactical_tags_after: pos.tactical_tags_after.iter().map(convert_tactical_tag_to_proto).collect(),
+        tactical_tags_before: pos
+            .tactical_tags_before
+            .iter()
+            .map(convert_tactical_tag_to_proto)
+            .collect(),
+        tactical_tags_after: pos
+            .tactical_tags_after
+            .iter()
+            .map(convert_tactical_tag_to_proto)
+            .collect(),
     }
 }
 
@@ -387,7 +385,11 @@ fn convert_tactical_tag_kind(kind: &TacticalTagKind) -> TacticalTagKindProto {
 
 fn convert_tactical_evidence_to_proto(evidence: &TacticalEvidence) -> TacticalEvidenceProto {
     TacticalEvidenceProto {
-        lines: evidence.lines.iter().map(convert_tactical_line_to_proto).collect(),
+        lines: evidence
+            .lines
+            .iter()
+            .map(convert_tactical_line_to_proto)
+            .collect(),
         threatened_pieces: evidence.threatened_pieces.clone(),
         defended_by: evidence.defended_by.clone(),
     }
@@ -472,7 +474,7 @@ fn generate_annotated_pgn(review: &crate::review::types::GameReview) -> String {
     // Moves with annotations
     for pos in review.positions.iter() {
         let is_white = is_white_ply(pos.ply);
-        let move_number = (pos.ply as usize + 1) / 2;
+        let move_number = (pos.ply as usize).div_ceil(2);
 
         if is_white {
             pgn.push_str(&format!("{}. ", move_number));

@@ -2,9 +2,37 @@
 
 use sqlx::SqlitePool;
 
-use crate::persistence::{PersistenceError, SuspendedSessionData};
-use crate::persistence::traits::SessionRepository;
 use super::helpers::normalize_game_mode;
+use crate::persistence::traits::SessionRepository;
+use crate::persistence::{PersistenceError, SuspendedSessionData};
+
+/// Row type for session queries, mapped via `sqlx::FromRow`.
+#[derive(sqlx::FromRow)]
+struct SessionRow {
+    suspended_id: String,
+    fen: String,
+    side_to_move: String,
+    move_count: i64,
+    game_mode: String,
+    human_side: Option<String>,
+    skill_level: i64,
+    created_at: i64,
+}
+
+impl From<SessionRow> for SuspendedSessionData {
+    fn from(r: SessionRow) -> Self {
+        Self {
+            suspended_id: r.suspended_id,
+            fen: r.fen,
+            side_to_move: r.side_to_move,
+            move_count: r.move_count as u32,
+            game_mode: r.game_mode,
+            human_side: r.human_side,
+            skill_level: r.skill_level as u8,
+            created_at: r.created_at as u64,
+        }
+    }
+}
 
 /// SQLite implementation of [`SessionRepository`].
 pub struct SqliteSessionRepository {
@@ -47,67 +75,37 @@ impl SessionRepository for SqliteSessionRepository {
     }
 
     async fn list_sessions(&self) -> Result<Vec<SuspendedSessionData>, PersistenceError> {
-        let rows: Vec<(String, String, String, i64, String, Option<String>, i64, i64)> =
-            sqlx::query_as(
-                r#"
+        let rows: Vec<SessionRow> = sqlx::query_as(
+            r#"
                 SELECT suspended_id, fen, side_to_move, move_count, game_mode,
                        human_side, skill_level, created_at
                 FROM suspended_sessions
                 ORDER BY created_at DESC
                 "#,
-            )
-            .fetch_all(&self.pool)
-            .await?;
+        )
+        .fetch_all(&self.pool)
+        .await?;
 
-        let sessions = rows
-            .into_iter()
-            .map(
-                |(suspended_id, fen, side_to_move, move_count, game_mode, human_side, skill_level, created_at)| {
-                    SuspendedSessionData {
-                        suspended_id,
-                        fen,
-                        side_to_move,
-                        move_count: move_count as u32,
-                        game_mode,
-                        human_side,
-                        skill_level: skill_level as u8,
-                        created_at: created_at as u64,
-                    }
-                },
-            )
-            .collect();
-
-        Ok(sessions)
+        Ok(rows.into_iter().map(SuspendedSessionData::from).collect())
     }
 
-    async fn load_session(&self, id: &str) -> Result<Option<SuspendedSessionData>, PersistenceError> {
-        let row: Option<(String, String, String, i64, String, Option<String>, i64, i64)> =
-            sqlx::query_as(
-                r#"
+    async fn load_session(
+        &self,
+        id: &str,
+    ) -> Result<Option<SuspendedSessionData>, PersistenceError> {
+        let row: Option<SessionRow> = sqlx::query_as(
+            r#"
                 SELECT suspended_id, fen, side_to_move, move_count, game_mode,
                        human_side, skill_level, created_at
                 FROM suspended_sessions
                 WHERE suspended_id = ?
                 "#,
-            )
-            .bind(id)
-            .fetch_optional(&self.pool)
-            .await?;
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await?;
 
-        Ok(row.map(
-            |(suspended_id, fen, side_to_move, move_count, game_mode, human_side, skill_level, created_at)| {
-                SuspendedSessionData {
-                    suspended_id,
-                    fen,
-                    side_to_move,
-                    move_count: move_count as u32,
-                    game_mode,
-                    human_side,
-                    skill_level: skill_level as u8,
-                    created_at: created_at as u64,
-                }
-            },
-        ))
+        Ok(row.map(SuspendedSessionData::from))
     }
 
     async fn delete_session(&self, id: &str) -> Result<(), PersistenceError> {
@@ -163,9 +161,15 @@ mod tests {
     #[tokio::test]
     async fn test_list_ordering() {
         let (_db, repo) = test_db().await;
-        repo.save_session(&sample_session("old", 100)).await.unwrap();
-        repo.save_session(&sample_session("mid", 200)).await.unwrap();
-        repo.save_session(&sample_session("new", 300)).await.unwrap();
+        repo.save_session(&sample_session("old", 100))
+            .await
+            .unwrap();
+        repo.save_session(&sample_session("mid", 200))
+            .await
+            .unwrap();
+        repo.save_session(&sample_session("new", 300))
+            .await
+            .unwrap();
 
         let list = repo.list_sessions().await.unwrap();
         assert_eq!(list.len(), 3);
@@ -177,7 +181,9 @@ mod tests {
     #[tokio::test]
     async fn test_delete_session() {
         let (_db, repo) = test_db().await;
-        repo.save_session(&sample_session("to_delete", 100)).await.unwrap();
+        repo.save_session(&sample_session("to_delete", 100))
+            .await
+            .unwrap();
         repo.delete_session("to_delete").await.unwrap();
         let loaded = repo.load_session("to_delete").await.unwrap();
         assert_eq!(loaded, None);

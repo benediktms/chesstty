@@ -73,7 +73,7 @@ pub fn compute_tension(board: &Board) -> PositionTensionMetrics {
             // For efficiency, we check if the move delivers check by making it on a clone.
             let mut test_board = board.clone();
             test_board.play_unchecked(mv);
-            if test_board.checkers().len() > 0 {
+            if !test_board.checkers().is_empty() {
                 checks_available = checks_available.saturating_add(1);
             }
         }

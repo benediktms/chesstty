@@ -1,7 +1,7 @@
 // Thin shim — re-export everything from the analysis crate
 pub use analysis::{
-    compute_accuracy, AnalysisScore, GameReview, MoveClassification, PositionReview, ReviewStatus,
-    is_white_ply,
+    compute_accuracy, is_white_ply, AnalysisScore, GameReview, MoveClassification, PositionReview,
+    ReviewStatus,
 };
 
 use crate::persistence::Storable;

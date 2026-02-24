@@ -394,7 +394,9 @@ mod tests {
     #[test]
     fn test_timer_tick() {
         let mut state = test_state();
-        state.timer = Some(TimerState::new(100, 100));
+        // Use a large time budget so the sleep cannot overshoot past expiry,
+        // even on slow CI runners.
+        state.timer = Some(TimerState::new(10_000, 10_000));
         state.timer.as_mut().unwrap().start(PlayerSide::White);
 
         // Simulate time passing
@@ -402,6 +404,6 @@ mod tests {
         assert!(!state.tick_timer());
 
         let snap = state.snapshot();
-        assert!(snap.timer.unwrap().white_remaining_ms < 100);
+        assert!(snap.timer.unwrap().white_remaining_ms < 10_000);
     }
 }

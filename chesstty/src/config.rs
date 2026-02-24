@@ -91,15 +91,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_get_socket_path_fallback() {
+    fn test_get_socket_path() {
         let path = get_socket_path();
-        assert_eq!(path, PathBuf::from(DEFAULT_SOCKET_PATH));
+        match std::env::var("CHESSTTY_SOCKET_PATH") {
+            Ok(val) => assert_eq!(path, PathBuf::from(val)),
+            Err(_) => assert_eq!(path, PathBuf::from(DEFAULT_SOCKET_PATH)),
+        }
     }
 
     #[test]
-    fn test_get_pid_path_fallback() {
+    fn test_get_pid_path() {
         let path = get_pid_path();
-        assert_eq!(path, PathBuf::from(DEFAULT_PID_PATH));
+        match std::env::var("CHESSTTY_PID_PATH") {
+            Ok(val) => assert_eq!(path, PathBuf::from(val)),
+            Err(_) => assert_eq!(path, PathBuf::from(DEFAULT_PID_PATH)),
+        }
     }
 
     #[test]

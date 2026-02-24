@@ -131,7 +131,7 @@ pub enum UciDirection {
 impl GameSession {
     /// Create a new client state and session on the server.
     pub async fn new(
-        server_addr: &str,
+        _server_addr: &str,
         fen: Option<String>,
         game_mode_proto: Option<GameModeProto>,
         timer: Option<TimerState>,
@@ -183,7 +183,7 @@ impl GameSession {
 
     /// Create a client state for review mode (no server session created).
     pub async fn new_review(
-        server_addr: &str,
+        _server_addr: &str,
         review: GameReviewProto,
         review_game_mode: Option<GameModeProto>,
         review_skill_level: u8,
@@ -228,14 +228,6 @@ impl GameSession {
     }
 
     // --- Accessors: read from snapshot ---
-
-    pub fn fen(&self) -> &str {
-        if let Some(ref rs) = self.review_state {
-            &rs.fen_at_ply
-        } else {
-            &self.snapshot.fen
-        }
-    }
 
     pub fn board(&self) -> &Board {
         if let Some(ref rs) = self.review_state {
