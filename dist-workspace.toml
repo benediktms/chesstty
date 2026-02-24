@@ -1,0 +1,29 @@
+[workspace]
+members = ["cargo:."]
+
+# Config for 'dist'
+[dist]
+# The preferred dist version to use in CI (Cargo.toml SemVer syntax)
+cargo-dist-version = "0.31.0"
+# CI backends to support
+ci = "github"
+# The installers to generate for each app
+installers = ["shell"]
+# Target platforms to build apps for (Rust target-triple syntax)
+# macOS only for now; Linux targets tracked in ct-tpc
+targets = ["aarch64-apple-darwin", "x86_64-apple-darwin"]
+# Path that installers should place binaries in
+install-path = "CARGO_HOME"
+# Where to host releases
+hosting = "github"
+# Whether to install an updater program
+install-updater = false
+# Build release artifacts on PRs (test the release pipeline)
+pr-run-mode = "upload"
+
+# protoc is required for the proto crate's build.rs (tonic-build)
+[dist.dependencies.homebrew]
+protobuf = { stage = ["build"] }
+
+[dist.dependencies.apt]
+protobuf-compiler = { stage = ["build"] }

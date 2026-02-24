@@ -2,6 +2,7 @@
 name = "client-tui"
 version = "0.1.0"
 edition = "2021"
+repository = "https://github.com/benediktms/chesstty"
 
 [[bin]]
 name = "client-tui"
