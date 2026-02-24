@@ -9,7 +9,9 @@ use std::sync::Arc;
 use analysis::AnalysisConfig;
 use tokio::sync::{mpsc, Mutex, RwLock};
 
-use crate::persistence::{AdvancedAnalysisRepository, FinishedGameRepository, ReviewRepository};
+use crate::persistence::{
+    AdvancedAnalysisRepository, FinishedGameRepository, Persistence, ReviewRepository,
+};
 use types::*;
 
 /// Configuration for the review system.
@@ -36,31 +38,21 @@ impl Default for ReviewConfig {
 ///
 /// Owns a bounded job queue (mpsc channel) and a fixed pool of worker tasks.
 /// Each worker spawns its own StockfishEngine process.
-pub struct ReviewManager<F, R, A>
-where
-    F: FinishedGameRepository,
-    R: ReviewRepository,
-    A: AdvancedAnalysisRepository,
-{
+pub struct ReviewManager<D: Persistence> {
     job_tx: mpsc::Sender<ReviewJob>,
     enqueued: Arc<RwLock<HashSet<String>>>,
-    review_store: Arc<R>,
-    finished_game_store: Arc<F>,
-    advanced_store: Arc<A>,
+    review_store: Arc<D::Reviews>,
+    finished_game_store: Arc<D::FinishedGames>,
+    advanced_store: Arc<D::Advanced>,
     /// Kept alive so the channel stays open even if no workers are spawned.
     _job_rx: Arc<Mutex<mpsc::Receiver<ReviewJob>>>,
 }
 
-impl<F, R, A> ReviewManager<F, R, A>
-where
-    F: FinishedGameRepository + Send + Sync + 'static,
-    R: ReviewRepository + Send + Sync + 'static,
-    A: AdvancedAnalysisRepository + Send + Sync + 'static,
-{
+impl<D: Persistence> ReviewManager<D> {
     pub fn new(
-        finished_game_store: Arc<F>,
-        review_store: Arc<R>,
-        advanced_store: Arc<A>,
+        finished_game_store: Arc<D::FinishedGames>,
+        review_store: Arc<D::Reviews>,
+        advanced_store: Arc<D::Advanced>,
         config: ReviewConfig,
     ) -> Self {
         let (job_tx, job_rx) = mpsc::channel::<ReviewJob>(64);
@@ -80,7 +72,7 @@ where
             let depth = config.analysis_depth;
             let analysis_config = config.analysis.clone();
             tokio::spawn(async move {
-                worker::run_review_worker(
+                worker::run_review_worker::<D>(
                     worker_id,
                     rx,
                     store,
@@ -314,7 +306,9 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::persistence::{FinishedGameData, FinishedGameStore, StoredMoveRecord};
+    use crate::persistence::{
+        FinishedGameData, FinishedGameStore, JsonPersistence, StoredMoveRecord,
+    };
     use crate::review::advanced::AdvancedAnalysisStore;
     use crate::review::store::ReviewStore;
 
@@ -339,7 +333,7 @@ mod tests {
         finished: Arc<FinishedGameStore>,
         reviews: Arc<ReviewStore>,
         advanced: Arc<AdvancedAnalysisStore>,
-    ) -> ReviewManager<FinishedGameStore, ReviewStore, AdvancedAnalysisStore> {
+    ) -> ReviewManager<JsonPersistence> {
         ReviewManager::new(
             finished,
             reviews,
@@ -358,7 +352,7 @@ mod tests {
         finished: Arc<FinishedGameStore>,
         reviews: Arc<ReviewStore>,
         advanced: Arc<AdvancedAnalysisStore>,
-    ) -> ReviewManager<FinishedGameStore, ReviewStore, AdvancedAnalysisStore> {
+    ) -> ReviewManager<JsonPersistence> {
         let (job_tx, job_rx) = mpsc::channel::<ReviewJob>(1);
         // Drop receiver immediately so all sends fail
         drop(job_rx);
@@ -776,7 +770,7 @@ mod tests {
         let (finished, reviews, advanced) = test_stores();
         finished.save(&sample_finished_game("game_1")).unwrap();
 
-        let mgr = ReviewManager::new(
+        let mgr = ReviewManager::<JsonPersistence>::new(
             finished,
             reviews.clone(),
             advanced.clone(),

@@ -63,13 +63,13 @@ pub fn compute_advanced_analysis(
         // King safety (from the resulting position)
         let king_safety = board_after
             .as_ref()
-            .map(|board| compute_king_safety(board))
+            .map(compute_king_safety)
             .unwrap_or_else(empty_king_safety);
 
         // Position tension (from the resulting position)
         let tension = board_after
             .as_ref()
-            .map(|board| compute_tension(board))
+            .map(compute_tension)
             .unwrap_or_else(empty_tension);
 
         // Critical position detection

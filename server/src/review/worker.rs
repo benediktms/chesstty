@@ -5,25 +5,22 @@ use analysis::AnalysisConfig;
 use engine::{EngineCommand, EngineEvent, GoParams, StockfishConfig, StockfishEngine};
 use tokio::sync::{mpsc, Mutex, RwLock};
 
-use crate::persistence::{AdvancedAnalysisRepository, ReviewRepository};
+use crate::persistence::{AdvancedAnalysisRepository, Persistence, ReviewRepository};
 
 use super::advanced::compute_advanced_analysis;
 use super::types::*;
 
 /// A long-lived worker task. Receives jobs from the shared channel,
 /// processes them one at a time.
-pub async fn run_review_worker<R, A>(
+pub async fn run_review_worker<D: Persistence>(
     worker_id: usize,
     job_rx: Arc<Mutex<mpsc::Receiver<ReviewJob>>>,
-    store: Arc<R>,
-    advanced_store: Arc<A>,
+    store: Arc<D::Reviews>,
+    advanced_store: Arc<D::Advanced>,
     enqueued: Arc<RwLock<HashSet<String>>>,
     analysis_depth: u32,
     analysis_config: AnalysisConfig,
-) where
-    R: ReviewRepository + Send + Sync + 'static,
-    A: AdvancedAnalysisRepository + Send + Sync + 'static,
-{
+) {
     tracing::info!(worker_id, "Review worker started");
 
     loop {
@@ -42,7 +39,7 @@ pub async fn run_review_worker<R, A>(
 
         tracing::info!(worker_id, game_id = %job.game_id, plies = job.game_data.moves.len(), "Starting review analysis");
 
-        let result = analyze_game(
+        let result = analyze_game::<D>(
             worker_id,
             &job,
             store.as_ref(),
@@ -85,18 +82,14 @@ pub async fn run_review_worker<R, A>(
 /// Pipeline:
 ///   Phase 1 — Engine analysis of each position (at configured depth)
 ///   Phase 2+4 — Board geometry metrics + psychological profiling (via analysis crate)
-async fn analyze_game<R, A>(
+async fn analyze_game<D: Persistence>(
     worker_id: usize,
     job: &ReviewJob,
-    store: &R,
-    advanced_store: &A,
+    store: &D::Reviews,
+    advanced_store: &D::Advanced,
     analysis_depth: u32,
     analysis_config: &AnalysisConfig,
-) -> Result<(), String>
-where
-    R: ReviewRepository + Send + Sync,
-    A: AdvancedAnalysisRepository + Send + Sync,
-{
+) -> Result<(), String> {
     let game = &job.game_data;
     let total_plies = game.moves.len() as u32;
 
@@ -420,6 +413,15 @@ fn uci_to_san(fen: &str, uci: &str) -> String {
     chess::format_move_as_san(&board, mv)
 }
 
+/// Check if a position is checkmate (as opposed to stalemate).
+fn is_checkmate(fen: &str) -> bool {
+    if let Ok(board) = fen.parse::<cozy_chess::Board>() {
+        board.status() == cozy_chess::GameStatus::Won
+    } else {
+        false
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -489,14 +491,5 @@ mod tests {
     #[test]
     fn test_not_terminal_ongoing() {
         assert!(!is_terminal_position(START_FEN));
-    }
-}
-
-/// Check if a position is checkmate (as opposed to stalemate).
-fn is_checkmate(fen: &str) -> bool {
-    if let Ok(board) = fen.parse::<cozy_chess::Board>() {
-        board.status() == cozy_chess::GameStatus::Won
-    } else {
-        false
     }
 }

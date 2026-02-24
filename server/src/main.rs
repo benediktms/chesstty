@@ -7,8 +7,8 @@ mod session;
 use chess_proto::chess_service_server::ChessServiceServer;
 use persistence::sqlite::{
     migrate_json_to_sqlite, Database, SqliteAdvancedAnalysisRepository,
-    SqliteFinishedGameRepository, SqlitePositionRepository, SqliteReviewRepository,
-    SqliteSessionRepository,
+    SqliteFinishedGameRepository, SqlitePersistence, SqlitePositionRepository,
+    SqliteReviewRepository, SqliteSessionRepository,
 };
 use service::ChessServiceImpl;
 use session::SessionManager;
@@ -59,14 +59,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ));
 
     // Create session manager
-    let session_manager = Arc::new(SessionManager::new(
+    let session_manager = Arc::new(SessionManager::<SqlitePersistence>::new(
         session_store,
         position_store,
         finished_game_store.clone(),
     ));
 
     // Create review manager
-    let review_manager = Arc::new(review::ReviewManager::new(
+    let review_manager = Arc::new(review::ReviewManager::<SqlitePersistence>::new(
         finished_game_store,
         review_store,
         advanced_store,

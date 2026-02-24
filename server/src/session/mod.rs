@@ -13,8 +13,8 @@ use tokio::sync::{broadcast, mpsc, RwLock};
 use uuid::Uuid;
 
 use crate::persistence::{
-    self, FinishedGameData, FinishedGameRepository, PositionRepository, SavedPositionData,
-    SessionRepository, StoredMoveRecord, SuspendedSessionData,
+    self, FinishedGameData, FinishedGameRepository, Persistence, PositionRepository,
+    SavedPositionData, SessionRepository, StoredMoveRecord, SuspendedSessionData,
 };
 use actor::run_session_actor;
 pub use events::{SessionEvent, UciDirection};
@@ -23,20 +23,19 @@ pub use snapshot::{SessionSnapshot, TimerSnapshot};
 use state::SessionState;
 
 /// Manages all active sessions. Spawns an actor task per session.
-pub struct SessionManager<S: SessionRepository, P: PositionRepository, F: FinishedGameRepository> {
+pub struct SessionManager<D: Persistence> {
     sessions: RwLock<HashMap<String, SessionHandle>>,
-    store: S,
-    position_store: P,
-    finished_game_store: Arc<F>,
+    store: D::Sessions,
+    position_store: D::Positions,
+    finished_game_store: Arc<D::FinishedGames>,
 }
 
-impl<S, P, F> SessionManager<S, P, F>
-where
-    S: SessionRepository + Send + Sync + 'static,
-    P: PositionRepository + Send + Sync + 'static,
-    F: FinishedGameRepository + Send + Sync + 'static,
-{
-    pub fn new(store: S, position_store: P, finished_game_store: Arc<F>) -> Self {
+impl<D: Persistence> SessionManager<D> {
+    pub fn new(
+        store: D::Sessions,
+        position_store: D::Positions,
+        finished_game_store: Arc<D::FinishedGames>,
+    ) -> Self {
         Self {
             sessions: RwLock::new(HashMap::new()),
             store,
@@ -348,18 +347,15 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::persistence::{FinishedGameStore, PositionStore, SessionStore};
+    use crate::persistence::{FinishedGameStore, JsonPersistence, PositionStore, SessionStore};
     use std::sync::Arc;
 
-    fn test_manager() -> SessionManager<SessionStore, PositionStore, FinishedGameStore> {
+    fn test_manager() -> SessionManager<JsonPersistence> {
         let (mgr, _) = test_manager_with_store();
         mgr
     }
 
-    fn test_manager_with_store() -> (
-        SessionManager<SessionStore, PositionStore, FinishedGameStore>,
-        Arc<FinishedGameStore>,
-    ) {
+    fn test_manager_with_store() -> (SessionManager<JsonPersistence>, Arc<FinishedGameStore>) {
         let dir = tempfile::tempdir().unwrap();
         let store = SessionStore::new(dir.path().to_path_buf());
         let position_store = PositionStore::new(dir.path().to_path_buf(), None);

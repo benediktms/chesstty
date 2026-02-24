@@ -1,6 +1,6 @@
 //! Post-game review endpoints
 
-use crate::persistence::{AdvancedAnalysisRepository, FinishedGameRepository, ReviewRepository};
+use crate::persistence::Persistence;
 use crate::review::types::{is_white_ply, AnalysisScore, MoveClassification, ReviewStatus};
 use crate::review::ReviewManager;
 use analysis::advanced::types::{
@@ -14,22 +14,12 @@ use chess_proto::*;
 use std::sync::Arc;
 use tonic::{Request, Response, Status};
 
-pub struct ReviewEndpoints<F, R, A>
-where
-    F: FinishedGameRepository,
-    R: ReviewRepository,
-    A: AdvancedAnalysisRepository,
-{
-    review_manager: Arc<ReviewManager<F, R, A>>,
+pub struct ReviewEndpoints<D: Persistence> {
+    review_manager: Arc<ReviewManager<D>>,
 }
 
-impl<F, R, A> ReviewEndpoints<F, R, A>
-where
-    F: FinishedGameRepository + Send + Sync + 'static,
-    R: ReviewRepository + Send + Sync + 'static,
-    A: AdvancedAnalysisRepository + Send + Sync + 'static,
-{
-    pub fn new(review_manager: Arc<ReviewManager<F, R, A>>) -> Self {
+impl<D: Persistence> ReviewEndpoints<D> {
+    pub fn new(review_manager: Arc<ReviewManager<D>>) -> Self {
         Self { review_manager }
     }
 
@@ -484,7 +474,7 @@ fn generate_annotated_pgn(review: &crate::review::types::GameReview) -> String {
     // Moves with annotations
     for pos in review.positions.iter() {
         let is_white = is_white_ply(pos.ply);
-        let move_number = (pos.ply as usize + 1) / 2;
+        let move_number = (pos.ply as usize).div_ceil(2);
 
         if is_white {
             pgn.push_str(&format!("{}. ", move_number));
