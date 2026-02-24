@@ -13,7 +13,7 @@
 //!
 //! The shim coordinates three processes:
 //! - **chesstty-server** (or `cargo run -p chesstty-server`): the gRPC analysis engine,
-//!   spawned as a detached background process whose PID is recorded in a PID file.
+//!   daemonized via double-fork + exec whose PID is recorded in a PID file.
 //! - **client-tui** (or `cargo run -p client-tui`): the terminal UI, run in the
 //!   foreground; the shim exits when the TUI exits.
 //! - **chesstty** (this binary): the supervisor shim that wires the two together.
@@ -21,17 +21,24 @@
 //! Communication between the shim and the server uses a Unix domain socket whose
 //! path is controlled by the `CHESSTTY_SOCKET_PATH` environment variable (see
 //! [`config`] for all tunables).
+//!
+//! # Fork safety
+//!
+//! The `main()` function is intentionally **sync** (no `#[tokio::main]`).
+//! All fork/daemon logic runs before any tokio runtime is created, because
+//! forking a multi-threaded process is undefined behavior. The tokio runtime
+//! is created manually *after* the fork boundary, only in the parent path.
 
-
-use std::fs::OpenOptions;
-use std::process::{Command, Stdio};
+use std::fs::File;
 use std::path::PathBuf;
+use std::process::Command;
 use std::time::Duration;
 
 use clap::{Parser, Subcommand};
 
 mod config;
 mod daemon;
+mod process;
 mod wait;
 
 /// Top-level CLI arguments for ChessTTY.
@@ -115,123 +122,94 @@ fn resolve_sibling_binary(name: &str) -> PathBuf {
     PathBuf::from(name)
 }
 
-/// Build the `(stdout, stderr)` `Stdio` pair that the server process should inherit.
+/// Spawn the chess engine server as a daemonized background process.
 ///
-/// If `log_path` is `/dev/null`, both streams are discarded via [`Stdio::null`].
-/// Otherwise the file at `log_path` is opened (or created) in append mode and
-/// both stdout and stderr are directed to it, so all server output lands in a
-/// single log file.
+/// Uses the classic fork + [`daemon::Daemon`] (double-fork) + exec pattern:
 ///
-/// # Errors
+/// 1. Clean up stale PID file and socket.
+/// 2. `fork()` — the child daemonizes, the parent waits for the child to exit
+///    and then returns.
+/// 3. **Child path**: calls [`daemon::Daemon::start`] which performs a
+///    double-fork, `setsid`, IO redirection, and PID file write. The resulting
+///    daemon process then `exec`s into the `chesstty-server` binary (with a
+///    `cargo run` fallback for development).
+/// 4. **Parent path**: `waitpid` on the direct child (which exits quickly after
+///    the daemon's first fork) and returns to the caller.
 ///
-/// Returns [`CliError::ProcessError`] if the log file cannot be opened or cloned.
-fn server_log_stdio_for_path(log_path: &std::path::Path) -> Result<(Stdio, Stdio), CliError> {
-    if log_path == std::path::Path::new("/dev/null") {
-        return Ok((Stdio::null(), Stdio::null()));
-    }
-
-    let stdout_file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(log_path)
-        .map_err(|e| CliError::ProcessError(format!("failed to open server log file: {}", e)))?;
-
-    let stderr_file = stdout_file
-        .try_clone()
-        .map_err(|e| CliError::ProcessError(format!("failed to clone server log file: {}", e)))?;
-
-    Ok((Stdio::from(stdout_file), Stdio::from(stderr_file)))
-}
-
-/// Build the `(stdout, stderr)` `Stdio` pair using the configured server log path.
+/// # Safety
 ///
-/// Reads the log path from [`config::get_server_log_path`] (which honours the
-/// `CHESSTTY_SERVER_LOG_PATH` environment variable) and delegates to
-/// [`server_log_stdio_for_path`].
+/// The `fork()` and `waitpid()` calls require that no tokio runtime (or any
+/// multi-threaded runtime) exists at call time. The caller (`main`) is sync
+/// and single-threaded, satisfying this invariant.
 ///
 /// # Errors
 ///
-/// Propagates any error from [`server_log_stdio_for_path`].
-fn server_log_stdio() -> Result<(Stdio, Stdio), CliError> {
-    let log_path = config::get_server_log_path();
-    server_log_stdio_for_path(&log_path)
-}
-
-/// Spawn the chess engine server as a detached background process.
-///
-/// Resolution strategy (tried in order):
-/// 1. Look for a `chesstty-server` binary next to the current executable via
-///    [`resolve_sibling_binary`].
-/// 2. If that binary is not found (`NotFound` I/O error), fall back to
-///    `cargo run -p chesstty-server` for development workflows.
-///
-/// The server's stdout and stderr are redirected to the configured log file
-/// (see [`server_log_stdio`]). The spawned child's PID is recorded in the PID
-/// file returned by [`config::get_pid_path`] so that [`handle_engine_stop`] can
-/// signal it later.
-///
-/// # Errors
-///
-/// Returns [`CliError::ProcessError`] if the server binary (and the cargo
-/// fallback) both fail to spawn, or if the PID file cannot be written.
+/// Returns [`CliError::ProcessError`] if `fork()` fails.
 fn spawn_server() -> Result<(), CliError> {
     let pid_path = config::get_pid_path();
+    let log_path = config::get_server_log_path();
 
-    // Remove stale PID file if it exists
-    let _ = daemon::remove_stale_pid(&pid_path);
+    // Clean up stale state
+    let _ = process::remove_stale_pid(&pid_path);
+    let socket_path = config::get_socket_path();
+    if socket_path.exists() {
+        let _ = std::fs::remove_file(&socket_path);
+    }
 
-    let server_bin = resolve_sibling_binary("chesstty-server");
-    let (stdout_stdio, stderr_stdio) = server_log_stdio()?;
-    let child = match Command::new(&server_bin)
-        .stdin(Stdio::null())
-        .stdout(stdout_stdio)
-        .stderr(stderr_stdio)
-        .spawn()
-    {
-        Ok(child) => child,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            let (fallback_stdout, fallback_stderr) = server_log_stdio()?;
-            Command::new("cargo")
-                .args(["run", "-p", "chesstty-server"])
-                .stdin(Stdio::null())
-                .stdout(fallback_stdout)
-                .stderr(fallback_stderr)
-                .spawn()
-                .map_err(|spawn_err| {
-                    CliError::ProcessError(format!(
-                        "failed to spawn server (binary: {}, cargo fallback: {})",
-                        e, spawn_err
-                    ))
-                })?
+    // Fork — child becomes daemon, parent continues.
+    // SAFETY: No tokio runtime exists yet (main is sync). Single-threaded.
+    let child_pid = unsafe { libc::fork() };
+    match child_pid {
+        -1 => Err(CliError::ProcessError(format!(
+            "fork failed: {}",
+            std::io::Error::last_os_error()
+        ))),
+        0 => {
+            // === CHILD PATH ===
+            // Daemonize via builder (double-fork, setsid, IO redirect, PID write).
+            let stdout = File::create(&log_path)
+                .unwrap_or_else(|_| File::open("/dev/null").unwrap());
+            let stderr = stdout
+                .try_clone()
+                .unwrap_or_else(|_| File::open("/dev/null").unwrap());
+
+            if let Err(e) = daemon::Daemon::new()
+                .pid_file(&pid_path)
+                .working_directory("/tmp")
+                .umask(0o027)
+                .stdout(stdout)
+                .stderr(stderr)
+                .start()
+            {
+                eprintln!("Daemon start failed: {}", e);
+                std::process::exit(1);
+            }
+
+            // We are now the daemon (grandchild). Exec into server binary.
+            use std::os::unix::process::CommandExt;
+            let server_bin = resolve_sibling_binary("chesstty-server");
+            let err = Command::new(&server_bin).exec();
+
+            // exec() only returns on failure — try cargo fallback
+            if err.kind() == std::io::ErrorKind::NotFound {
+                let err = Command::new("cargo")
+                    .args(["run", "-p", "chesstty-server"])
+                    .exec();
+                eprintln!("Failed to exec server (cargo fallback): {}", err);
+            } else {
+                eprintln!("Failed to exec server binary: {}", err);
+            }
+            std::process::exit(1);
         }
-        Err(e) => {
-            return Err(CliError::ProcessError(format!(
-                "failed to spawn server binary: {}",
-                e
-            )))
+        _ => {
+            // === PARENT PATH (shim) ===
+            // Wait for the first child to exit (it exits quickly after Daemon fork).
+            // SAFETY: waitpid on our direct child is safe.
+            let mut status: libc::c_int = 0;
+            unsafe { libc::waitpid(child_pid, &mut status, 0) };
+            // Parent continues — the daemon is running independently.
+            Ok(())
         }
-    };
-
-    // Write the PID to the PID file
-    let pid = child.id();
-    std::fs::write(&pid_path, format!("{}\n", pid))
-        .map_err(|e| CliError::ProcessError(format!("failed to write PID file: {}", e)))?;
-
-    Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::server_log_stdio_for_path;
-
-    #[test]
-    fn test_server_log_stdio_creates_log_file_for_path_sink() {
-        let tempdir = tempfile::tempdir().expect("failed to create temp dir");
-        let log_path = tempdir.path().join("server.log");
-
-        assert!(!log_path.exists());
-        let _ = server_log_stdio_for_path(&log_path).expect("failed to create log stdio");
-        assert!(log_path.exists());
     }
 }
 
@@ -319,13 +297,13 @@ fn handle_engine_stop(force: bool) -> Result<(), CliError> {
     let pid_path = config::get_pid_path();
 
     // Check if server is running
-    if !daemon::is_server_running(&pid_path) {
+    if !process::is_server_running(&pid_path) {
         println!("Server is not running.");
         return Ok(());
     }
 
     // Read the PID and send the appropriate signal
-    let pid = daemon::read_pid(&pid_path)
+    let pid = process::read_pid(&pid_path)
         .map_err(|e| CliError::ProcessError(format!("failed to read PID: {}", e)))?;
 
     let signal = if force {
@@ -355,21 +333,26 @@ fn handle_engine_stop(force: bool) -> Result<(), CliError> {
 
 /// Entry point for the ChessTTY shim.
 ///
+/// This function is intentionally **sync** — no `#[tokio::main]`. All
+/// fork/daemon logic in [`spawn_server`] must execute before any multi-threaded
+/// runtime exists (forking a tokio runtime is undefined behavior). The tokio
+/// runtime is created manually after the fork boundary, solely for the async
+/// socket-readiness wait.
+///
 /// Overall flow when no subcommand is given:
 /// 1. Parse the command line with [`Cli`].
-/// 2. If the server is not already running, call [`spawn_server`].
-/// 3. Wait for the server's Unix socket to be connectable ([`wait_for_server_socket`]).
+/// 2. If the server is not already running, call [`spawn_server`] (fork + daemon + exec).
+/// 3. Create a tokio runtime and wait for the server's Unix socket ([`wait_for_server_socket`]).
 /// 4. Launch the TUI with [`spawn_tui_client`] and block until it exits.
 ///
 /// When the `engine stop` subcommand is given, delegates directly to
-/// [`handle_engine_stop`].
+/// [`handle_engine_stop`] — no runtime needed.
 ///
 /// # Errors
 ///
 /// Propagates any [`CliError`] returned by the steps above, causing the process
 /// to exit with a non-zero status code.
-#[tokio::main]
-async fn main() -> Result<(), CliError> {
+fn main() -> Result<(), CliError> {
     // Initialize logging
     tracing_subscriber::fmt()
         .with_max_level(tracing::Level::INFO)
@@ -392,7 +375,7 @@ async fn main() -> Result<(), CliError> {
             tracing::debug!("PID file: {:?}", pid_path);
 
             // Check if server is already running
-            let server_running = daemon::is_server_running(&pid_path);
+            let server_running = process::is_server_running(&pid_path);
 
             if !server_running {
                 tracing::info!("Server not running, starting...");
@@ -402,12 +385,17 @@ async fn main() -> Result<(), CliError> {
                 tracing::info!("Server already running.");
             }
 
+            // Create tokio runtime AFTER fork boundary.
+            // SAFETY invariant: no runtime existed during spawn_server().
+            let rt = tokio::runtime::Runtime::new()
+                .map_err(|e| CliError::ProcessError(format!("failed to create runtime: {}", e)))?;
+
             // Wait for socket to be ready
             tracing::info!("Waiting for server socket...");
-            wait_for_server_socket().await?;
+            rt.block_on(wait_for_server_socket())?;
             tracing::info!("Server socket ready.");
 
-            // Spawn TUI client
+            // Spawn TUI client (sync — doesn't need tokio)
             tracing::info!("Starting TUI client...");
             spawn_tui_client()?;
 

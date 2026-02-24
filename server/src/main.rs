@@ -15,6 +15,7 @@ use persistence::sqlite::{
 use service::ChessServiceImpl;
 use session::SessionManager;
 use std::sync::Arc;
+use tokio::signal::unix::{signal, SignalKind};
 use tonic::transport::Server;
 
 #[tokio::main]
@@ -89,11 +90,37 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     tracing::info!("Server listening on {}", socket_path.display());
 
-    // Start server
-    Server::builder()
+    // Set up signal handlers for graceful shutdown
+    let mut sigterm = signal(SignalKind::terminate())?;
+    let mut sigint = signal(SignalKind::interrupt())?;
+
+    // Start server with signal handling
+    let server_future = Server::builder()
         .add_service(ChessServiceServer::new(service))
-        .serve_with_incoming(uds_stream)
-        .await?;
+        .serve_with_incoming(uds_stream);
+
+    tokio::select! {
+        result = server_future => {
+            if let Err(e) = result {
+                tracing::error!("Server error: {}", e);
+            }
+        }
+        _ = sigterm.recv() => {
+            tracing::info!("Received SIGTERM, shutting down gracefully");
+        }
+        _ = sigint.recv() => {
+            tracing::info!("Received SIGINT, shutting down gracefully");
+        }
+    }
+
+    // Cleanup socket file
+    tracing::info!("Cleaning up...");
+    if socket_path.exists() {
+        if let Err(e) = std::fs::remove_file(&socket_path) {
+            tracing::warn!("Failed to remove socket file: {}", e);
+        }
+    }
+    tracing::info!("Server shut down");
 
     Ok(())
 }

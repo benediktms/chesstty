@@ -11,9 +11,14 @@ The chesstty binary acts as a process supervisor and orchestrator. It manages th
 ```
 chesstty (no args)
   ├── Check if server is running (PID file + kill(pid, 0))
-  ├── If not running: spawn chesstty-server as background process
-  │   └── Fallback: if binary not found, use `cargo run -p chesstty-server`
-  ├── Wait for UDS socket to become ready (poll with timeout)
+  ├── If not running: daemonize chesstty-server via fork + Daemon (double-fork) + exec
+  │   ├── fork() — child daemonizes, parent waits for child to exit
+  │   ├── Child: Daemon::start() (setsid, double-fork, IO redirect, PID file write)
+  │   ├── Daemon (grandchild): exec() into chesstty-server binary
+  │   │   └── Fallback: if binary not found, exec `cargo run -p chesstty-server`
+  │   └── Parent: waitpid() on child, then continues
+  ├── Create tokio runtime (AFTER fork boundary — fork safety)
+  ├── Wait for UDS socket to become ready (async poll with timeout)
   ├── Spawn client-tui in foreground
   │   └── Fallback: if binary not found, use `cargo run -p client-tui`
   └── Wait for TUI to exit, propagate exit status
@@ -52,7 +57,7 @@ Immediately kills the server via SIGKILL (for stuck processes).
 
 The shim coordinates three components:
 
-- **chesstty-server**: The gRPC analysis engine, spawned as a detached background process with its PID recorded in a PID file
+- **chesstty-server**: The gRPC analysis engine, daemonized via double-fork + exec with its PID recorded in a PID file
 - **client-tui**: The terminal UI, run in the foreground; the shim exits when the TUI exits
 - **chesstty** (this binary): The supervisor that wires them together
 
@@ -110,7 +115,15 @@ Configuration functions:
 
 ### daemon.rs
 
-Process management utilities for detecting and controlling the server.
+UNIX double-fork daemon builder. Implements the classic daemonization sequence (fork, setsid, fork, umask, chdir, IO redirect, PID file write) without external crates — all syscalls go through `libc` directly.
+
+Key types:
+- `Daemon` - Builder-pattern API for daemonizing a process
+- `DaemonError` - Typed errors for each step of the daemonization sequence
+
+### process.rs
+
+PID file operations for detecting and managing the server process.
 
 Key functions:
 - `read_pid(pid_path)` - Reads a PID from a file
@@ -155,16 +168,18 @@ chesstty
 
 ### Startup Sequence
 
-1. Parse CLI arguments (only `engine stop` or default startup)
+1. Parse CLI arguments in sync context (no tokio runtime yet — fork safety)
 2. Get configuration from environment variables
 3. Check if server is running by reading PID file and calling `kill(pid, 0)`
 4. If not running:
-   - Remove any stale PID files
-   - Try to spawn `chesstty-server` binary (or `cargo run -p chesstty-server` as fallback)
-   - Write the server's PID to the PID file
-5. Wait for the server's UDS socket to become available (with timeout)
-6. Spawn `client-tui` in the foreground (or `cargo run -p client-tui` as fallback)
-7. Wait for the TUI to exit and propagate its exit status
+   - Remove any stale PID files and socket
+   - `fork()` — child daemonizes via `Daemon::start()` (double-fork, setsid, IO redirect, PID write)
+   - Daemon (grandchild) `exec()`s into `chesstty-server` (or `cargo run -p chesstty-server` as fallback)
+   - Parent `waitpid()`s on child and continues
+5. Create tokio runtime manually (MUST happen after fork boundary)
+6. Wait for the server's UDS socket to become available (async poll with timeout)
+7. Spawn `client-tui` in the foreground (or `cargo run -p client-tui` as fallback)
+8. Wait for the TUI to exit and propagate its exit status
 
 ### Shutdown Sequence (engine stop)
 
@@ -197,9 +212,8 @@ cargo test -p chesstty
 
 Tests are co-located with source code:
 
-- **main.rs** - Log file creation and server stdio setup
 - **config.rs** - Environment variable parsing and defaults
-- **daemon.rs** - PID file operations, process existence checks
+- **process.rs** - PID file operations, process existence checks, stale PID cleanup
 - **wait.rs** - Socket polling with timeout and reconnection logic
 
 ## Logging
