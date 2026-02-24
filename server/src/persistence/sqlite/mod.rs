@@ -48,3 +48,17 @@ pub use migrate_json::migrate_json_to_sqlite;
 pub use position_repo::SqlitePositionRepository;
 pub use review_repo::SqliteReviewRepository;
 pub use session_repo::SqliteSessionRepository;
+
+/// Production persistence provider backed by SQLite.
+///
+/// Implements [`super::Persistence`] by mapping each associated type to the
+/// corresponding `Sqlite*Repository`.
+pub struct SqlitePersistence;
+
+impl crate::persistence::Persistence for SqlitePersistence {
+    type Sessions = SqliteSessionRepository;
+    type Positions = SqlitePositionRepository;
+    type FinishedGames = SqliteFinishedGameRepository;
+    type Reviews = SqliteReviewRepository;
+    type Advanced = SqliteAdvancedAnalysisRepository;
+}

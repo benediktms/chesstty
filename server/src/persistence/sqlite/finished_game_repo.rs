@@ -6,6 +6,65 @@ use super::helpers::normalize_game_mode;
 use crate::persistence::traits::FinishedGameRepository;
 use crate::persistence::{FinishedGameData, PersistenceError, StoredMoveRecord};
 
+/// Row type for game queries, mapped via `sqlx::FromRow`.
+#[derive(sqlx::FromRow)]
+struct GameRow {
+    game_id: String,
+    start_fen: String,
+    result: String,
+    result_reason: String,
+    game_mode: String,
+    human_side: Option<String>,
+    skill_level: i64,
+    move_count: i64,
+    created_at: i64,
+}
+
+impl GameRow {
+    fn into_finished_game(self, moves: Vec<StoredMoveRecord>) -> FinishedGameData {
+        FinishedGameData {
+            game_id: self.game_id,
+            start_fen: self.start_fen,
+            result: self.result,
+            result_reason: self.result_reason,
+            game_mode: self.game_mode,
+            human_side: self.human_side,
+            skill_level: self.skill_level as u8,
+            move_count: self.move_count as u32,
+            moves,
+            created_at: self.created_at as u64,
+        }
+    }
+}
+
+/// Row type for move queries, mapped via `sqlx::FromRow`.
+#[derive(sqlx::FromRow)]
+struct MoveRow {
+    mv_from: String,
+    mv_to: String,
+    piece: String,
+    captured: Option<String>,
+    promotion: Option<String>,
+    san: String,
+    fen_after: String,
+    clock_ms: Option<i64>,
+}
+
+impl From<MoveRow> for StoredMoveRecord {
+    fn from(r: MoveRow) -> Self {
+        Self {
+            from: r.mv_from,
+            to: r.mv_to,
+            piece: r.piece,
+            captured: r.captured,
+            promotion: r.promotion,
+            san: r.san,
+            fen_after: r.fen_after,
+            clock_ms: r.clock_ms.map(|v| v as u64),
+        }
+    }
+}
+
 /// SQLite implementation of [`FinishedGameRepository`].
 pub struct SqliteFinishedGameRepository {
     pool: SqlitePool,
@@ -82,17 +141,7 @@ impl FinishedGameRepository for SqliteFinishedGameRepository {
     }
 
     async fn list_games(&self) -> Result<Vec<FinishedGameData>, PersistenceError> {
-        let game_rows: Vec<(
-            String,
-            String,
-            String,
-            String,
-            String,
-            Option<String>,
-            i64,
-            i64,
-            i64,
-        )> = sqlx::query_as(
+        let game_rows: Vec<GameRow> = sqlx::query_as(
             r#"
                 SELECT game_id, start_fen, result, result_reason, game_mode,
                        human_side, skill_level, move_count, created_at
@@ -104,48 +153,16 @@ impl FinishedGameRepository for SqliteFinishedGameRepository {
         .await?;
 
         let mut games = Vec::with_capacity(game_rows.len());
-        for (
-            game_id,
-            start_fen,
-            result,
-            result_reason,
-            game_mode,
-            human_side,
-            skill_level,
-            move_count,
-            created_at,
-        ) in game_rows
-        {
-            let moves = load_moves_for_game(&self.pool, &game_id).await?;
-            games.push(FinishedGameData {
-                game_id,
-                start_fen,
-                result,
-                result_reason,
-                game_mode,
-                human_side,
-                skill_level: skill_level as u8,
-                move_count: move_count as u32,
-                moves,
-                created_at: created_at as u64,
-            });
+        for row in game_rows {
+            let moves = load_moves_for_game(&self.pool, &row.game_id).await?;
+            games.push(row.into_finished_game(moves));
         }
 
         Ok(games)
     }
 
     async fn load_game(&self, id: &str) -> Result<Option<FinishedGameData>, PersistenceError> {
-        let row: Option<(
-            String,
-            String,
-            String,
-            String,
-            String,
-            Option<String>,
-            i64,
-            i64,
-            i64,
-        )> = sqlx::query_as(
+        let row: Option<GameRow> = sqlx::query_as(
             r#"
                 SELECT game_id, start_fen, result, result_reason, game_mode,
                        human_side, skill_level, move_count, created_at
@@ -159,30 +176,9 @@ impl FinishedGameRepository for SqliteFinishedGameRepository {
 
         match row {
             None => Ok(None),
-            Some((
-                game_id,
-                start_fen,
-                result,
-                result_reason,
-                game_mode,
-                human_side,
-                skill_level,
-                move_count,
-                created_at,
-            )) => {
-                let moves = load_moves_for_game(&self.pool, &game_id).await?;
-                Ok(Some(FinishedGameData {
-                    game_id,
-                    start_fen,
-                    result,
-                    result_reason,
-                    game_mode,
-                    human_side,
-                    skill_level: skill_level as u8,
-                    move_count: move_count as u32,
-                    moves,
-                    created_at: created_at as u64,
-                }))
+            Some(r) => {
+                let moves = load_moves_for_game(&self.pool, &r.game_id).await?;
+                Ok(Some(r.into_finished_game(moves)))
             }
         }
     }
@@ -201,16 +197,7 @@ async fn load_moves_for_game(
     pool: &SqlitePool,
     game_id: &str,
 ) -> Result<Vec<StoredMoveRecord>, PersistenceError> {
-    let rows: Vec<(
-        String,
-        String,
-        String,
-        Option<String>,
-        Option<String>,
-        String,
-        String,
-        Option<i64>,
-    )> = sqlx::query_as(
+    let rows: Vec<MoveRow> = sqlx::query_as(
         r#"
             SELECT mv_from, mv_to, piece, captured, promotion, san, fen_after, clock_ms
             FROM stored_moves
@@ -222,21 +209,7 @@ async fn load_moves_for_game(
     .fetch_all(pool)
     .await?;
 
-    Ok(rows
-        .into_iter()
-        .map(
-            |(from, to, piece, captured, promotion, san, fen_after, clock_ms)| StoredMoveRecord {
-                from,
-                to,
-                piece,
-                captured,
-                promotion,
-                san,
-                fen_after,
-                clock_ms: clock_ms.map(|v| v as u64),
-            },
-        )
-        .collect())
+    Ok(rows.into_iter().map(StoredMoveRecord::from).collect())
 }
 
 #[cfg(test)]

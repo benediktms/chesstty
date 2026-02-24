@@ -22,8 +22,7 @@ impl Database {
             std::fs::create_dir_all(parent).map_err(PersistenceError::Io)?;
         }
 
-        let options = SqliteConnectOptions::from_str(&format!("sqlite:{}", path.display()))
-            .map_err(sqlx::Error::from)?
+        let options = SqliteConnectOptions::from_str(&format!("sqlite:{}", path.display()))?
             .create_if_missing(true)
             .journal_mode(SqliteJournalMode::Wal)
             .synchronous(SqliteSynchronous::Normal)
@@ -32,8 +31,7 @@ impl Database {
         let pool = SqlitePoolOptions::new()
             .max_connections(5)
             .connect_with(options)
-            .await
-            .map_err(sqlx::Error::from)?;
+            .await?;
 
         let db = Self { pool };
         db.run_migrations().await?;
@@ -43,16 +41,14 @@ impl Database {
     /// Create an in-memory database for testing. Migrations are applied.
     #[cfg(test)]
     pub async fn new_in_memory() -> Result<Self, PersistenceError> {
-        let options = SqliteConnectOptions::from_str("sqlite::memory:")
-            .map_err(sqlx::Error::from)?
+        let options = SqliteConnectOptions::from_str("sqlite::memory:")?
             .journal_mode(SqliteJournalMode::Wal)
             .foreign_keys(true);
 
         let pool = SqlitePoolOptions::new()
             .max_connections(1)
             .connect_with(options)
-            .await
-            .map_err(sqlx::Error::from)?;
+            .await?;
 
         let db = Self { pool };
         db.run_migrations().await?;

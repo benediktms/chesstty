@@ -76,7 +76,7 @@ impl AdvancedAnalysisRepository for SqliteAdvancedAnalysisRepository {
         game_id: &str,
     ) -> Result<Option<AdvancedGameAnalysis>, PersistenceError> {
         // 1. Load header.
-        let header: Option<(String, i64, i64, i64, i64, i64)> = sqlx::query_as(
+        let header: Option<AnalysisHeaderRow> = sqlx::query_as(
             "SELECT game_id, pipeline_version, shallow_depth, deep_depth, \
                     critical_positions_count, computed_at \
              FROM advanced_game_analyses WHERE game_id = ?",
@@ -144,15 +144,15 @@ impl AdvancedAnalysisRepository for SqliteAdvancedAnalysisRepository {
             pos_rows.into_iter().map(|r| r.into_domain()).collect();
 
         Ok(Some(AdvancedGameAnalysis {
-            game_id: header.0,
+            game_id: header.game_id,
             positions: positions?,
             white_psychology,
             black_psychology,
-            pipeline_version: header.1 as u32,
-            shallow_depth: header.2 as u32,
-            deep_depth: header.3 as u32,
-            critical_positions_count: header.4 as u32,
-            computed_at: header.5 as u64,
+            pipeline_version: header.pipeline_version as u32,
+            shallow_depth: header.shallow_depth as u32,
+            deep_depth: header.deep_depth as u32,
+            critical_positions_count: header.critical_positions_count as u32,
+            computed_at: header.computed_at as u64,
         }))
     }
 
@@ -334,7 +334,18 @@ fn default_profile(color: char) -> PsychologicalProfile {
 // Row types for `query_as` tuple mapping
 // ---------------------------------------------------------------------------
 
-/// Maps a row from `psychological_profiles` to a tuple.
+/// Row type for analysis header queries, mapped via `sqlx::FromRow`.
+#[derive(sqlx::FromRow)]
+struct AnalysisHeaderRow {
+    game_id: String,
+    pipeline_version: i64,
+    shallow_depth: i64,
+    deep_depth: i64,
+    critical_positions_count: i64,
+    computed_at: i64,
+}
+
+/// Maps a row from `psychological_profiles`.
 #[derive(sqlx::FromRow)]
 struct ProfileRow {
     color: String,
