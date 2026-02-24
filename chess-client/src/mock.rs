@@ -15,6 +15,7 @@ pub struct MockChessService {
 }
 
 #[cfg(any(test, feature = "mock"))]
+#[derive(Default)]
 struct MockResponses {
     create_session: Option<Box<dyn Fn() -> ClientResult<SessionSnapshot> + Send>>,
     get_session: Option<Box<dyn Fn() -> ClientResult<SessionSnapshot> + Send>>,
@@ -24,22 +25,6 @@ struct MockResponses {
     pause_session: Option<Box<dyn Fn() -> ClientResult<()> + Send>>,
     resume_session: Option<Box<dyn Fn() -> ClientResult<()> + Send>>,
     set_engine: Option<Box<dyn Fn() -> ClientResult<()> + Send>>,
-}
-
-#[cfg(any(test, feature = "mock"))]
-impl Default for MockResponses {
-    fn default() -> Self {
-        Self {
-            create_session: None,
-            get_session: None,
-            make_move: None,
-            get_legal_moves: None,
-            close_session: None,
-            pause_session: None,
-            resume_session: None,
-            set_engine: None,
-        }
-    }
 }
 
 #[cfg(any(test, feature = "mock"))]
@@ -68,6 +53,13 @@ pub enum MockCall {
         threads: u32,
         hash_mb: u32,
     },
+}
+
+#[cfg(any(test, feature = "mock"))]
+impl Default for MockChessService {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[cfg(any(test, feature = "mock"))]
