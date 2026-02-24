@@ -28,11 +28,6 @@ jobs:
     name: Build and test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
 
-    # runner.temp is only available at the job level, not the workflow level.
-    env:
-      CHESSTTY_DATA_DIR: ${{ runner.temp }}/chesstty-test-data
-      CHESSTTY_DB_PATH: ${{ runner.temp }}/chesstty-test-data/chesstty.db
-
     strategy:
       fail-fast: false
       matrix:
@@ -41,6 +36,12 @@ jobs:
           - macos-latest  # arm64
 
     steps:
+      # runner.temp is only available inside steps, not in job-level env.
+      - name: Set test environment paths
+        run: |
+          echo "CHESSTTY_DATA_DIR=$RUNNER_TEMP/chesstty-test-data" >> "$GITHUB_ENV"
+          echo "CHESSTTY_DB_PATH=$RUNNER_TEMP/chesstty-test-data/chesstty.db" >> "$GITHUB_ENV"
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
