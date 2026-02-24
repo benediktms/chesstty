@@ -176,9 +176,7 @@ impl Renderer {
                 let key_style = Style::default()
                     .fg(Color::Green)
                     .add_modifier(Modifier::BOLD);
-                let alert_style = Style::default()
-                    .fg(Color::Red)
-                    .add_modifier(Modifier::BOLD);
+                let alert_style = Style::default().fg(Color::Red).add_modifier(Modifier::BOLD);
 
                 let mut spans = Vec::new();
                 for (i, control) in controls.iter().enumerate() {
@@ -199,8 +197,8 @@ impl Renderer {
                     }
                 }
 
-                let controls_line = Paragraph::new(Line::from(spans))
-                    .style(Style::default().bg(Color::Black));
+                let controls_line =
+                    Paragraph::new(Line::from(spans)).style(Style::default().bg(Color::Black));
                 frame.render_widget(controls_line, area);
             }
             Component::InfoPanel => {
@@ -211,8 +209,7 @@ impl Renderer {
             }
             Component::HistoryPanel => {
                 let scroll = fsm.component_scroll(&Component::HistoryPanel);
-                let is_selected =
-                    fsm.selected_component() == Some(Component::HistoryPanel);
+                let is_selected = fsm.selected_component() == Some(Component::HistoryPanel);
                 let review_positions = game_session
                     .review_state
                     .as_ref()
@@ -225,8 +222,7 @@ impl Renderer {
             }
             Component::EnginePanel => {
                 let scroll = fsm.component_scroll(&Component::EnginePanel);
-                let is_selected =
-                    fsm.selected_component() == Some(Component::EnginePanel);
+                let is_selected = fsm.selected_component() == Some(Component::EnginePanel);
                 let widget = EngineAnalysisPanel::new(
                     game_session.engine_info.as_ref(),
                     game_session.is_engine_thinking,
@@ -237,15 +233,13 @@ impl Renderer {
             }
             Component::DebugPanel => {
                 let scroll = fsm.component_scroll(&Component::DebugPanel);
-                let is_selected =
-                    fsm.selected_component() == Some(Component::DebugPanel);
+                let is_selected = fsm.selected_component() == Some(Component::DebugPanel);
                 let widget = UciDebugPanel::new(&game_session.uci_log, scroll, is_selected);
                 frame.render_widget(widget, area);
             }
             Component::ReviewTabs => {
                 if let Some(ref review_state) = game_session.review_state {
-                    let is_selected = fsm.selected_component()
-                        == Some(Component::ReviewSummary);
+                    let is_selected = fsm.selected_component() == Some(Component::ReviewSummary);
                     let scroll = fsm.component_scroll(&Component::ReviewSummary);
                     let widget = ReviewTabsPanel {
                         review_state,
@@ -260,8 +254,7 @@ impl Renderer {
             }
             Component::ReviewSummary => {
                 if let Some(ref review_state) = game_session.review_state {
-                    let is_selected = fsm.selected_component()
-                        == Some(Component::ReviewSummary);
+                    let is_selected = fsm.selected_component() == Some(Component::ReviewSummary);
                     let scroll = fsm.component_scroll(&Component::ReviewSummary);
                     let widget = ReviewSummaryPanel {
                         review_state,
@@ -274,8 +267,7 @@ impl Renderer {
             }
             Component::AdvancedAnalysis => {
                 if let Some(ref review_state) = game_session.review_state {
-                    let is_selected = fsm.selected_component()
-                        == Some(Component::AdvancedAnalysis);
+                    let is_selected = fsm.selected_component() == Some(Component::AdvancedAnalysis);
                     let scroll = fsm.component_scroll(&Component::AdvancedAnalysis);
                     let widget = AdvancedAnalysisPanel {
                         review_state,

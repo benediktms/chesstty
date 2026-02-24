@@ -83,7 +83,12 @@ mod tests {
     use super::*;
     use crate::board_analysis::tactical_types::{TacticalEvidence, TacticalTagKind};
 
-    fn make_tag(kind: TacticalTagKind, attacker: Option<&str>, victims: Vec<&str>, confidence: f32) -> TacticalTag {
+    fn make_tag(
+        kind: TacticalTagKind,
+        attacker: Option<&str>,
+        victims: Vec<&str>,
+        confidence: f32,
+    ) -> TacticalTag {
         TacticalTag {
             kind,
             attacker: attacker.map(String::from),

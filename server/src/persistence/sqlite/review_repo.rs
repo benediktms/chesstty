@@ -2,13 +2,13 @@
 
 use sqlx::SqlitePool;
 
-use crate::persistence::now_timestamp;
-use crate::persistence::PersistenceError;
-use crate::persistence::traits::ReviewRepository;
 use super::helpers::{
     decode_classification, decode_score, decode_status, encode_classification, encode_score,
     encode_status,
 };
+use crate::persistence::now_timestamp;
+use crate::persistence::traits::ReviewRepository;
+use crate::persistence::PersistenceError;
 use analysis::{GameReview, PositionReview};
 
 /// SQLite implementation of [`ReviewRepository`].
@@ -222,11 +222,10 @@ impl ReviewRepository for SqliteReviewRepository {
     }
 
     async fn list_reviews(&self) -> Result<Vec<GameReview>, PersistenceError> {
-        let game_ids: Vec<(String,)> = sqlx::query_as(
-            "SELECT game_id FROM game_reviews ORDER BY created_at DESC",
-        )
-        .fetch_all(&self.pool)
-        .await?;
+        let game_ids: Vec<(String,)> =
+            sqlx::query_as("SELECT game_id FROM game_reviews ORDER BY created_at DESC")
+                .fetch_all(&self.pool)
+                .await?;
 
         let mut reviews = Vec::with_capacity(game_ids.len());
         for (game_id,) in game_ids {
@@ -250,8 +249,8 @@ impl ReviewRepository for SqliteReviewRepository {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use analysis::{AnalysisScore, MoveClassification, ReviewStatus};
     use crate::persistence::sqlite::Database;
+    use analysis::{AnalysisScore, MoveClassification, ReviewStatus};
 
     async fn test_db() -> (Database, SqliteReviewRepository) {
         let db = Database::new_in_memory().await.unwrap();
@@ -406,7 +405,9 @@ mod tests {
         let (db, repo) = test_db().await;
         insert_parent_game(&db, "game_del").await;
 
-        repo.save_review(&complete_review("game_del")).await.unwrap();
+        repo.save_review(&complete_review("game_del"))
+            .await
+            .unwrap();
         repo.delete_review("game_del").await.unwrap();
 
         let result = repo.load_review("game_del").await.unwrap();
@@ -421,7 +422,9 @@ mod tests {
         let (db, repo) = test_db().await;
         insert_parent_game(&db, "game_cascade").await;
 
-        repo.save_review(&complete_review("game_cascade")).await.unwrap();
+        repo.save_review(&complete_review("game_cascade"))
+            .await
+            .unwrap();
         // Verify positions were stored
         let loaded = repo.load_review("game_cascade").await.unwrap().unwrap();
         assert_eq!(loaded.positions.len(), 2);

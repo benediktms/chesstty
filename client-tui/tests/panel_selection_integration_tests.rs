@@ -97,9 +97,7 @@ fn full_tab_workflow() {
     assert_eq!(fsm.selected_component(), Some(Component::InfoPanel));
 
     // Navigate to next
-    let next = fsm
-        .next_component(Component::InfoPanel, &layout)
-        .unwrap();
+    let next = fsm.next_component(Component::InfoPanel, &layout).unwrap();
     fsm.select_component(next);
     assert_eq!(fsm.selected_component(), Some(Component::EnginePanel));
 }

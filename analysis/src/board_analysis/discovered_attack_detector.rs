@@ -1,8 +1,8 @@
 use cozy_chess::Piece;
 
 use super::detector::{TacticalContext, TacticalDetector};
-use super::tactical_types::{TacticalEvidence, TacticalTag, TacticalTagKind};
 use super::helpers::piece_value;
+use super::tactical_types::{TacticalEvidence, TacticalTag, TacticalTagKind};
 
 /// Detects discovered attacks: a piece moves and reveals an attack by a sliding
 /// piece behind it onto an enemy piece.

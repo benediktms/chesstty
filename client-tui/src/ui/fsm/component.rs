@@ -211,19 +211,43 @@ mod tests {
     #[test]
     fn from_number_key_game_board() {
         let mode = UiMode::GameBoard;
-        assert_eq!(Component::from_number_key('1', &mode), Some(Component::InfoPanel));
-        assert_eq!(Component::from_number_key('2', &mode), Some(Component::EnginePanel));
-        assert_eq!(Component::from_number_key('3', &mode), Some(Component::HistoryPanel));
-        assert_eq!(Component::from_number_key('4', &mode), Some(Component::DebugPanel));
+        assert_eq!(
+            Component::from_number_key('1', &mode),
+            Some(Component::InfoPanel)
+        );
+        assert_eq!(
+            Component::from_number_key('2', &mode),
+            Some(Component::EnginePanel)
+        );
+        assert_eq!(
+            Component::from_number_key('3', &mode),
+            Some(Component::HistoryPanel)
+        );
+        assert_eq!(
+            Component::from_number_key('4', &mode),
+            Some(Component::DebugPanel)
+        );
     }
 
     #[test]
     fn from_number_key_review_board() {
         let mode = UiMode::ReviewBoard;
-        assert_eq!(Component::from_number_key('1', &mode), Some(Component::InfoPanel));
-        assert_eq!(Component::from_number_key('2', &mode), Some(Component::HistoryPanel));
-        assert_eq!(Component::from_number_key('3', &mode), Some(Component::AdvancedAnalysis));
-        assert_eq!(Component::from_number_key('4', &mode), Some(Component::ReviewSummary));
+        assert_eq!(
+            Component::from_number_key('1', &mode),
+            Some(Component::InfoPanel)
+        );
+        assert_eq!(
+            Component::from_number_key('2', &mode),
+            Some(Component::HistoryPanel)
+        );
+        assert_eq!(
+            Component::from_number_key('3', &mode),
+            Some(Component::AdvancedAnalysis)
+        );
+        assert_eq!(
+            Component::from_number_key('4', &mode),
+            Some(Component::ReviewSummary)
+        );
     }
 
     #[test]

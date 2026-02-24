@@ -5,8 +5,6 @@ pub struct StartScreenState {
 
 impl StartScreenState {
     pub fn new() -> Self {
-        Self {
-            selected_index: 0,
-        }
+        Self { selected_index: 0 }
     }
 }

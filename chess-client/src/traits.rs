@@ -52,7 +52,6 @@ pub trait ChessService: Send + Sync {
     ) -> ClientResult<()>;
 
     /// Stream session events
-    async fn stream_session_events(
-        &mut self,
-    ) -> ClientResult<tonic::Streaming<SessionStreamEvent>>;
+    async fn stream_session_events(&mut self)
+        -> ClientResult<tonic::Streaming<SessionStreamEvent>>;
 }

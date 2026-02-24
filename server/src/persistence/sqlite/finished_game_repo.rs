@@ -2,9 +2,9 @@
 
 use sqlx::SqlitePool;
 
-use crate::persistence::{FinishedGameData, PersistenceError, StoredMoveRecord};
-use crate::persistence::traits::FinishedGameRepository;
 use super::helpers::normalize_game_mode;
+use crate::persistence::traits::FinishedGameRepository;
+use crate::persistence::{FinishedGameData, PersistenceError, StoredMoveRecord};
 
 /// SQLite implementation of [`FinishedGameRepository`].
 pub struct SqliteFinishedGameRepository {
@@ -82,20 +82,40 @@ impl FinishedGameRepository for SqliteFinishedGameRepository {
     }
 
     async fn list_games(&self) -> Result<Vec<FinishedGameData>, PersistenceError> {
-        let game_rows: Vec<(String, String, String, String, String, Option<String>, i64, i64, i64)> =
-            sqlx::query_as(
-                r#"
+        let game_rows: Vec<(
+            String,
+            String,
+            String,
+            String,
+            String,
+            Option<String>,
+            i64,
+            i64,
+            i64,
+        )> = sqlx::query_as(
+            r#"
                 SELECT game_id, start_fen, result, result_reason, game_mode,
                        human_side, skill_level, move_count, created_at
                 FROM finished_games
                 ORDER BY created_at DESC
                 "#,
-            )
-            .fetch_all(&self.pool)
-            .await?;
+        )
+        .fetch_all(&self.pool)
+        .await?;
 
         let mut games = Vec::with_capacity(game_rows.len());
-        for (game_id, start_fen, result, result_reason, game_mode, human_side, skill_level, move_count, created_at) in game_rows {
+        for (
+            game_id,
+            start_fen,
+            result,
+            result_reason,
+            game_mode,
+            human_side,
+            skill_level,
+            move_count,
+            created_at,
+        ) in game_rows
+        {
             let moves = load_moves_for_game(&self.pool, &game_id).await?;
             games.push(FinishedGameData {
                 game_id,
@@ -115,22 +135,41 @@ impl FinishedGameRepository for SqliteFinishedGameRepository {
     }
 
     async fn load_game(&self, id: &str) -> Result<Option<FinishedGameData>, PersistenceError> {
-        let row: Option<(String, String, String, String, String, Option<String>, i64, i64, i64)> =
-            sqlx::query_as(
-                r#"
+        let row: Option<(
+            String,
+            String,
+            String,
+            String,
+            String,
+            Option<String>,
+            i64,
+            i64,
+            i64,
+        )> = sqlx::query_as(
+            r#"
                 SELECT game_id, start_fen, result, result_reason, game_mode,
                        human_side, skill_level, move_count, created_at
                 FROM finished_games
                 WHERE game_id = ?
                 "#,
-            )
-            .bind(id)
-            .fetch_optional(&self.pool)
-            .await?;
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await?;
 
         match row {
             None => Ok(None),
-            Some((game_id, start_fen, result, result_reason, game_mode, human_side, skill_level, move_count, created_at)) => {
+            Some((
+                game_id,
+                start_fen,
+                result,
+                result_reason,
+                game_mode,
+                human_side,
+                skill_level,
+                move_count,
+                created_at,
+            )) => {
                 let moves = load_moves_for_game(&self.pool, &game_id).await?;
                 Ok(Some(FinishedGameData {
                     game_id,
@@ -162,31 +201,41 @@ async fn load_moves_for_game(
     pool: &SqlitePool,
     game_id: &str,
 ) -> Result<Vec<StoredMoveRecord>, PersistenceError> {
-    let rows: Vec<(String, String, String, Option<String>, Option<String>, String, String, Option<i64>)> =
-        sqlx::query_as(
-            r#"
+    let rows: Vec<(
+        String,
+        String,
+        String,
+        Option<String>,
+        Option<String>,
+        String,
+        String,
+        Option<i64>,
+    )> = sqlx::query_as(
+        r#"
             SELECT mv_from, mv_to, piece, captured, promotion, san, fen_after, clock_ms
             FROM stored_moves
             WHERE game_id = ?
             ORDER BY ply
             "#,
-        )
-        .bind(game_id)
-        .fetch_all(pool)
-        .await?;
+    )
+    .bind(game_id)
+    .fetch_all(pool)
+    .await?;
 
     Ok(rows
         .into_iter()
-        .map(|(from, to, piece, captured, promotion, san, fen_after, clock_ms)| StoredMoveRecord {
-            from,
-            to,
-            piece,
-            captured,
-            promotion,
-            san,
-            fen_after,
-            clock_ms: clock_ms.map(|v| v as u64),
-        })
+        .map(
+            |(from, to, piece, captured, promotion, san, fen_after, clock_ms)| StoredMoveRecord {
+                from,
+                to,
+                piece,
+                captured,
+                promotion,
+                san,
+                fen_after,
+                clock_ms: clock_ms.map(|v| v as u64),
+            },
+        )
         .collect())
 }
 
@@ -285,7 +334,9 @@ mod tests {
     #[tokio::test]
     async fn test_delete_cascades_moves() {
         let (_db, repo) = test_db().await;
-        repo.save_game(&sample_game("to_delete", 100)).await.unwrap();
+        repo.save_game(&sample_game("to_delete", 100))
+            .await
+            .unwrap();
         // Verify moves exist
         let loaded = repo.load_game("to_delete").await.unwrap().unwrap();
         assert_eq!(loaded.moves.len(), 2);

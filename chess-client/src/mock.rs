@@ -288,6 +288,8 @@ impl ChessService for MockChessService {
     async fn stream_session_events(
         &mut self,
     ) -> ClientResult<tonic::Streaming<SessionStreamEvent>> {
-        Err(ClientError::NotConfigured("stream_session_events".to_string()))
+        Err(ClientError::NotConfigured(
+            "stream_session_events".to_string(),
+        ))
     }
 }

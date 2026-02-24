@@ -107,10 +107,7 @@ mod tab_order_tests {
 
         // The center section (Board) has no selectable components,
         // so cross-section navigation returns None.
-        assert_eq!(
-            fsm.next_section(Component::InfoPanel, &layout),
-            None
-        );
+        assert_eq!(fsm.next_section(Component::InfoPanel, &layout), None);
     }
 }
 

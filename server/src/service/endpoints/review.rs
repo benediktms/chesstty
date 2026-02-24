@@ -1,15 +1,15 @@
 //! Post-game review endpoints
 
-use analysis::board_analysis::{
-    KingSafetyMetrics, PositionKingSafety, PositionTensionMetrics,
-    TacticalEvidence, TacticalLine, TacticalTag, TacticalTagKind,
-};
-use analysis::advanced::types::{
-    AdvancedGameAnalysis, AdvancedPositionAnalysis, PsychologicalProfile,
-};
 use crate::persistence::{AdvancedAnalysisRepository, FinishedGameRepository, ReviewRepository};
 use crate::review::types::{is_white_ply, AnalysisScore, MoveClassification, ReviewStatus};
 use crate::review::ReviewManager;
+use analysis::advanced::types::{
+    AdvancedGameAnalysis, AdvancedPositionAnalysis, PsychologicalProfile,
+};
+use analysis::board_analysis::{
+    KingSafetyMetrics, PositionKingSafety, PositionTensionMetrics, TacticalEvidence, TacticalLine,
+    TacticalTag, TacticalTagKind,
+};
 use chess_proto::*;
 use std::sync::Arc;
 use tonic::{Request, Response, Status};
@@ -353,8 +353,16 @@ fn convert_advanced_position_to_proto(
         tension: Some(convert_tension_to_proto(&pos.tension)),
         is_critical: pos.is_critical,
         deep_depth: pos.deep_depth,
-        tactical_tags_before: pos.tactical_tags_before.iter().map(convert_tactical_tag_to_proto).collect(),
-        tactical_tags_after: pos.tactical_tags_after.iter().map(convert_tactical_tag_to_proto).collect(),
+        tactical_tags_before: pos
+            .tactical_tags_before
+            .iter()
+            .map(convert_tactical_tag_to_proto)
+            .collect(),
+        tactical_tags_after: pos
+            .tactical_tags_after
+            .iter()
+            .map(convert_tactical_tag_to_proto)
+            .collect(),
     }
 }
 
@@ -387,7 +395,11 @@ fn convert_tactical_tag_kind(kind: &TacticalTagKind) -> TacticalTagKindProto {
 
 fn convert_tactical_evidence_to_proto(evidence: &TacticalEvidence) -> TacticalEvidenceProto {
     TacticalEvidenceProto {
-        lines: evidence.lines.iter().map(convert_tactical_line_to_proto).collect(),
+        lines: evidence
+            .lines
+            .iter()
+            .map(convert_tactical_line_to_proto)
+            .collect(),
         threatened_pieces: evidence.threatened_pieces.clone(),
         defended_by: evidence.defended_by.clone(),
     }

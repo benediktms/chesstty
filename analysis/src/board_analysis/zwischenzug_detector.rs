@@ -29,9 +29,7 @@ impl TacticalDetector for ZwischenzugDetector {
 
         // Find the king square of the side that is now in check
         let checked_side = !ctx.side_to_move_before;
-        let king_sq = ctx
-            .after
-            .king(checked_side);
+        let king_sq = ctx.after.king(checked_side);
 
         // Check if the played move differs from the engine's best line suggestion
         let mv_str = format!("{}{}", mv.from, mv.to);
@@ -43,7 +41,10 @@ impl TacticalDetector for ZwischenzugDetector {
             return vec![];
         }
 
-        let moved_piece = ctx.before.piece_on(mv.from).unwrap_or(cozy_chess::Piece::Pawn);
+        let moved_piece = ctx
+            .before
+            .piece_on(mv.from)
+            .unwrap_or(cozy_chess::Piece::Pawn);
 
         vec![TacticalTag {
             kind: TacticalTagKind::Zwischenzug,

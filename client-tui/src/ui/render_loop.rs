@@ -1,4 +1,4 @@
-use crate::state::{GameSession, GameMode, PlayerColor};
+use crate::state::{GameMode, GameSession, PlayerColor};
 use crate::ui::fsm::render_spec::InputPhase;
 use crate::ui::menu_app;
 use chess_client::{GameModeProto, GameModeType, PlayerSideProto};
@@ -7,11 +7,7 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use ratatui::{
-    backend::CrosstermBackend,
-    layout::Layout,
-    Terminal,
-};
+use ratatui::{backend::CrosstermBackend, layout::Layout, Terminal};
 use std::io;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -430,7 +426,6 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
                     last_auto_advance = std::time::Instant::now();
                 }
             }
-
         }
 
         // Timer is server-owned — no client-side ticking needed.
@@ -447,9 +442,7 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
             && !fsm.tab_input.typeahead_buffer.is_empty()
         {
             state.filter_selectable_by_input(&fsm.tab_input.typeahead_buffer)
-        } else if !input_buffer.is_empty()
-            && matches!(fsm.input_phase, InputPhase::SelectPiece)
-        {
+        } else if !input_buffer.is_empty() && matches!(fsm.input_phase, InputPhase::SelectPiece) {
             state.filter_selectable_by_input(&input_buffer)
         } else {
             Vec::new()
@@ -463,13 +456,7 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
             use crate::ui::fsm::renderer::Renderer;
             // Get layout from FSM
             let layout = fsm.layout(state);
-            Renderer::render(
-                f,
-                f.area(),
-                &layout,
-                state,
-                &fsm,
-            );
+            Renderer::render(f, f.area(), &layout, state, &fsm);
         });
 
         // Handle keyboard event if one arrived
@@ -508,7 +495,11 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
     }
 }
 
-pub(super) async fn handle_input(state: &mut GameSession, fsm: &mut crate::ui::fsm::UiStateMachine, input: &str) {
+pub(super) async fn handle_input(
+    state: &mut GameSession,
+    fsm: &mut crate::ui::fsm::UiStateMachine,
+    input: &str,
+) {
     let input = input.trim().to_lowercase();
 
     // Check for special commands

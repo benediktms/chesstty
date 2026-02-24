@@ -25,10 +25,8 @@ pub trait SessionRepository: Send + Sync {
         &self,
         id: &str,
     ) -> impl Future<Output = Result<Option<SuspendedSessionData>, PersistenceError>> + Send;
-    fn delete_session(
-        &self,
-        id: &str,
-    ) -> impl Future<Output = Result<(), PersistenceError>> + Send;
+    fn delete_session(&self, id: &str)
+        -> impl Future<Output = Result<(), PersistenceError>> + Send;
 }
 
 /// Repository for saved board positions.
@@ -67,10 +65,7 @@ pub trait FinishedGameRepository: Send + Sync {
         &self,
         id: &str,
     ) -> impl Future<Output = Result<Option<FinishedGameData>, PersistenceError>> + Send;
-    fn delete_game(
-        &self,
-        id: &str,
-    ) -> impl Future<Output = Result<(), PersistenceError>> + Send;
+    fn delete_game(&self, id: &str) -> impl Future<Output = Result<(), PersistenceError>> + Send;
 }
 
 /// Repository for engine-analysis game reviews.

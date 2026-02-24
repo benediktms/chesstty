@@ -266,7 +266,7 @@ where
     // Compute accuracy scores
     review.white_accuracy = Some(compute_accuracy(&review.positions, true));
     review.black_accuracy = Some(compute_accuracy(&review.positions, false));
-    
+
     // Set winner from game result
     review.winner = match job.game_data.result.as_str() {
         "WhiteWins" => Some("White".to_string()),
@@ -274,7 +274,7 @@ where
         "Draw" => Some("Draw".to_string()),
         _ => None,
     };
-    
+
     review.status = ReviewStatus::Complete;
     review.completed_at = Some(crate::persistence::now_timestamp());
 

@@ -308,7 +308,10 @@ fn render_tactical_tags_inline(lines: &mut Vec<Line<'_>>, tags: &[TacticalTagPro
         // Attacker info
         if let Some(ref attacker) = tag.attacker {
             spans.push(Span::raw(": "));
-            spans.push(Span::styled(attacker.clone(), Style::default().fg(Color::White)));
+            spans.push(Span::styled(
+                attacker.clone(),
+                Style::default().fg(Color::White),
+            ));
         }
 
         // Victims

@@ -2,8 +2,8 @@
 
 use sqlx::SqlitePool;
 
-use crate::persistence::{PersistenceError, SavedPositionData};
 use crate::persistence::traits::PositionRepository;
+use crate::persistence::{PersistenceError, SavedPositionData};
 
 pub struct SqlitePositionRepository {
     pool: SqlitePool,
@@ -47,13 +47,15 @@ impl PositionRepository for SqlitePositionRepository {
 
         let positions = rows
             .into_iter()
-            .map(|(position_id, name, fen, is_default, created_at)| SavedPositionData {
-                position_id,
-                name,
-                fen,
-                is_default: is_default != 0,
-                created_at: created_at as u64,
-            })
+            .map(
+                |(position_id, name, fen, is_default, created_at)| SavedPositionData {
+                    position_id,
+                    name,
+                    fen,
+                    is_default: is_default != 0,
+                    created_at: created_at as u64,
+                },
+            )
             .collect();
 
         Ok(positions)

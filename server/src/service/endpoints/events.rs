@@ -57,11 +57,7 @@ where
     }
 }
 
-pub struct EventsEndpoints<
-    S: SessionRepository,
-    P: PositionRepository,
-    F: FinishedGameRepository,
-> {
+pub struct EventsEndpoints<S: SessionRepository, P: PositionRepository, F: FinishedGameRepository> {
     session_manager: Arc<SessionManager<S, P, F>>,
 }
 

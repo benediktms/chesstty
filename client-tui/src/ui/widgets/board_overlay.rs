@@ -347,10 +347,7 @@ fn parse_square_str(sq_str: &str) -> Option<Square> {
 }
 
 /// Add tactical tag overlays to the board using the new TacticalTagProto model.
-fn add_tactical_tag_overlays(
-    overlay: &mut BoardOverlay,
-    tags: &[chess_client::TacticalTagProto],
-) {
+fn add_tactical_tag_overlays(overlay: &mut BoardOverlay, tags: &[chess_client::TacticalTagProto]) {
     use chess_client::TacticalTagKindProto;
 
     for tag in tags {

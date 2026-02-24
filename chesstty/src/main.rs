@@ -167,8 +167,8 @@ fn spawn_server() -> Result<(), CliError> {
         0 => {
             // === CHILD PATH ===
             // Daemonize via builder (double-fork, setsid, IO redirect, PID write).
-            let stdout = File::create(&log_path)
-                .unwrap_or_else(|_| File::open("/dev/null").unwrap());
+            let stdout =
+                File::create(&log_path).unwrap_or_else(|_| File::open("/dev/null").unwrap());
             let stderr = stdout
                 .try_clone()
                 .unwrap_or_else(|_| File::open("/dev/null").unwrap());
@@ -261,11 +261,17 @@ fn spawn_tui_client() -> Result<(), CliError> {
                     e, spawn_err
                 ))
             })?,
-        Err(e) => return Err(CliError::ProcessError(format!("failed to spawn TUI: {}", e))),
+        Err(e) => {
+            return Err(CliError::ProcessError(format!(
+                "failed to spawn TUI: {}",
+                e
+            )))
+        }
     };
 
     // Wait for the client to finish
-    let status = child.wait()
+    let status = child
+        .wait()
         .map_err(|e| CliError::ProcessError(format!("failed to wait for TUI: {}", e)))?;
 
     // If the client exited with an error, propagate it
@@ -306,11 +312,7 @@ fn handle_engine_stop(force: bool) -> Result<(), CliError> {
     let pid = process::read_pid(&pid_path)
         .map_err(|e| CliError::ProcessError(format!("failed to read PID: {}", e)))?;
 
-    let signal = if force {
-        libc::SIGKILL
-    } else {
-        libc::SIGTERM
-    };
+    let signal = if force { libc::SIGKILL } else { libc::SIGTERM };
 
     // SAFETY: kill is safe when sending signals to our own spawned processes
     let result = unsafe { libc::kill(pid, signal) };
@@ -326,7 +328,10 @@ fn handle_engine_stop(force: bool) -> Result<(), CliError> {
     // Remove the PID file
     let _ = std::fs::remove_file(&pid_path);
 
-    println!("Server stopped (signal: {}).", if force { "SIGKILL" } else { "SIGTERM" });
+    println!(
+        "Server stopped (signal: {}).",
+        if force { "SIGKILL" } else { "SIGTERM" }
+    );
 
     Ok(())
 }

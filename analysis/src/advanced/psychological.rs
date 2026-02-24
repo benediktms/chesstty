@@ -21,8 +21,7 @@ pub fn compute_psychological_profile(
     }
 
     // Error streaks
-    let (max_consecutive_errors, error_streak_start_ply) =
-        compute_error_streaks(&side_positions);
+    let (max_consecutive_errors, error_streak_start_ply) = compute_error_streaks(&side_positions);
 
     // Eval swings
     let (favorable_swings, unfavorable_swings, max_momentum_streak) =
@@ -87,14 +86,15 @@ fn is_error(classification: &MoveClassification) -> bool {
 fn is_good_move(classification: &MoveClassification) -> bool {
     matches!(
         classification,
-        MoveClassification::Best | MoveClassification::Excellent | MoveClassification::Good | MoveClassification::Brilliant
+        MoveClassification::Best
+            | MoveClassification::Excellent
+            | MoveClassification::Good
+            | MoveClassification::Brilliant
     )
 }
 
 /// Compute max consecutive error streak and its start ply.
-fn compute_error_streaks(
-    side_positions: &[&PositionReview],
-) -> (u8, Option<u32>) {
+fn compute_error_streaks(side_positions: &[&PositionReview]) -> (u8, Option<u32>) {
     let mut max_streak: u8 = 0;
     let mut max_streak_start: Option<u32> = None;
     let mut current_streak: u8 = 0;
@@ -121,10 +121,7 @@ fn compute_error_streaks(
 
 /// Compute eval swings and momentum streaks.
 /// A swing > 100cp in our favor is favorable; against us is unfavorable.
-fn compute_eval_swings(
-    all_positions: &[PositionReview],
-    is_white: bool,
-) -> (u8, u8, u8) {
+fn compute_eval_swings(all_positions: &[PositionReview], is_white: bool) -> (u8, u8, u8) {
     let mut favorable: u8 = 0;
     let mut unfavorable: u8 = 0;
     let mut max_momentum: u8 = 0;
@@ -164,9 +161,7 @@ fn compute_eval_swings(
 }
 
 /// Compute blunder clustering: sliding window of 5 same-side moves.
-fn compute_blunder_clustering(
-    side_positions: &[&PositionReview],
-) -> (u8, Option<(u32, u32)>) {
+fn compute_blunder_clustering(side_positions: &[&PositionReview]) -> (u8, Option<(u32, u32)>) {
     if side_positions.len() < 5 {
         let count = side_positions
             .iter()
@@ -282,9 +277,7 @@ fn pearson_correlation(pairs: &[(f64, f64)]) -> f32 {
 
 /// Compute average cp_loss bucketed by game phase.
 /// Opening: plies 1-30, Middlegame: plies 31-70, Endgame: plies 71+.
-fn compute_phase_breakdown(
-    side_positions: &[&PositionReview],
-) -> (f64, f64, f64) {
+fn compute_phase_breakdown(side_positions: &[&PositionReview]) -> (f64, f64, f64) {
     let mut opening_losses: Vec<f64> = Vec::new();
     let mut middlegame_losses: Vec<f64> = Vec::new();
     let mut endgame_losses: Vec<f64> = Vec::new();
@@ -371,12 +364,23 @@ mod tests {
                 } else {
                     MoveClassification::Best
                 };
-                make_position(ply, if classification == MoveClassification::Blunder { 400 } else { 0 }, classification)
+                make_position(
+                    ply,
+                    if classification == MoveClassification::Blunder {
+                        400
+                    } else {
+                        0
+                    },
+                    classification,
+                )
             })
             .collect();
 
         let profile = compute_psychological_profile(&positions, true);
-        assert!(profile.blunder_cluster_density >= 4, "Should detect cluster of blunders");
+        assert!(
+            profile.blunder_cluster_density >= 4,
+            "Should detect cluster of blunders"
+        );
     }
 
     #[test]

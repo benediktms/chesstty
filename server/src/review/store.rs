@@ -42,19 +42,30 @@ impl ReviewStore {
 }
 
 impl crate::persistence::traits::ReviewRepository for ReviewStore {
-    async fn save_review(&self, review: &super::types::GameReview) -> Result<(), crate::persistence::PersistenceError> {
+    async fn save_review(
+        &self,
+        review: &super::types::GameReview,
+    ) -> Result<(), crate::persistence::PersistenceError> {
         self.save(review)
     }
 
-    async fn load_review(&self, game_id: &str) -> Result<Option<super::types::GameReview>, crate::persistence::PersistenceError> {
+    async fn load_review(
+        &self,
+        game_id: &str,
+    ) -> Result<Option<super::types::GameReview>, crate::persistence::PersistenceError> {
         self.load(game_id)
     }
 
-    async fn list_reviews(&self) -> Result<Vec<super::types::GameReview>, crate::persistence::PersistenceError> {
+    async fn list_reviews(
+        &self,
+    ) -> Result<Vec<super::types::GameReview>, crate::persistence::PersistenceError> {
         self.list()
     }
 
-    async fn delete_review(&self, game_id: &str) -> Result<(), crate::persistence::PersistenceError> {
+    async fn delete_review(
+        &self,
+        game_id: &str,
+    ) -> Result<(), crate::persistence::PersistenceError> {
         self.delete(game_id)
     }
 }

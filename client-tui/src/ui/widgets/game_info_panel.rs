@@ -17,7 +17,12 @@ pub struct GameInfoPanel<'a> {
 }
 
 impl<'a> GameInfoPanel<'a> {
-    pub fn new(client_state: &'a GameSession, fsm: &'a UiStateMachine, is_selected: bool, scroll: u16) -> Self {
+    pub fn new(
+        client_state: &'a GameSession,
+        fsm: &'a UiStateMachine,
+        is_selected: bool,
+        scroll: u16,
+    ) -> Self {
         Self {
             client_state,
             fsm,
@@ -35,7 +40,9 @@ impl Widget for GameInfoPanel<'_> {
             "[1] Game Info"
         };
         let border_style = if self.is_selected {
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(Color::Cyan)
         };

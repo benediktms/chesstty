@@ -9,9 +9,7 @@ use std::sync::Arc;
 use analysis::AnalysisConfig;
 use tokio::sync::{mpsc, Mutex, RwLock};
 
-use crate::persistence::{
-    AdvancedAnalysisRepository, FinishedGameRepository, ReviewRepository,
-};
+use crate::persistence::{AdvancedAnalysisRepository, FinishedGameRepository, ReviewRepository};
 use types::*;
 
 /// Configuration for the review system.
@@ -316,12 +314,16 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::persistence::{FinishedGameData, FinishedGameStore, StoredMoveRecord};
     use crate::review::advanced::AdvancedAnalysisStore;
     use crate::review::store::ReviewStore;
-    use crate::persistence::{FinishedGameData, FinishedGameStore, StoredMoveRecord};
 
     /// Create test stores in a temp directory (leaked so it outlives the test).
-    fn test_stores() -> (Arc<FinishedGameStore>, Arc<ReviewStore>, Arc<AdvancedAnalysisStore>) {
+    fn test_stores() -> (
+        Arc<FinishedGameStore>,
+        Arc<ReviewStore>,
+        Arc<AdvancedAnalysisStore>,
+    ) {
         let dir = tempfile::tempdir().unwrap();
         let finished = Arc::new(FinishedGameStore::new(dir.path().to_path_buf()));
         let reviews = Arc::new(ReviewStore::new(dir.path().to_path_buf()));

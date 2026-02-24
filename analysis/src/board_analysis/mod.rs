@@ -5,15 +5,15 @@ pub mod discovered_attack_detector;
 pub mod fork_detector;
 pub mod hanging_detector;
 pub mod helpers;
+pub mod king_safety;
 pub mod mate_threat_detector;
 pub mod pin_detector;
 pub mod reducer;
 pub mod sacrifice_detector;
 pub mod skewer_detector;
-pub mod zwischenzug_detector;
-pub mod king_safety;
 pub mod tactical_types;
 pub mod tension;
+pub mod zwischenzug_detector;
 
 pub use attack_map::{AttackMap, Attacker, PinInfo};
 pub use detector::{TacticalContext, TacticalDetector};
@@ -53,10 +53,7 @@ pub fn detect_tactics(ctx: &TacticalContext, max_results: Option<usize>) -> Vec<
         Box::new(ZwischenzugDetector),
     ];
 
-    let tags: Vec<TacticalTag> = detectors
-        .iter()
-        .flat_map(|d| d.detect(ctx))
-        .collect();
+    let tags: Vec<TacticalTag> = detectors.iter().flat_map(|d| d.detect(ctx)).collect();
 
     reduce_tags(tags, max_results)
 }
@@ -178,7 +175,9 @@ mod tests {
         let ctx = make_ctx(&board, &board, &attacks, &attacks);
 
         let tags = detect_tactics(&ctx, None);
-        let hanging = tags.iter().find(|t| t.kind == TacticalTagKind::HangingPiece);
+        let hanging = tags
+            .iter()
+            .find(|t| t.kind == TacticalTagKind::HangingPiece);
         assert!(
             hanging.is_some(),
             "pipeline should detect HangingPiece tag for undefended knight on d5"

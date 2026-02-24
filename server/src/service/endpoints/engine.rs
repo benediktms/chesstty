@@ -7,11 +7,7 @@ use chess_proto::*;
 use std::sync::Arc;
 use tonic::{Request, Response, Status};
 
-pub struct EngineEndpoints<
-    S: SessionRepository,
-    P: PositionRepository,
-    F: FinishedGameRepository,
-> {
+pub struct EngineEndpoints<S: SessionRepository, P: PositionRepository, F: FinishedGameRepository> {
     session_manager: Arc<SessionManager<S, P, F>>,
 }
 

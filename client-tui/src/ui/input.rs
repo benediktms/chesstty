@@ -271,7 +271,11 @@ async fn restore_pause_state(state: &mut GameSession) {
 }
 
 /// Handle keys when the popup menu is active.
-async fn handle_popup_input(state: &mut GameSession, fsm: &mut UiStateMachine, key: KeyEvent) -> AppAction {
+async fn handle_popup_input(
+    state: &mut GameSession,
+    fsm: &mut UiStateMachine,
+    key: KeyEvent,
+) -> AppAction {
     match key.code {
         KeyCode::Up | KeyCode::Char('k') => {
             if let Some(ref mut menu) = fsm.popup_menu {
@@ -284,10 +288,7 @@ async fn handle_popup_input(state: &mut GameSession, fsm: &mut UiStateMachine, k
             }
         }
         KeyCode::Enter => {
-            let selected = fsm
-                .popup_menu
-                .as_ref()
-                .map(|m| m.selected_item().clone());
+            let selected = fsm.popup_menu.as_ref().map(|m| m.selected_item().clone());
 
             fsm.popup_menu = None;
             restore_pause_state(state).await;
@@ -338,7 +339,11 @@ async fn handle_popup_input(state: &mut GameSession, fsm: &mut UiStateMachine, k
 }
 
 /// Handle keys when the snapshot dialog is active (modal overlay).
-async fn handle_snapshot_dialog_input(state: &mut GameSession, fsm: &mut UiStateMachine, key: KeyEvent) -> AppAction {
+async fn handle_snapshot_dialog_input(
+    state: &mut GameSession,
+    fsm: &mut UiStateMachine,
+    key: KeyEvent,
+) -> AppAction {
     // Get positions slice for terminal checks during navigation
     let positions: Vec<_> = state
         .review_state
@@ -623,7 +628,11 @@ fn handle_promotion_input(
 }
 
 /// Handle keys when tab input mode is active (modal overlay).
-async fn handle_tab_input(state: &mut GameSession, fsm: &mut UiStateMachine, key: KeyEvent) -> AppAction {
+async fn handle_tab_input(
+    state: &mut GameSession,
+    fsm: &mut UiStateMachine,
+    key: KeyEvent,
+) -> AppAction {
     use chess::parse_square;
 
     match key.code {
@@ -661,8 +670,7 @@ async fn handle_tab_input(state: &mut GameSession, fsm: &mut UiStateMachine, key
             fsm.tab_input.typeahead_buffer.push(c);
 
             // Tab 1: auto-advance on valid 2-char piece square
-            if fsm.tab_input.current_tab == 0 && fsm.tab_input.typeahead_buffer.len() == 2
-            {
+            if fsm.tab_input.current_tab == 0 && fsm.tab_input.typeahead_buffer.len() == 2 {
                 if let Some(from_square) = parse_square(&fsm.tab_input.typeahead_buffer) {
                     if state.selectable_squares.contains(&from_square) {
                         state.select_square(from_square);
@@ -690,8 +698,7 @@ async fn handle_tab_input(state: &mut GameSession, fsm: &mut UiStateMachine, key
                                 if moves.iter().any(|m| m.to == to_str) {
                                     fsm.tab_input.deactivate();
                                     if let Err(e) = state.try_move_to(to_square).await {
-                                        state.status_message =
-                                            Some(format!("Move failed: {}", e));
+                                        state.status_message = Some(format!("Move failed: {}", e));
                                     }
                                     return AppAction::Continue;
                                 }

@@ -78,7 +78,8 @@ fn sample_moves() -> Vec<StoredMoveRecord> {
             captured: None,
             promotion: None,
             san: "d6".to_string(),
-            fen_after: "rnbqkbnr/pp2pppp/3p4/2p5/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 0 3".to_string(),
+            fen_after: "rnbqkbnr/pp2pppp/3p4/2p5/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 0 3"
+                .to_string(),
             clock_ms: Some(13_000),
         },
     ]
@@ -244,8 +245,14 @@ async fn test_finished_game_with_moves_integrity() {
     assert_eq!(loaded.moves[1].san, "c5");
     assert_eq!(loaded.moves[2].san, "Nf3");
     assert_eq!(loaded.moves[3].san, "d6");
-    assert_eq!(loaded.moves[0].fen_after, "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1");
-    assert_eq!(loaded.moves[3].fen_after, "rnbqkbnr/pp2pppp/3p4/2p5/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 0 3");
+    assert_eq!(
+        loaded.moves[0].fen_after,
+        "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1"
+    );
+    assert_eq!(
+        loaded.moves[3].fen_after,
+        "rnbqkbnr/pp2pppp/3p4/2p5/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 0 3"
+    );
     assert_eq!(loaded.moves[0].clock_ms, Some(15_000));
     assert_eq!(loaded.moves[3].clock_ms, Some(13_000));
 }
@@ -315,7 +322,9 @@ async fn test_concurrent_repo_access() {
         let repo = SqliteSessionRepository::new(sessions_pool);
         for i in 0..10_u64 {
             let id = format!("sess_concurrent_{i}");
-            repo.save_session(&sample_session(&id, 1_000 + i)).await.unwrap();
+            repo.save_session(&sample_session(&id, 1_000 + i))
+                .await
+                .unwrap();
         }
     });
 
@@ -340,7 +349,10 @@ async fn test_concurrent_repo_access() {
                 .save_game(&sample_finished_game(&game_id, 3_000 + i))
                 .await
                 .unwrap();
-            review_repo.save_review(&sample_review(&game_id)).await.unwrap();
+            review_repo
+                .save_review(&sample_review(&game_id))
+                .await
+                .unwrap();
             analysis_repo
                 .save_analysis(&sample_analysis(&game_id, 4_000 + i))
                 .await
