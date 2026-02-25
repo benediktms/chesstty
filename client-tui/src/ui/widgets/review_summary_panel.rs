@@ -15,16 +15,18 @@ pub struct ReviewSummaryPanel<'a> {
     pub scroll: u16,
     pub is_selected: bool,
     pub expanded: bool,
+    pub title: &'static str,
+    pub number_key_hint: Option<char>,
 }
 
 impl Widget for ReviewSummaryPanel<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let title = if self.expanded {
-            "Review Summary (Expanded)"
+            format!("{} (Expanded)", self.title)
         } else if self.is_selected {
-            "Review Summary [SELECTED]"
+            format!("{} [SELECTED]", self.title)
         } else {
-            "[4] Review Summary"
+            format!("[{}] {}", self.number_key_hint.unwrap_or(' '), self.title)
         };
 
         let border_style = if self.is_selected || self.expanded {

@@ -201,12 +201,17 @@ impl Renderer {
                 frame.render_widget(controls_line, area);
             }
             Component::InfoPanel => {
+                let title = component.title();
+                let number_key_hint = component.number_key(&fsm.mode);
                 let is_selected = fsm.selected_component() == Some(Component::InfoPanel);
                 let scroll = fsm.component_scroll(&Component::InfoPanel);
-                let widget = GameInfoPanel::new(game_session, fsm, is_selected, scroll);
+                let widget =
+                    GameInfoPanel::new(game_session, fsm, is_selected, scroll, title, number_key_hint);
                 frame.render_widget(widget, area);
             }
             Component::HistoryPanel => {
+                let title = component.title();
+                let number_key_hint = component.number_key(&fsm.mode);
                 let scroll = fsm.component_scroll(&Component::HistoryPanel);
                 let is_selected = fsm.selected_component() == Some(Component::HistoryPanel);
                 let review_positions = game_session
@@ -215,11 +220,14 @@ impl Renderer {
                     .map(|rs| rs.review.positions.as_slice());
                 let current_ply = game_session.review_state.as_ref().map(|rs| rs.current_ply);
                 let widget = MoveHistoryPanel::new(game_session.history(), scroll, is_selected)
+                    .with_title(title, number_key_hint)
                     .with_review_positions(review_positions)
                     .with_current_ply(current_ply);
                 frame.render_widget(widget, area);
             }
             Component::EnginePanel => {
+                let title = component.title();
+                let number_key_hint = component.number_key(&fsm.mode);
                 let scroll = fsm.component_scroll(&Component::EnginePanel);
                 let is_selected = fsm.selected_component() == Some(Component::EnginePanel);
                 let widget = EngineAnalysisPanel::new(
@@ -227,20 +235,34 @@ impl Renderer {
                     game_session.is_engine_thinking,
                     scroll,
                     is_selected,
+                    title,
+                    number_key_hint,
                 );
                 frame.render_widget(widget, area);
             }
             Component::DebugPanel => {
                 let scroll = fsm.component_scroll(&Component::DebugPanel);
                 let is_selected = fsm.selected_component() == Some(Component::DebugPanel);
-                let widget = UciDebugPanel::new(&game_session.uci_log, scroll, is_selected);
+                let title = component.title();
+                let number_key_hint = component.number_key(&fsm.mode);
+                let widget = UciDebugPanel::new(
+                    &game_session.uci_log,
+                    scroll,
+                    is_selected,
+                    title,
+                    number_key_hint,
+                );
                 frame.render_widget(widget, area);
             }
             Component::ReviewTabs => {
                 if let Some(ref review_state) = game_session.review_state {
+                    let title = component.title();
+                    let number_key_hint = component.number_key(&fsm.mode);
                     let is_selected = fsm.selected_component() == Some(Component::ReviewSummary);
                     let scroll = fsm.component_scroll(&Component::ReviewSummary);
                     let widget = ReviewTabsPanel {
+                        title,
+                        number_key_hint,
                         review_state,
                         current_tab: fsm.review_tab,
                         scroll,
@@ -253,6 +275,8 @@ impl Renderer {
             }
             Component::ReviewSummary => {
                 if let Some(ref review_state) = game_session.review_state {
+                    let title = component.title();
+                    let number_key_hint = component.number_key(&fsm.mode);
                     let is_selected = fsm.selected_component() == Some(Component::ReviewSummary);
                     let scroll = fsm.component_scroll(&Component::ReviewSummary);
                     let widget = ReviewSummaryPanel {
@@ -260,12 +284,16 @@ impl Renderer {
                         scroll,
                         is_selected,
                         expanded: false,
+                        title,
+                        number_key_hint,
                     };
                     frame.render_widget(widget, area);
                 }
             }
             Component::AdvancedAnalysis => {
                 if let Some(ref review_state) = game_session.review_state {
+                    let title = component.title();
+                    let number_key_hint = component.number_key(&fsm.mode);
                     let is_selected = fsm.selected_component() == Some(Component::AdvancedAnalysis);
                     let scroll = fsm.component_scroll(&Component::AdvancedAnalysis);
                     let widget = AdvancedAnalysisPanel {
@@ -273,6 +301,8 @@ impl Renderer {
                         scroll,
                         is_selected,
                         expanded: false,
+                        title,
+                        number_key_hint,
                     };
                     frame.render_widget(widget, area);
                 }

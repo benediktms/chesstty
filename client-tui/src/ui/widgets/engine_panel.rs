@@ -12,6 +12,8 @@ pub struct EngineAnalysisPanel<'a> {
     pub is_thinking: bool,
     pub scroll: u16,
     pub is_selected: bool,
+    pub title: &'static str,
+    pub number_key_hint: Option<char>,
 }
 
 impl<'a> EngineAnalysisPanel<'a> {
@@ -20,28 +22,32 @@ impl<'a> EngineAnalysisPanel<'a> {
         is_thinking: bool,
         scroll: u16,
         is_selected: bool,
+        title: &'static str,
+        number_key_hint: Option<char>,
     ) -> Self {
         Self {
             engine_info,
             is_thinking,
             scroll,
             is_selected,
+            title,
+            number_key_hint,
         }
     }
 }
 
 impl Widget for EngineAnalysisPanel<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
+        let thinking_suffix = if self.is_thinking { " (Thinking...)" } else { "" };
         let title = if self.is_selected {
-            if self.is_thinking {
-                "Engine Analysis (Thinking...) [SELECTED]"
-            } else {
-                "Engine Analysis [SELECTED]"
-            }
-        } else if self.is_thinking {
-            "[2] Engine Analysis (Thinking...)"
+            format!("{} [SELECTED]{}", self.title, thinking_suffix)
         } else {
-            "[2] Engine Analysis"
+            format!(
+                "[{}] {}{}",
+                self.number_key_hint.unwrap_or(' '),
+                self.title,
+                thinking_suffix
+            )
         };
 
         let border_style = if self.is_selected {
@@ -56,7 +62,7 @@ impl Widget for EngineAnalysisPanel<'_> {
             .title(title)
             .borders(Borders::ALL)
             .border_style(border_style)
-            .style(Style::default().bg(Color::Black));
+            .style(Style::default());
 
         let inner = block.inner(area);
         block.render(area, buf);

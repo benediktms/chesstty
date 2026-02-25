@@ -16,16 +16,18 @@ pub struct AdvancedAnalysisPanel<'a> {
     pub scroll: u16,
     pub is_selected: bool,
     pub expanded: bool,
+    pub title: &'static str,
+    pub number_key_hint: Option<char>,
 }
 
 impl Widget for AdvancedAnalysisPanel<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let title = if self.expanded {
-            "Advanced Analysis (Expanded)"
+            format!("{} (Expanded)", self.title)
         } else if self.is_selected {
-            "Advanced Analysis [SELECTED]"
+            format!("{} [SELECTED]", self.title)
         } else {
-            "[3] Advanced Analysis"
+            format!("[{}] {}", self.number_key_hint.unwrap_or(' '), self.title)
         };
 
         let border_style = if self.is_selected || self.expanded {

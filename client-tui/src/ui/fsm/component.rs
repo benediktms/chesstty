@@ -15,9 +15,8 @@ pub enum Component {
 }
 
 pub struct ComponentProperties {
-    #[allow(dead_code)] // structural field, used when component API is fully wired
+    #[allow(dead_code)] // structural; used when component API is fully extended (e.g. panel lists)
     pub component: Component,
-    #[allow(dead_code)] // used by Component::title() once callers exist
     pub title: &'static str,
     pub is_selectable: bool,
     pub is_expandable: bool,
@@ -95,7 +94,6 @@ impl Component {
         ComponentProperties::for_component(self)
     }
 
-    #[allow(dead_code)] // part of component API, callers pending
     pub fn title(&self) -> &'static str {
         self.properties().title
     }
@@ -113,7 +111,6 @@ impl Component {
     ///
     /// Game mode:   1=InfoPanel, 2=EnginePanel, 3=HistoryPanel, 4=DebugPanel
     /// Review mode: 1=InfoPanel, 2=HistoryPanel, 3=AdvancedAnalysis, 4=ReviewSummary
-    #[allow(dead_code)] // part of component API, callers pending
     pub fn number_key(&self, mode: &super::UiMode) -> Option<char> {
         match (self, mode) {
             (Component::InfoPanel, _) => Some('1'),

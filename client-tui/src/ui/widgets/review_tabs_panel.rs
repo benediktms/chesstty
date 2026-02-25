@@ -20,6 +20,8 @@ pub const REVIEW_TAB_OVERVIEW: u8 = 0;
 pub const REVIEW_TAB_POSITION: u8 = 1;
 
 pub struct ReviewTabsPanel<'a> {
+    pub title: &'static str,
+    pub number_key_hint: Option<char>,
     pub review_state: &'a ReviewState,
     pub current_tab: u8,
     pub scroll: u16,
@@ -31,11 +33,11 @@ pub struct ReviewTabsPanel<'a> {
 impl Widget for ReviewTabsPanel<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let title = if self.expanded {
-            "\u{2606} Review (Expanded) \u{2606}"
+            format!("{} (Expanded)", self.title)
         } else if self.is_selected {
-            "\u{2606} Review \u{2606} [SELECTED]"
+            format!("{} [SELECTED]", self.title)
         } else {
-            "\u{2606} Review \u{2606}"
+            self.title.to_string()
         };
 
         let border_style = if self.is_selected || self.expanded {

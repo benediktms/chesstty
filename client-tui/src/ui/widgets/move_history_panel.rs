@@ -13,6 +13,8 @@ pub struct MoveHistoryPanel<'a> {
     pub scroll: u16,
     pub is_selected: bool,
     pub expanded: bool,
+    pub title: &'static str,
+    pub number_key_hint: Option<char>,
     /// Optional review data for classification markers.
     pub review_positions: Option<&'a [PositionReview]>,
     /// When set (review mode), highlight the move at this 1-indexed ply.
@@ -26,9 +28,17 @@ impl<'a> MoveHistoryPanel<'a> {
             scroll,
             is_selected,
             expanded: false,
+            title: "Move History",
+            number_key_hint: None,
             review_positions: None,
             current_ply: None,
         }
+    }
+
+    pub fn with_title(mut self, title: &'static str, number_key_hint: Option<char>) -> Self {
+        self.title = title;
+        self.number_key_hint = number_key_hint;
+        self
     }
 
     pub fn with_review_positions(mut self, positions: Option<&'a [PositionReview]>) -> Self {
@@ -96,15 +106,15 @@ fn classification_marker(
 
 impl Widget for MoveHistoryPanel<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        let is_review = self.current_ply.is_some();
-        let title = if self.expanded {
-            "Move History (Expanded)"
-        } else if self.is_selected {
-            "Move History [SELECTED]"
-        } else if is_review {
-            "[2] Move History"
+        let base_title = if self.is_selected {
+            format!("{} [SELECTED]", self.title)
         } else {
-            "[3] Move History"
+            format!("[{}] {}", self.number_key_hint.unwrap_or(' '), self.title)
+        };
+        let title = if self.expanded {
+            format!("{} (Expanded)", base_title)
+        } else {
+            base_title
         };
         let border_style = if self.is_selected || self.expanded {
             Style::default()

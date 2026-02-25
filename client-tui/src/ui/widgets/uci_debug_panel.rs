@@ -11,14 +11,24 @@ pub struct UciDebugPanel<'a> {
     pub uci_log: &'a [UciLogEntry],
     pub scroll: u16,
     pub is_selected: bool,
+    pub title: &'static str,
+    pub number_key_hint: Option<char>,
 }
 
 impl<'a> UciDebugPanel<'a> {
-    pub fn new(uci_log: &'a [UciLogEntry], scroll: u16, is_selected: bool) -> Self {
+    pub fn new(
+        uci_log: &'a [UciLogEntry],
+        scroll: u16,
+        is_selected: bool,
+        title: &'static str,
+        number_key_hint: Option<char>,
+    ) -> Self {
         Self {
             uci_log,
             scroll,
             is_selected,
+            title,
+            number_key_hint,
         }
     }
 }
@@ -26,9 +36,9 @@ impl<'a> UciDebugPanel<'a> {
 impl Widget for UciDebugPanel<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let title = if self.is_selected {
-            "UCI Debug Panel [SELECTED]"
+            format!("{} [SELECTED]", self.title)
         } else {
-            "[4] UCI Debug Panel (@ to toggle)"
+            format!("[{}] {}", self.number_key_hint.unwrap_or(' '), self.title)
         };
         let border_style = if self.is_selected {
             Style::default()

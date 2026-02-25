@@ -14,6 +14,8 @@ pub struct GameInfoPanel<'a> {
     pub fsm: &'a UiStateMachine,
     pub is_selected: bool,
     pub scroll: u16,
+    pub title: &'static str,
+    pub number_key_hint: Option<char>,
 }
 
 impl<'a> GameInfoPanel<'a> {
@@ -22,12 +24,16 @@ impl<'a> GameInfoPanel<'a> {
         fsm: &'a UiStateMachine,
         is_selected: bool,
         scroll: u16,
+        title: &'static str,
+        number_key_hint: Option<char>,
     ) -> Self {
         Self {
             client_state,
             fsm,
             is_selected,
             scroll,
+            title,
+            number_key_hint,
         }
     }
 }
@@ -35,9 +41,9 @@ impl<'a> GameInfoPanel<'a> {
 impl Widget for GameInfoPanel<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let title = if self.is_selected {
-            "Game Info [SELECTED]"
+            format!("{} [SELECTED]", self.title)
         } else {
-            "[1] Game Info"
+            format!("[{}] {}", self.number_key_hint.unwrap_or(' '), self.title)
         };
         let border_style = if self.is_selected {
             Style::default()

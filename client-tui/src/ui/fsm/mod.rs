@@ -262,7 +262,7 @@ impl UiStateMachine {
     }
 }
 
-#[allow(dead_code)] // FSM navigation methods, wired up as states are implemented
+#[allow(dead_code)] // FSM navigation methods used in tests (fsm_tests, panel_selection_integration_tests)
 impl UiStateMachine {
     pub fn is_board_focused(&self) -> bool {
         self.focused_component.is_none()
