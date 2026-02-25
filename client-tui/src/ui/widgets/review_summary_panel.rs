@@ -201,6 +201,144 @@ impl Widget for ReviewSummaryPanel<'_> {
             }
         }
 
+        // Game-wide advanced analysis (psychology / momentum)
+        if let Some(ref advanced) = self.review_state.advanced {
+            let white_psy = advanced.white_psychology.as_ref();
+            let black_psy = advanced.black_psychology.as_ref();
+
+            // Phase performance
+            lines.push(Line::from(Span::styled(
+                "Phase Performance (avg cp_loss)",
+                Style::default().fg(Color::Cyan),
+            )));
+
+            let w_opening = white_psy.map(|p| p.opening_avg_cp_loss).unwrap_or(0.0);
+            let b_opening = black_psy.map(|p| p.opening_avg_cp_loss).unwrap_or(0.0);
+            let w_mid = white_psy.map(|p| p.middlegame_avg_cp_loss).unwrap_or(0.0);
+            let b_mid = black_psy.map(|p| p.middlegame_avg_cp_loss).unwrap_or(0.0);
+            let w_end = white_psy.map(|p| p.endgame_avg_cp_loss).unwrap_or(0.0);
+            let b_end = black_psy.map(|p| p.endgame_avg_cp_loss).unwrap_or(0.0);
+
+            lines.push(Line::from(vec![
+                Span::raw("  "),
+                Span::styled("Opening", Style::default().fg(Color::White)),
+                Span::raw(": W "),
+                Span::styled(
+                    format!("{:.1}", w_opening),
+                    Style::default().fg(Color::LightCyan),
+                ),
+                Span::raw("  B "),
+                Span::styled(
+                    format!("{:.1}", b_opening),
+                    Style::default().fg(Color::LightCyan),
+                ),
+            ]));
+            lines.push(Line::from(vec![
+                Span::raw("  "),
+                Span::styled("Middlegame", Style::default().fg(Color::White)),
+                Span::raw(": W "),
+                Span::styled(
+                    format!("{:.1}", w_mid),
+                    Style::default().fg(Color::LightCyan),
+                ),
+                Span::raw("  B "),
+                Span::styled(
+                    format!("{:.1}", b_mid),
+                    Style::default().fg(Color::LightCyan),
+                ),
+            ]));
+            lines.push(Line::from(vec![
+                Span::raw("  "),
+                Span::styled("Endgame", Style::default().fg(Color::White)),
+                Span::raw(": W "),
+                Span::styled(
+                    format!("{:.1}", w_end),
+                    Style::default().fg(Color::LightCyan),
+                ),
+                Span::raw("  B "),
+                Span::styled(
+                    format!("{:.1}", b_end),
+                    Style::default().fg(Color::LightCyan),
+                ),
+            ]));
+
+            lines.push(Line::raw(""));
+
+            // Error patterns
+            let w_max_err = white_psy.map(|p| p.max_consecutive_errors).unwrap_or(0);
+            let b_max_err = black_psy.map(|p| p.max_consecutive_errors).unwrap_or(0);
+            let w_blunder = white_psy.map(|p| p.blunder_cluster_density).unwrap_or(0);
+            let b_blunder = black_psy.map(|p| p.blunder_cluster_density).unwrap_or(0);
+
+            lines.push(Line::from(Span::styled(
+                "Error Patterns",
+                Style::default().fg(Color::Cyan),
+            )));
+            lines.push(Line::from(vec![
+                Span::raw("  Max consecutive: "),
+                Span::styled(
+                    format!("W:{}  B:{}", w_max_err, b_max_err),
+                    Style::default().fg(Color::LightRed),
+                ),
+            ]));
+            lines.push(Line::from(vec![
+                Span::raw("  Blunder cluster: "),
+                Span::styled(
+                    format!("W:{}  B:{}", w_blunder, b_blunder),
+                    Style::default().fg(Color::LightMagenta),
+                ),
+            ]));
+
+            lines.push(Line::raw(""));
+
+            // Momentum
+            let w_fav = white_psy.map(|p| p.favorable_swings).unwrap_or(0);
+            let b_fav = black_psy.map(|p| p.favorable_swings).unwrap_or(0);
+            let w_unfav = white_psy.map(|p| p.unfavorable_swings).unwrap_or(0);
+            let b_unfav = black_psy.map(|p| p.unfavorable_swings).unwrap_or(0);
+            let w_streak = white_psy.map(|p| p.max_momentum_streak).unwrap_or(0);
+            let b_streak = black_psy.map(|p| p.max_momentum_streak).unwrap_or(0);
+
+            lines.push(Line::from(Span::styled(
+                "Momentum",
+                Style::default().fg(Color::Cyan),
+            )));
+            lines.push(Line::from(vec![
+                Span::raw("  Favorable swings: "),
+                Span::styled(
+                    format!("W:{}  B:{}", w_fav, b_fav),
+                    Style::default().fg(Color::Green),
+                ),
+            ]));
+            lines.push(Line::from(vec![
+                Span::raw("  Unfavorable swings: "),
+                Span::styled(
+                    format!("W:{}  B:{}", w_unfav, b_unfav),
+                    Style::default().fg(Color::Red),
+                ),
+            ]));
+            lines.push(Line::from(vec![
+                Span::raw("  Max streak: "),
+                Span::styled(
+                    format!("W:{}  B:{}", w_streak, b_streak),
+                    Style::default().fg(Color::Yellow),
+                ),
+            ]));
+
+            lines.push(Line::raw(""));
+
+            // Critical positions count
+            lines.push(Line::from(vec![
+                Span::styled(
+                    "Critical positions: ",
+                    Style::default().fg(Color::DarkGray),
+                ),
+                Span::raw(format!("{}", advanced.critical_positions_count)),
+            ]));
+
+            lines.push(Line::raw(""));
+        }
+
         // Analysis info
         lines.push(Line::raw(""));
         lines.push(Line::from(vec![
