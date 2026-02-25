@@ -1,4 +1,5 @@
 use crate::review_state::ReviewState;
+use crate::ui::theme::Theme;
 use crate::ui::widgets::review_helpers::{
     accuracy_bar, accuracy_color, build_eval_graph, count_classifications,
 };
@@ -7,7 +8,7 @@ use chess_client::MoveClassification;
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::StatefulWidget,
     widgets::{Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Widget},
@@ -16,6 +17,7 @@ use ratatui::{
 pub struct ReviewSummaryPanel<'a> {
     pub review_state: &'a ReviewState,
     pub scroll: u16,
+    pub theme: &'a Theme,
 }
 
 impl Widget for ReviewSummaryPanel<'_> {
@@ -33,10 +35,10 @@ impl Widget for ReviewSummaryPanel<'_> {
                 _ => "Unknown",
             };
             let status_color = match winner.as_str() {
-                "White" => Color::White,
-                "Black" => Color::Gray,
-                "Draw" => Color::Yellow,
-                _ => Color::Red,
+                "White" => self.theme.text_primary,
+                "Black" => self.theme.text_secondary,
+                "Draw" => self.theme.warning,
+                _ => self.theme.negative,
             };
             lines.push(Line::from(Span::styled(
                 status_text,
@@ -51,7 +53,7 @@ impl Widget for ReviewSummaryPanel<'_> {
         lines.push(Line::from(Span::styled(
             "Accuracy",
             Style::default()
-                .fg(Color::White)
+                .fg(self.theme.text_primary)
                 .add_modifier(Modifier::BOLD),
         )));
 
@@ -60,7 +62,7 @@ impl Widget for ReviewSummaryPanel<'_> {
                 Span::raw("  White: "),
                 Span::styled(
                     format!("{:.1}%", white_acc),
-                    Style::default().fg(accuracy_color(white_acc)),
+                    Style::default().fg(accuracy_color(white_acc, self.theme)),
                 ),
                 Span::raw("  "),
                 Span::raw(accuracy_bar(white_acc, 20)),
@@ -71,7 +73,7 @@ impl Widget for ReviewSummaryPanel<'_> {
                 Span::raw("  Black: "),
                 Span::styled(
                     format!("{:.1}%", black_acc),
-                    Style::default().fg(accuracy_color(black_acc)),
+                    Style::default().fg(accuracy_color(black_acc, self.theme)),
                 ),
                 Span::raw("  "),
                 Span::raw(accuracy_bar(black_acc, 20)),
@@ -84,11 +86,11 @@ impl Widget for ReviewSummaryPanel<'_> {
             lines.push(Line::from(Span::styled(
                 "Evaluation",
                 Style::default()
-                    .fg(Color::White)
+                    .fg(self.theme.text_primary)
                     .add_modifier(Modifier::BOLD),
             )));
             let graph_width = (area.width as usize).saturating_sub(4).min(60);
-            let graph_lines = build_eval_graph(&review.positions, graph_width);
+            let graph_lines = build_eval_graph(&review.positions, graph_width, self.theme);
             lines.extend(graph_lines);
         }
 
@@ -98,7 +100,7 @@ impl Widget for ReviewSummaryPanel<'_> {
         lines.push(Line::from(Span::styled(
             "Move Quality",
             Style::default()
-                .fg(Color::White)
+                .fg(self.theme.text_primary)
                 .add_modifier(Modifier::BOLD),
         )));
 
@@ -108,37 +110,37 @@ impl Widget for ReviewSummaryPanel<'_> {
             (
                 "!! Brilliant",
                 MoveClassification::ClassificationBrilliant as i32,
-                Color::Cyan,
+                self.theme.move_brilliant,
             ),
             (
                 "!  Excellent",
                 MoveClassification::ClassificationExcellent as i32,
-                Color::Cyan,
+                self.theme.move_excellent,
             ),
             (
                 "   Good/Best",
                 MoveClassification::ClassificationGood as i32,
-                Color::White,
+                self.theme.move_good,
             ),
             (
                 "?! Inaccuracy",
                 MoveClassification::ClassificationInaccuracy as i32,
-                Color::Yellow,
+                self.theme.move_inaccuracy,
             ),
             (
                 "?  Mistake",
                 MoveClassification::ClassificationMistake as i32,
-                Color::Magenta,
+                self.theme.move_mistake,
             ),
             (
                 "?? Blunder",
                 MoveClassification::ClassificationBlunder as i32,
-                Color::Red,
+                self.theme.move_blunder,
             ),
             (
                 "[] Forced",
                 MoveClassification::ClassificationForced as i32,
-                Color::DarkGray,
+                self.theme.move_forced,
             ),
         ];
 
@@ -171,7 +173,7 @@ impl Widget for ReviewSummaryPanel<'_> {
             lines.push(Line::from(Span::styled(
                 "Critical Moments",
                 Style::default()
-                    .fg(Color::White)
+                    .fg(self.theme.text_primary)
                     .add_modifier(Modifier::BOLD),
             )));
 
@@ -185,8 +187,8 @@ impl Widget for ReviewSummaryPanel<'_> {
                     _ => "",
                 };
                 let color = match MoveClassification::try_from(pos.classification) {
-                    Ok(MoveClassification::ClassificationBlunder) => Color::Red,
-                    _ => Color::Magenta,
+                    Ok(MoveClassification::ClassificationBlunder) => self.theme.move_blunder,
+                    _ => self.theme.move_mistake,
                 };
 
                 lines.push(Line::from(vec![
@@ -209,7 +211,7 @@ impl Widget for ReviewSummaryPanel<'_> {
             // Phase performance
             lines.push(Line::from(Span::styled(
                 "Phase Performance (avg cp_loss)",
-                Style::default().fg(Color::Cyan),
+                Style::default().fg(self.theme.info),
             )));
 
             let w_opening = white_psy.map(|p| p.opening_avg_cp_loss).unwrap_or(0.0);
@@ -221,44 +223,44 @@ impl Widget for ReviewSummaryPanel<'_> {
 
             lines.push(Line::from(vec![
                 Span::raw("  "),
-                Span::styled("Opening", Style::default().fg(Color::White)),
+                Span::styled("Opening", Style::default().fg(self.theme.text_primary)),
                 Span::raw(": W "),
                 Span::styled(
                     format!("{:.1}", w_opening),
-                    Style::default().fg(Color::LightCyan),
+                    Style::default().fg(self.theme.info_light),
                 ),
                 Span::raw("  B "),
                 Span::styled(
                     format!("{:.1}", b_opening),
-                    Style::default().fg(Color::LightCyan),
+                    Style::default().fg(self.theme.info_light),
                 ),
             ]));
             lines.push(Line::from(vec![
                 Span::raw("  "),
-                Span::styled("Middlegame", Style::default().fg(Color::White)),
+                Span::styled("Middlegame", Style::default().fg(self.theme.text_primary)),
                 Span::raw(": W "),
                 Span::styled(
                     format!("{:.1}", w_mid),
-                    Style::default().fg(Color::LightCyan),
+                    Style::default().fg(self.theme.info_light),
                 ),
                 Span::raw("  B "),
                 Span::styled(
                     format!("{:.1}", b_mid),
-                    Style::default().fg(Color::LightCyan),
+                    Style::default().fg(self.theme.info_light),
                 ),
             ]));
             lines.push(Line::from(vec![
                 Span::raw("  "),
-                Span::styled("Endgame", Style::default().fg(Color::White)),
+                Span::styled("Endgame", Style::default().fg(self.theme.text_primary)),
                 Span::raw(": W "),
                 Span::styled(
                     format!("{:.1}", w_end),
-                    Style::default().fg(Color::LightCyan),
+                    Style::default().fg(self.theme.info_light),
                 ),
                 Span::raw("  B "),
                 Span::styled(
                     format!("{:.1}", b_end),
-                    Style::default().fg(Color::LightCyan),
+                    Style::default().fg(self.theme.info_light),
                 ),
             ]));
 
@@ -272,20 +274,20 @@ impl Widget for ReviewSummaryPanel<'_> {
 
             lines.push(Line::from(Span::styled(
                 "Error Patterns",
-                Style::default().fg(Color::Cyan),
+                Style::default().fg(self.theme.info),
             )));
             lines.push(Line::from(vec![
                 Span::raw("  Max consecutive: "),
                 Span::styled(
                     format!("W:{}  B:{}", w_max_err, b_max_err),
-                    Style::default().fg(Color::LightRed),
+                    Style::default().fg(self.theme.negative_light),
                 ),
             ]));
             lines.push(Line::from(vec![
                 Span::raw("  Blunder cluster: "),
                 Span::styled(
                     format!("W:{}  B:{}", w_blunder, b_blunder),
-                    Style::default().fg(Color::LightMagenta),
+                    Style::default().fg(self.theme.secondary_light),
                 ),
             ]));
 
@@ -301,27 +303,27 @@ impl Widget for ReviewSummaryPanel<'_> {
 
             lines.push(Line::from(Span::styled(
                 "Momentum",
-                Style::default().fg(Color::Cyan),
+                Style::default().fg(self.theme.info),
             )));
             lines.push(Line::from(vec![
                 Span::raw("  Favorable swings: "),
                 Span::styled(
                     format!("W:{}  B:{}", w_fav, b_fav),
-                    Style::default().fg(Color::Green),
+                    Style::default().fg(self.theme.positive),
                 ),
             ]));
             lines.push(Line::from(vec![
                 Span::raw("  Unfavorable swings: "),
                 Span::styled(
                     format!("W:{}  B:{}", w_unfav, b_unfav),
-                    Style::default().fg(Color::Red),
+                    Style::default().fg(self.theme.negative),
                 ),
             ]));
             lines.push(Line::from(vec![
                 Span::raw("  Max streak: "),
                 Span::styled(
                     format!("W:{}  B:{}", w_streak, b_streak),
-                    Style::default().fg(Color::Yellow),
+                    Style::default().fg(self.theme.warning),
                 ),
             ]));
 
@@ -331,7 +333,7 @@ impl Widget for ReviewSummaryPanel<'_> {
             lines.push(Line::from(vec![
                 Span::styled(
                     "Critical positions: ",
-                    Style::default().fg(Color::DarkGray),
+                    Style::default().fg(self.theme.muted),
                 ),
                 Span::raw(format!("{}", advanced.critical_positions_count)),
             ]));
@@ -342,10 +344,10 @@ impl Widget for ReviewSummaryPanel<'_> {
         // Analysis info
         lines.push(Line::raw(""));
         lines.push(Line::from(vec![
-            Span::styled("Depth: ", Style::default().fg(Color::DarkGray)),
+            Span::styled("Depth: ", Style::default().fg(self.theme.muted)),
             Span::raw(format!("{}", review.analysis_depth)),
             Span::raw("  "),
-            Span::styled("Plies: ", Style::default().fg(Color::DarkGray)),
+            Span::styled("Plies: ", Style::default().fg(self.theme.muted)),
             Span::raw(format!("{}/{}", review.analyzed_plies, review.total_plies)),
         ]));
 
@@ -355,11 +357,10 @@ impl Widget for ReviewSummaryPanel<'_> {
 
         if content_height > area.height {
             let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
-                .thumb_style(Style::default().fg(Color::Cyan).bg(Color::DarkGray));
+                .thumb_style(Style::default().fg(self.theme.info).bg(self.theme.muted));
             let mut scrollbar_state =
                 ScrollbarState::new(content_height as usize).position(self.scroll as usize);
             scrollbar.render(area, buf, &mut scrollbar_state);
         }
     }
 }
-

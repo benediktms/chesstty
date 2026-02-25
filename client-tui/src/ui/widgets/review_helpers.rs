@@ -1,3 +1,4 @@
+use crate::ui::theme::Theme;
 use chess::is_white_ply;
 use chess_client::{
     review_score, KingSafetyMetricsProto, MoveClassification, PositionKingSafetyProto,
@@ -29,23 +30,23 @@ pub fn count_classifications(
 
 // --- Color helpers ---
 
-pub fn accuracy_color(accuracy: f64) -> Color {
+pub fn accuracy_color(accuracy: f64, theme: &Theme) -> Color {
     if accuracy >= 90.0 {
-        Color::Green
+        theme.accuracy_high
     } else if accuracy >= 70.0 {
-        Color::Yellow
+        theme.accuracy_mid
     } else {
-        Color::Red
+        theme.accuracy_low
     }
 }
 
-pub fn exposure_color(score: f32) -> Color {
+pub fn exposure_color(score: f32, theme: &Theme) -> Color {
     if score < 0.3 {
-        Color::Green
+        theme.positive
     } else if score < 0.6 {
-        Color::Yellow
+        theme.warning
     } else {
-        Color::Red
+        theme.negative
     }
 }
 
@@ -90,7 +91,11 @@ pub fn score_to_cp_clamped(pos: &PositionReview) -> i32 {
 
 // --- Eval graph ---
 
-pub fn build_eval_graph(positions: &[PositionReview], width: usize) -> Vec<Line<'static>> {
+pub fn build_eval_graph(
+    positions: &[PositionReview],
+    width: usize,
+    theme: &Theme,
+) -> Vec<Line<'static>> {
     if positions.is_empty() || width == 0 {
         return vec![];
     }
@@ -109,8 +114,8 @@ pub fn build_eval_graph(positions: &[PositionReview], width: usize) -> Vec<Line<
 
             // Color critical moments
             let col_color = match MoveClassification::try_from(pos.classification) {
-                Ok(MoveClassification::ClassificationBlunder) => Some(Color::Red),
-                Ok(MoveClassification::ClassificationMistake) => Some(Color::Yellow),
+                Ok(MoveClassification::ClassificationBlunder) => Some(theme.move_blunder),
+                Ok(MoveClassification::ClassificationMistake) => Some(theme.move_inaccuracy),
                 _ => None,
             };
             (cp, col_color)
@@ -150,9 +155,9 @@ pub fn build_eval_graph(positions: &[PositionReview], width: usize) -> Vec<Line<
 
             let fg = if row <= mid {
                 // Above or at midline: white's territory
-                critical_color.unwrap_or(Color::White)
+                critical_color.unwrap_or(theme.text_primary)
             } else {
-                critical_color.unwrap_or(Color::Gray)
+                critical_color.unwrap_or(theme.text_secondary)
             };
 
             spans.push(Span::styled(
@@ -184,16 +189,16 @@ pub fn tactical_tag_kind_name(kind: i32) -> &'static str {
     }
 }
 
-pub fn render_tactical_tags(lines: &mut Vec<Line<'_>>, tags: &[TacticalTagProto]) {
+pub fn render_tactical_tags(lines: &mut Vec<Line<'_>>, tags: &[TacticalTagProto], theme: &Theme) {
     lines.push(Line::from(Span::styled(
         "  Tactical Tags",
-        Style::default().fg(Color::Yellow),
+        Style::default().fg(theme.warning),
     )));
 
     if tags.is_empty() {
         lines.push(Line::from(Span::styled(
             "    None detected",
-            Style::default().fg(Color::DarkGray),
+            Style::default().fg(theme.muted),
         )));
         return;
     }
@@ -202,11 +207,11 @@ pub fn render_tactical_tags(lines: &mut Vec<Line<'_>>, tags: &[TacticalTagProto]
         let kind_name = tactical_tag_kind_name(tag.kind);
         let conf = tag.confidence;
         let conf_color = if conf >= 0.8 {
-            Color::LightGreen
+            theme.positive_light
         } else if conf >= 0.5 {
-            Color::Yellow
+            theme.warning
         } else {
-            Color::DarkGray
+            theme.muted
         };
 
         let mut spans = vec![
@@ -222,7 +227,7 @@ pub fn render_tactical_tags(lines: &mut Vec<Line<'_>>, tags: &[TacticalTagProto]
             spans.push(Span::raw(": "));
             spans.push(Span::styled(
                 attacker.clone(),
-                Style::default().fg(Color::White),
+                Style::default().fg(theme.text_primary),
             ));
         }
 
@@ -231,7 +236,7 @@ pub fn render_tactical_tags(lines: &mut Vec<Line<'_>>, tags: &[TacticalTagProto]
             spans.push(Span::raw(" \u{2192} "));
             spans.push(Span::styled(
                 tag.victims.join(", "),
-                Style::default().fg(Color::LightCyan),
+                Style::default().fg(theme.info_light),
             ));
         }
 
@@ -248,16 +253,20 @@ pub fn render_tactical_tags(lines: &mut Vec<Line<'_>>, tags: &[TacticalTagProto]
         if let Some(ref note) = tag.note {
             lines.push(Line::from(Span::styled(
                 format!("      {}", note),
-                Style::default().fg(Color::DarkGray),
+                Style::default().fg(theme.muted),
             )));
         }
     }
 }
 
-pub fn render_king_safety(lines: &mut Vec<Line<'_>>, ks: &PositionKingSafetyProto) {
+pub fn render_king_safety(
+    lines: &mut Vec<Line<'_>>,
+    ks: &PositionKingSafetyProto,
+    theme: &Theme,
+) {
     lines.push(Line::from(Span::styled(
         "  King Safety",
-        Style::default().fg(Color::Yellow),
+        Style::default().fg(theme.warning),
     )));
 
     let white = ks.white.as_ref();
@@ -292,24 +301,24 @@ pub fn render_king_safety(lines: &mut Vec<Line<'_>>, ks: &PositionKingSafetyProt
                 get_u32(white, "pawn_shield_max")
             ),
             Style::default().fg(if get_u32(white, "pawn_shield_count") >= 3 {
-                Color::Green
+                theme.positive
             } else {
-                Color::Red
+                theme.negative
             }),
         ),
         Span::raw("  open files "),
         Span::styled(
             format!("{}", get_u32(white, "open_files_near_king")),
             Style::default().fg(if get_u32(white, "open_files_near_king") == 0 {
-                Color::Green
+                theme.positive
             } else {
-                Color::Red
+                theme.negative
             }),
         ),
         Span::raw("  exposure "),
         Span::styled(
             format!("{:.1}", get_f32(white, "exposure_score")),
-            Style::default().fg(exposure_color(get_f32(white, "exposure_score"))),
+            Style::default().fg(exposure_color(get_f32(white, "exposure_score"), theme)),
         ),
     ]));
 
@@ -324,39 +333,43 @@ pub fn render_king_safety(lines: &mut Vec<Line<'_>>, ks: &PositionKingSafetyProt
                 get_u32(black, "pawn_shield_max")
             ),
             Style::default().fg(if get_u32(black, "pawn_shield_count") >= 3 {
-                Color::Green
+                theme.positive
             } else {
-                Color::Red
+                theme.negative
             }),
         ),
         Span::raw("  open files "),
         Span::styled(
             format!("{}", get_u32(black, "open_files_near_king")),
             Style::default().fg(if get_u32(black, "open_files_near_king") == 0 {
-                Color::Green
+                theme.positive
             } else {
-                Color::Red
+                theme.negative
             }),
         ),
         Span::raw("  exposure "),
         Span::styled(
             format!("{:.1}", get_f32(black, "exposure_score")),
-            Style::default().fg(exposure_color(get_f32(black, "exposure_score"))),
+            Style::default().fg(exposure_color(get_f32(black, "exposure_score"), theme)),
         ),
     ]));
 }
 
-pub fn render_tension(lines: &mut Vec<Line<'_>>, tension: &PositionTensionMetricsProto) {
+pub fn render_tension(
+    lines: &mut Vec<Line<'_>>,
+    tension: &PositionTensionMetricsProto,
+    theme: &Theme,
+) {
     lines.push(Line::from(Span::styled(
         "  Tension",
-        Style::default().fg(Color::Yellow),
+        Style::default().fg(theme.warning),
     )));
 
     // Volatility bar
     let vol_bar = volatility_bar(tension.volatility_score, 15);
     lines.push(Line::from(vec![
         Span::raw("  Volatility: "),
-        Span::styled(vol_bar, Style::default().fg(Color::LightCyan)),
+        Span::styled(vol_bar, Style::default().fg(theme.info_light)),
     ]));
 
     // Forcing moves
@@ -364,24 +377,24 @@ pub fn render_tension(lines: &mut Vec<Line<'_>>, tension: &PositionTensionMetric
         Span::raw("  Forcing moves: "),
         Span::styled(
             format!("{}", tension.forcing_moves),
-            Style::default().fg(Color::Cyan),
+            Style::default().fg(theme.info),
         ),
         Span::raw("  Checks: "),
         Span::styled(
             format!("{}", tension.checks_available),
             Style::default().fg(if tension.checks_available > 0 {
-                Color::Yellow
+                theme.warning
             } else {
-                Color::DarkGray
+                theme.muted
             }),
         ),
         Span::raw("  Captures: "),
         Span::styled(
             format!("{}", tension.captures_available),
             Style::default().fg(if tension.captures_available > 0 {
-                Color::Yellow
+                theme.warning
             } else {
-                Color::DarkGray
+                theme.muted
             }),
         ),
     ]));

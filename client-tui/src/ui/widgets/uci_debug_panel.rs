@@ -1,8 +1,9 @@
 use crate::state::{UciDirection, UciLogEntry};
+use crate::ui::theme::Theme;
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::Line,
     widgets::{Paragraph, Widget},
 };
@@ -10,11 +11,16 @@ use ratatui::{
 pub struct UciDebugPanel<'a> {
     pub uci_log: &'a [UciLogEntry],
     pub scroll: u16,
+    pub theme: &'a Theme,
 }
 
 impl<'a> UciDebugPanel<'a> {
-    pub fn new(uci_log: &'a [UciLogEntry], scroll: u16) -> Self {
-        Self { uci_log, scroll }
+    pub fn new(uci_log: &'a [UciLogEntry], scroll: u16, theme: &'a Theme) -> Self {
+        Self {
+            uci_log,
+            scroll,
+            theme,
+        }
     }
 }
 
@@ -36,15 +42,15 @@ impl Widget for UciDebugPanel<'_> {
                 lines.push(Line::from(vec![ratatui::text::Span::styled(
                     format!("─── {} ───", context),
                     Style::default()
-                        .fg(Color::Yellow)
+                        .fg(self.theme.warning)
                         .add_modifier(Modifier::BOLD),
                 )]));
             }
 
             // Show direction indicator and message
             let (prefix, color) = match entry.direction {
-                UciDirection::ToEngine => ("→ OUT: ", Color::Cyan),
-                UciDirection::FromEngine => ("← IN:  ", Color::Green),
+                UciDirection::ToEngine => ("→ OUT: ", self.theme.info),
+                UciDirection::FromEngine => ("← IN:  ", self.theme.positive),
             };
 
             // Parse message for syntax highlighting
@@ -60,13 +66,13 @@ impl Widget for UciDebugPanel<'_> {
             for (text, highlight) in message_parts {
                 let style = match highlight {
                     HighlightType::Command => Style::default()
-                        .fg(Color::Yellow)
+                        .fg(self.theme.warning)
                         .add_modifier(Modifier::BOLD),
-                    HighlightType::Value => Style::default().fg(Color::White),
+                    HighlightType::Value => Style::default().fg(self.theme.text_primary),
                     HighlightType::Keyword => Style::default()
-                        .fg(Color::Magenta)
+                        .fg(self.theme.secondary)
                         .add_modifier(Modifier::BOLD),
-                    HighlightType::Normal => Style::default().fg(Color::Gray),
+                    HighlightType::Normal => Style::default().fg(self.theme.text_secondary),
                 };
 
                 // Check if adding this text would exceed max_width

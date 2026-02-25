@@ -5,7 +5,7 @@ use chess::{format_square, parse_square};
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
-    style::{Color, Style},
+    style::Style,
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph, Tabs, Widget},
 };
@@ -23,13 +23,14 @@ impl<'a> TabInputWidget<'a> {
 
 impl<'a> Widget for TabInputWidget<'a> {
     fn render(self, area: Rect, buf: &mut Buffer) {
+        let theme = &self.fsm.context.theme;
         let active = self.fsm.tab_input.active;
         let current_tab = self.fsm.tab_input.current_tab;
 
         let border_style = if active {
-            Style::default().fg(Color::Yellow)
+            Style::default().fg(theme.dialog_highlight)
         } else {
-            Style::default().fg(Color::DarkGray)
+            Style::default().fg(theme.muted)
         };
 
         let block = Block::default()
@@ -44,7 +45,7 @@ impl<'a> Widget for TabInputWidget<'a> {
             // Inactive: show greyed-out tab labels only
             let titles = vec!["Select Piece", "Select Destination"];
             let tabs = Tabs::new(titles)
-                .style(Style::default().fg(Color::DarkGray))
+                .style(Style::default().fg(theme.muted))
                 .select(0)
                 .divider(" ");
             tabs.render(inner, buf);
@@ -65,7 +66,7 @@ impl<'a> Widget for TabInputWidget<'a> {
         // Render tab headers
         let titles = vec!["Select Piece", "Select Destination"];
         let tabs = Tabs::new(titles)
-            .highlight_style(Style::default().fg(Color::Yellow))
+            .highlight_style(Style::default().fg(theme.dialog_highlight))
             .select(current_tab)
             .divider(" ");
         tabs.render(tab_area, buf);
@@ -84,13 +85,14 @@ fn render_piece_content(state: &GameSession, fsm: &UiStateMachine, buf: &mut Buf
         return;
     }
 
+    let theme = &fsm.context.theme;
     let typeahead = &fsm.tab_input.typeahead_buffer;
     let selectable_squares = &state.selectable_squares;
 
     let mut spans: Vec<Span> = vec![
-        Span::styled("> ", Style::default().fg(Color::Yellow)),
-        Span::styled(typeahead.as_str(), Style::default().fg(Color::White)),
-        Span::styled("_", Style::default().fg(Color::DarkGray)),
+        Span::styled("> ", Style::default().fg(theme.warning)),
+        Span::styled(typeahead.as_str(), Style::default().fg(theme.text_primary)),
+        Span::styled("_", Style::default().fg(theme.muted)),
         Span::raw("  "),
     ];
 
@@ -105,7 +107,10 @@ fn render_piece_content(state: &GameSession, fsm: &UiStateMachine, buf: &mut Buf
         ) {
             let symbol = piece_to_unicode(piece, color);
             let label = format!("{}{}", symbol, square_str);
-            spans.push(Span::styled(label, Style::default().fg(Color::White)));
+            spans.push(Span::styled(
+                label,
+                Style::default().fg(theme.text_primary),
+            ));
             spans.push(Span::raw("  "));
         }
     }
@@ -123,6 +128,7 @@ fn render_destination_content(
         return;
     }
 
+    let theme = &fsm.context.theme;
     let typeahead = &fsm.tab_input.typeahead_buffer;
 
     let moves = fsm
@@ -138,9 +144,9 @@ fn render_destination_content(
         .unwrap_or_default();
 
     let mut spans: Vec<Span> = vec![
-        Span::styled("> ", Style::default().fg(Color::Yellow)),
-        Span::styled(typeahead.as_str(), Style::default().fg(Color::White)),
-        Span::styled("_", Style::default().fg(Color::DarkGray)),
+        Span::styled("> ", Style::default().fg(theme.warning)),
+        Span::styled(typeahead.as_str(), Style::default().fg(theme.text_primary)),
+        Span::styled("_", Style::default().fg(theme.muted)),
         Span::raw("  "),
     ];
 
@@ -150,7 +156,7 @@ fn render_destination_content(
         }
         spans.push(Span::styled(
             dest.as_str(),
-            Style::default().fg(Color::White),
+            Style::default().fg(theme.text_primary),
         ));
         spans.push(Span::raw("  "));
     }

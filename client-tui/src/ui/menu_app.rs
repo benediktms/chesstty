@@ -1,4 +1,5 @@
 use crate::state::{GameMode, PlayerColor};
+use crate::ui::theme::Theme;
 use crate::ui::widgets::selectable_table::SelectableTableState;
 use crate::ui::widgets::{
     render_table_overlay, FenDialogState, FenDialogWidget, MenuState, MenuWidget,
@@ -75,16 +76,19 @@ pub async fn show_menu(
         ..Default::default()
     };
 
+    let theme = Theme::default();
+
     let result = loop {
         terminal.draw(|f| {
             let menu_widget = MenuWidget {
                 menu_state: &menu_state,
+                theme: &theme,
             };
             f.render_widget(menu_widget, f.area());
 
             // Render FEN dialog if active
             if let Some(ref mut dialog_state) = menu_state.fen_dialog_state {
-                let fen_dialog = FenDialogWidget::new(dialog_state, &menu_state.saved_positions);
+                let fen_dialog = FenDialogWidget::new(dialog_state, &menu_state.saved_positions, &theme);
                 f.render_widget(fen_dialog, f.area());
             }
 
@@ -134,6 +138,7 @@ pub async fn show_menu(
                         width: 65,
                         height: (ctx.games.len() as u16 + 6).min(20),
                         footer: Some("Enter: View reviewed | a: Analyze | Esc: Back"),
+                        theme: &theme,
                     },
                 );
             }
@@ -184,6 +189,7 @@ pub async fn show_menu(
                         width: 70,
                         height: (ctx.sessions.len() as u16 + 5).min(20),
                         footer: None,
+                        theme: &theme,
                     },
                 );
             }

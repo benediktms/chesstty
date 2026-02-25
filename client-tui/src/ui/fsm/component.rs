@@ -1,4 +1,5 @@
 use crate::state::GameSession;
+use crate::ui::theme::Theme;
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
@@ -26,6 +27,7 @@ pub struct ComponentProperties {
     pub title: &'static str,
     pub is_selectable: bool,
     pub is_expandable: bool,
+    #[allow(dead_code)] // border_color now resolved from Theme in panel_state()
     pub border_color: Color,
 }
 
@@ -121,7 +123,7 @@ impl PanelState {
     ///
     /// Accepts an optional `suffix` for dynamic text appended to the title
     /// (e.g. " (Thinking...)" for the engine panel).
-    pub fn render_chrome(&self, area: Rect, buf: &mut Buffer, suffix: &str) -> Rect {
+    pub fn render_chrome(&self, area: Rect, buf: &mut Buffer, suffix: &str, theme: &Theme) -> Rect {
         let base_title = if self.is_selected {
             format!("{} [SELECTED]{}", self.title, suffix)
         } else {
@@ -139,10 +141,10 @@ impl PanelState {
         };
 
         let border_style = if self.dimmed {
-            Style::default().fg(Color::DarkGray)
+            Style::default().fg(theme.panel_border_dimmed)
         } else if self.is_selected || self.expanded {
             Style::default()
-                .fg(Color::Yellow)
+                .fg(theme.panel_border_selected)
                 .add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(self.border_color)
@@ -192,6 +194,12 @@ impl Component {
 
     pub fn panel_state(&self, fsm: &super::UiStateMachine) -> PanelState {
         let props = self.properties();
+        let theme = &fsm.context.theme;
+        let border_color = match self {
+            Component::DebugPanel | Component::AdvancedAnalysis => theme.panel_border_debug,
+            Component::ReviewSummary => theme.panel_border_review,
+            _ => theme.panel_border,
+        };
         PanelState {
             component: *self,
             title: props.title,
@@ -199,7 +207,7 @@ impl Component {
             is_selected: fsm.selected_component() == Some(*self),
             scroll: fsm.component_scroll(self),
             expanded: fsm.expanded_component() == Some(*self),
-            border_color: props.border_color,
+            border_color,
             dimmed: false, // set by renderer when this is the sidebar duplicate
         }
     }
@@ -247,9 +255,11 @@ impl Component {
             review_summary_panel::ReviewSummaryPanel, uci_debug_panel::UciDebugPanel,
         };
 
+        let theme = &fsm.context.theme;
+
         match self {
             Component::InfoPanel => {
-                let widget = GameInfoPanel::new(game_session, fsm, ps.scroll);
+                let widget = GameInfoPanel::new(game_session, fsm, ps.scroll, theme);
                 widget.render(area, buf);
             }
             Component::HistoryPanel => {
@@ -258,9 +268,10 @@ impl Component {
                     .as_ref()
                     .map(|rs| rs.review.positions.as_slice());
                 let current_ply = game_session.review_state.as_ref().map(|rs| rs.current_ply);
-                let widget = MoveHistoryPanel::new(game_session.history(), ps.scroll, ps.expanded)
-                    .with_review_positions(review_positions)
-                    .with_current_ply(current_ply);
+                let widget =
+                    MoveHistoryPanel::new(game_session.history(), ps.scroll, ps.expanded, theme)
+                        .with_review_positions(review_positions)
+                        .with_current_ply(current_ply);
                 widget.render(area, buf);
             }
             Component::EnginePanel => {
@@ -268,11 +279,12 @@ impl Component {
                     game_session.engine_info.as_ref(),
                     game_session.is_engine_thinking,
                     ps.scroll,
+                    theme,
                 );
                 widget.render(area, buf);
             }
             Component::DebugPanel => {
-                let widget = UciDebugPanel::new(&game_session.uci_log, ps.scroll);
+                let widget = UciDebugPanel::new(&game_session.uci_log, ps.scroll, theme);
                 widget.render(area, buf);
             }
             Component::ReviewSummary => {
@@ -280,6 +292,7 @@ impl Component {
                     let widget = ReviewSummaryPanel {
                         review_state,
                         scroll: ps.scroll,
+                        theme,
                     };
                     widget.render(area, buf);
                 }
@@ -289,6 +302,7 @@ impl Component {
                     let widget = AdvancedAnalysisPanel {
                         review_state,
                         scroll: ps.scroll,
+                        theme,
                     };
                     widget.render(area, buf);
                 }

@@ -1,4 +1,5 @@
 use super::board_overlay::{BoardOverlay, OverlayColor, OverlayElement};
+use crate::ui::theme::Theme;
 use cozy_chess::{Board, Color as ChessColor, File, Piece, Rank, Square};
 use ratatui::{
     buffer::Buffer,
@@ -6,9 +7,6 @@ use ratatui::{
     style::{Color, Modifier, Style},
     widgets::{Block, Borders, Widget},
 };
-// Default board square colors (tan/brown)
-const LIGHT_SQUARE: Color = Color::Rgb(240, 217, 181);
-const DARK_SQUARE: Color = Color::Rgb(181, 136, 99);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum BoardSizeVariant {
@@ -69,14 +67,16 @@ pub struct BoardWidget<'a> {
     pub board: &'a Board,
     pub overlay: &'a BoardOverlay,
     pub flipped: bool,
+    pub theme: &'a Theme,
 }
 
 impl Widget for BoardWidget<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
+        let theme = self.theme;
         let block = Block::default()
             .title("♟ Chess Board ♟")
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Cyan));
+            .border_style(Style::default().fg(theme.board_border));
         let inner = block.inner(area);
         block.render(area, buf);
 
@@ -113,7 +113,7 @@ impl Widget for BoardWidget<'_> {
                     board_start_x.saturating_sub(2),
                     y,
                     &rank_label,
-                    Style::default().fg(Color::Yellow),
+                    Style::default().fg(theme.board_label),
                 );
             }
         }
@@ -129,7 +129,7 @@ impl Widget for BoardWidget<'_> {
                     (b'a' + file_idx as u8) as char
                 };
                 let file_label = format!("{}", file_char);
-                buf.set_string(x, y, &file_label, Style::default().fg(Color::Yellow));
+                buf.set_string(x, y, &file_label, Style::default().fg(theme.board_label));
             }
         }
 
@@ -158,12 +158,12 @@ impl Widget for BoardWidget<'_> {
 
                 // Resolve background color from overlay (or default board color)
                 let bg_color = match self.overlay.square_tint(square) {
-                    Some(color) => color.resolve(is_light_square),
+                    Some(color) => color.resolve(is_light_square, theme),
                     None => {
                         if is_light_square {
-                            LIGHT_SQUARE
+                            theme.light_square
                         } else {
-                            DARK_SQUARE
+                            theme.dark_square
                         }
                     }
                 };
@@ -187,6 +187,8 @@ impl Widget for BoardWidget<'_> {
                             bg_color,
                             board_size,
                             bounds: inner,
+                            white_piece: theme.white_piece,
+                            black_piece: theme.black_piece,
                         },
                     );
                 }
@@ -197,7 +199,7 @@ impl Widget for BoardWidget<'_> {
                         buf,
                         x,
                         y,
-                        outline_color.resolve(is_light_square),
+                        outline_color.resolve(is_light_square, theme),
                         board_size,
                         inner,
                     );
@@ -214,6 +216,7 @@ impl Widget for BoardWidget<'_> {
                 board_start_y,
                 board_size,
                 inner,
+                theme,
             );
         }
     }
@@ -248,6 +251,8 @@ struct PieceRenderParams {
     bg_color: Color,
     board_size: BoardSize,
     bounds: Rect,
+    white_piece: Color,
+    black_piece: Color,
 }
 
 fn render_piece(buf: &mut Buffer, params: &PieceRenderParams) {
@@ -255,8 +260,8 @@ fn render_piece(buf: &mut Buffer, params: &PieceRenderParams) {
     let lines = piece_pixel_art(params.piece, params.board_size.variant);
 
     let fg_color = match params.color {
-        ChessColor::White => Color::White,
-        ChessColor::Black => Color::Black,
+        ChessColor::White => params.white_piece,
+        ChessColor::Black => params.black_piece,
     };
 
     let style = Style::default()
@@ -628,6 +633,7 @@ fn render_arrow_path(
     board_start_y: u16,
     board_size: BoardSize,
     bounds: Rect,
+    theme: &Theme,
 ) {
     if path.cells.is_empty() {
         return;
@@ -645,7 +651,7 @@ fn render_arrow_path(
     }
 
     // Use the overlay color resolved for a neutral context (dark)
-    let arrow_fg = path.color.resolve(false);
+    let arrow_fg = path.color.resolve(false, theme);
     let style = Style::default().fg(arrow_fg).add_modifier(Modifier::BOLD);
 
     // Draw arrow body

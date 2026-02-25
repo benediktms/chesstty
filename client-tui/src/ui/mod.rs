@@ -1,6 +1,7 @@
 // UI modules
 pub mod fsm;
 pub mod menu_app;
+pub mod theme;
 pub mod widgets;
 
 // Main entry points

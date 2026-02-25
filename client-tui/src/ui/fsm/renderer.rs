@@ -143,6 +143,7 @@ impl Renderer {
                     board: game_session.board(),
                     overlay: &board_overlay,
                     flipped: is_flipped,
+                    theme: &fsm.context.theme,
                 };
                 frame.render_widget(board_widget, area);
             }
@@ -151,15 +152,17 @@ impl Renderer {
                 frame.render_widget(widget, area);
             }
             Component::Controls => {
-                use ratatui::style::{Color, Modifier, Style};
+                use ratatui::style::{Modifier, Style};
                 use ratatui::text::{Line, Span};
                 use ratatui::widgets::Paragraph;
 
+                let theme = &fsm.context.theme;
                 let controls = fsm.derive_controls(game_session);
                 let key_style = Style::default()
-                    .fg(Color::Green)
+                    .fg(theme.positive)
                     .add_modifier(Modifier::BOLD);
-                let alert_style = Style::default().fg(Color::Red).add_modifier(Modifier::BOLD);
+                let alert_style =
+                    Style::default().fg(theme.negative).add_modifier(Modifier::BOLD);
 
                 let mut spans = Vec::new();
                 for (i, control) in controls.iter().enumerate() {
@@ -181,7 +184,7 @@ impl Renderer {
                 }
 
                 let controls_line =
-                    Paragraph::new(Line::from(spans)).style(Style::default().bg(Color::Black));
+                    Paragraph::new(Line::from(spans)).style(Style::default().bg(theme.dialog_bg));
                 frame.render_widget(controls_line, area);
             }
             // Generic panel path: all chrome-bearing components share the same flow
@@ -192,7 +195,7 @@ impl Renderer {
                 let mut ps = panel.panel_state(fsm);
                 ps.dimmed = dimmed;
                 let suffix = panel.chrome_suffix(game_session);
-                let inner = ps.render_chrome(area, frame.buffer_mut(), suffix);
+                let inner = ps.render_chrome(area, frame.buffer_mut(), suffix, &fsm.context.theme);
                 if !dimmed {
                     panel.render_content(inner, frame.buffer_mut(), game_session, fsm, &ps);
                 }
@@ -211,23 +214,26 @@ impl Renderer {
     ) {
         use crate::ui::widgets::{PopupMenuWidget, PromotionWidget, SnapshotDialogWidget};
 
+        let theme = &fsm.context.theme;
+
         match overlay {
             Overlay::None => {}
             Overlay::PopupMenu => {
                 if let Some(ref state) = fsm.popup_menu {
-                    let widget = PopupMenuWidget { state };
+                    let widget = PopupMenuWidget { state, theme };
                     frame.render_widget(widget, area);
                 }
             }
             Overlay::SnapshotDialog => {
                 if let Some(ref state) = fsm.snapshot_dialog {
-                    let widget = SnapshotDialogWidget { state };
+                    let widget = SnapshotDialogWidget { state, theme };
                     frame.render_widget(widget, area);
                 }
             }
             Overlay::PromotionDialog { .. } => {
                 let widget = PromotionWidget {
                     selected_piece: fsm.selected_promotion_piece,
+                    theme,
                 };
                 frame.render_widget(widget, area);
             }

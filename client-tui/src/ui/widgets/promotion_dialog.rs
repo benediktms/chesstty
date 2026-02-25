@@ -1,17 +1,19 @@
+use crate::ui::theme::Theme;
 use cozy_chess::Piece;
 use ratatui::{
     buffer::Buffer,
     layout::{Alignment, Rect},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph, Widget},
 };
 
-pub struct PromotionWidget {
+pub struct PromotionWidget<'a> {
     pub selected_piece: Piece,
+    pub theme: &'a Theme,
 }
 
-impl Widget for PromotionWidget {
+impl Widget for PromotionWidget<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
         // Clear the background
         Clear.render(area, buf);
@@ -32,8 +34,8 @@ impl Widget for PromotionWidget {
         let block = Block::default()
             .title("♟ Select Promotion ♟")
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Yellow))
-            .style(Style::default().bg(Color::Black));
+            .border_style(Style::default().fg(self.theme.dialog_border))
+            .style(Style::default().bg(self.theme.dialog_bg));
 
         let inner = block.inner(dialog_area);
         block.render(dialog_area, buf);
@@ -53,17 +55,20 @@ impl Widget for PromotionWidget {
 
             let style = if is_selected {
                 Style::default()
-                    .fg(Color::Yellow)
+                    .fg(self.theme.dialog_highlight)
                     .add_modifier(Modifier::BOLD)
             } else {
-                Style::default().fg(Color::White)
+                Style::default().fg(self.theme.text_primary)
             };
 
             let line = Line::from(vec![
                 Span::styled(prefix, style),
                 Span::styled(format!("{} ", symbol), style),
                 Span::styled(format!("{:<8}", name), style),
-                Span::styled(format!("({})", key), Style::default().fg(Color::DarkGray)),
+                Span::styled(
+                    format!("({})", key),
+                    Style::default().fg(self.theme.muted),
+                ),
             ]);
 
             lines.push(line);
@@ -72,7 +77,7 @@ impl Widget for PromotionWidget {
         lines.push(Line::raw(""));
         lines.push(Line::from(vec![Span::styled(
             "Press q/r/b/n to select | Esc to cancel",
-            Style::default().fg(Color::DarkGray),
+            Style::default().fg(self.theme.muted),
         )]));
 
         let paragraph = Paragraph::new(lines).alignment(Alignment::Left);

@@ -1,9 +1,10 @@
+use crate::ui::theme::Theme;
 use crate::ui::widgets::fen_dialog::FenDialogState;
 use crate::ui::widgets::selectable_table::SelectableTableState;
 use ratatui::{
     buffer::Buffer,
     layout::{Alignment, Rect},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph, Widget},
 };
@@ -204,6 +205,7 @@ impl MenuState {
 
 pub struct MenuWidget<'a> {
     pub menu_state: &'a MenuState,
+    pub theme: &'a Theme,
 }
 
 impl Widget for MenuWidget<'_> {
@@ -227,8 +229,8 @@ impl Widget for MenuWidget<'_> {
         let block = Block::default()
             .title("♔ ChessTTY - New Game ♔")
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Cyan))
-            .style(Style::default().bg(Color::Black));
+            .border_style(Style::default().fg(self.theme.info))
+            .style(Style::default().bg(self.theme.dialog_bg));
 
         let inner = block.inner(menu_area);
         block.render(menu_area, buf);
@@ -239,7 +241,7 @@ impl Widget for MenuWidget<'_> {
             Line::from(vec![Span::styled(
                 "Welcome to ChessTTY!",
                 Style::default()
-                    .fg(Color::Yellow)
+                    .fg(self.theme.warning)
                     .add_modifier(Modifier::BOLD),
             )]),
             Line::raw(""),
@@ -251,10 +253,10 @@ impl Widget for MenuWidget<'_> {
 
             let style = if is_selected {
                 Style::default()
-                    .fg(Color::Yellow)
+                    .fg(self.theme.dialog_highlight)
                     .add_modifier(Modifier::BOLD)
             } else {
-                Style::default().fg(Color::White)
+                Style::default().fg(self.theme.text_primary)
             };
 
             let line = match item {
@@ -267,8 +269,8 @@ impl Widget for MenuWidget<'_> {
                     Line::from(vec![
                         Span::styled(prefix, style),
                         Span::styled("Game Mode: ", style),
-                        Span::styled(mode_str, style.fg(Color::Cyan)),
-                        Span::styled(" [←/→]", Style::default().fg(Color::DarkGray)),
+                        Span::styled(mode_str, style.fg(self.theme.info)),
+                        Span::styled(" [←/→]", Style::default().fg(self.theme.muted)),
                     ])
                 }
                 MenuItem::Difficulty(diff) => {
@@ -281,8 +283,8 @@ impl Widget for MenuWidget<'_> {
                     Line::from(vec![
                         Span::styled(prefix, style),
                         Span::styled("Difficulty: ", style),
-                        Span::styled(diff_str, style.fg(Color::Green)),
-                        Span::styled(" [←/→]", Style::default().fg(Color::DarkGray)),
+                        Span::styled(diff_str, style.fg(self.theme.positive)),
+                        Span::styled(" [←/→]", Style::default().fg(self.theme.muted)),
                     ])
                 }
                 MenuItem::TimeControl(time) => {
@@ -295,8 +297,8 @@ impl Widget for MenuWidget<'_> {
                     Line::from(vec![
                         Span::styled(prefix, style),
                         Span::styled("Time Control: ", style),
-                        Span::styled(time_str, style.fg(Color::Magenta)),
-                        Span::styled(" [←/→]", Style::default().fg(Color::DarkGray)),
+                        Span::styled(time_str, style.fg(self.theme.secondary)),
+                        Span::styled(" [←/→]", Style::default().fg(self.theme.muted)),
                     ])
                 }
                 MenuItem::EngineThreads(threads) => {
@@ -312,8 +314,11 @@ impl Widget for MenuWidget<'_> {
                     Line::from(vec![
                         Span::styled(prefix, style),
                         Span::styled("Engine Threads: ", style),
-                        Span::styled(threads_str, style.fg(Color::Cyan)),
-                        Span::styled(" [\u{2190}/\u{2192}]", Style::default().fg(Color::DarkGray)),
+                        Span::styled(threads_str, style.fg(self.theme.info)),
+                        Span::styled(
+                            " [\u{2190}/\u{2192}]",
+                            Style::default().fg(self.theme.muted),
+                        ),
                     ])
                 }
                 MenuItem::EngineHash(hash) => {
@@ -325,8 +330,11 @@ impl Widget for MenuWidget<'_> {
                     Line::from(vec![
                         Span::styled(prefix, style),
                         Span::styled("Engine Hash: ", style),
-                        Span::styled(hash_str, style.fg(Color::Cyan)),
-                        Span::styled(" [\u{2190}/\u{2192}]", Style::default().fg(Color::DarkGray)),
+                        Span::styled(hash_str, style.fg(self.theme.info)),
+                        Span::styled(
+                            " [\u{2190}/\u{2192}]",
+                            Style::default().fg(self.theme.muted),
+                        ),
                     ])
                 }
                 MenuItem::StartPosition(pos) => {
@@ -337,8 +345,8 @@ impl Widget for MenuWidget<'_> {
                     Line::from(vec![
                         Span::styled(prefix, style),
                         Span::styled("Start Position: ", style),
-                        Span::styled(pos_str, style.fg(Color::Yellow)),
-                        Span::styled(" [←/→]", Style::default().fg(Color::DarkGray)),
+                        Span::styled(pos_str, style.fg(self.theme.warning)),
+                        Span::styled(" [←/→]", Style::default().fg(self.theme.muted)),
                     ])
                 }
                 MenuItem::PlayAs(play_as) => {
@@ -349,25 +357,37 @@ impl Widget for MenuWidget<'_> {
                     Line::from(vec![
                         Span::styled(prefix, style),
                         Span::styled("Play As: ", style),
-                        Span::styled(play_as_str, style.fg(Color::Yellow)),
-                        Span::styled(" [\u{2190}/\u{2192}]", Style::default().fg(Color::DarkGray)),
+                        Span::styled(play_as_str, style.fg(self.theme.warning)),
+                        Span::styled(
+                            " [\u{2190}/\u{2192}]",
+                            Style::default().fg(self.theme.muted),
+                        ),
                     ])
                 }
                 MenuItem::ResumeSession => Line::from(vec![
                     Span::styled(prefix, style),
-                    Span::styled("\u{25b6} Resume Session", style.fg(Color::Cyan)),
+                    Span::styled(
+                        "\u{25b6} Resume Session",
+                        style.fg(self.theme.info),
+                    ),
                 ]),
                 MenuItem::ReviewGame => Line::from(vec![
                     Span::styled(prefix, style),
-                    Span::styled("\u{25b6} Review Game", style.fg(Color::Green)),
+                    Span::styled(
+                        "\u{25b6} Review Game",
+                        style.fg(self.theme.positive),
+                    ),
                 ]),
                 MenuItem::StartGame => Line::from(vec![
                     Span::styled(prefix, style),
-                    Span::styled("\u{25b6} Start Game", style.fg(Color::Green)),
+                    Span::styled(
+                        "\u{25b6} Start Game",
+                        style.fg(self.theme.positive),
+                    ),
                 ]),
                 MenuItem::Quit => Line::from(vec![
                     Span::styled(prefix, style),
-                    Span::styled("\u{2715} Quit", style.fg(Color::Red)),
+                    Span::styled("\u{2715} Quit", style.fg(self.theme.negative)),
                 ]),
             };
 
@@ -377,7 +397,7 @@ impl Widget for MenuWidget<'_> {
         lines.push(Line::raw(""));
         lines.push(Line::from(vec![Span::styled(
             "↑/↓: Navigate  ←/→: Change  Enter: Select",
-            Style::default().fg(Color::DarkGray),
+            Style::default().fg(self.theme.muted),
         )]));
 
         let paragraph = Paragraph::new(lines).alignment(Alignment::Left);

@@ -42,17 +42,17 @@ pub enum OverlayColor {
 
 impl OverlayColor {
     /// Resolve to a terminal color based on whether the square is light or dark.
-    pub fn resolve(self, is_light_square: bool) -> Color {
+    pub fn resolve(self, is_light_square: bool, theme: &crate::ui::theme::Theme) -> Color {
         let (light, dark) = match self {
-            Self::Selected => (Color::LightYellow, Color::Yellow),
-            Self::LegalMove => (Color::LightBlue, Color::Blue),
-            Self::LastMove => (Color::LightYellow, Color::Yellow),
-            Self::BestMove => (Color::LightGreen, Color::Green),
-            Self::Typeahead => (Color::LightCyan, Color::Cyan),
-            Self::Blunder => (Color::LightRed, Color::Red),
-            Self::Brilliant => (Color::LightMagenta, Color::Magenta),
-            Self::Danger => (Color::LightRed, Color::Red),
-            Self::Tactical => (Color::Rgb(255, 200, 100), Color::Rgb(200, 150, 50)),
+            Self::Selected => theme.overlay_selected,
+            Self::LegalMove => theme.overlay_legal_move,
+            Self::LastMove => theme.overlay_last_move,
+            Self::BestMove => theme.overlay_best_move,
+            Self::Typeahead => theme.overlay_typeahead,
+            Self::Blunder => theme.overlay_blunder,
+            Self::Brilliant => theme.overlay_brilliant,
+            Self::Danger => theme.overlay_danger,
+            Self::Tactical => theme.overlay_tactical,
             Self::Custom(l, d) => (l, d),
         };
         if is_light_square {
@@ -396,10 +396,11 @@ mod tests {
 
     #[test]
     fn test_overlay_color_resolve() {
-        assert_eq!(OverlayColor::Selected.resolve(true), Color::LightYellow);
-        assert_eq!(OverlayColor::Selected.resolve(false), Color::Yellow);
-        assert_eq!(OverlayColor::BestMove.resolve(true), Color::LightGreen);
-        assert_eq!(OverlayColor::BestMove.resolve(false), Color::Green);
+        let theme = crate::ui::theme::Theme::dark();
+        assert_eq!(OverlayColor::Selected.resolve(true, &theme), Color::LightYellow);
+        assert_eq!(OverlayColor::Selected.resolve(false, &theme), Color::Yellow);
+        assert_eq!(OverlayColor::BestMove.resolve(true, &theme), Color::LightGreen);
+        assert_eq!(OverlayColor::BestMove.resolve(false, &theme), Color::Green);
     }
 
     #[test]

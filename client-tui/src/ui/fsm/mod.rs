@@ -15,8 +15,19 @@ use std::collections::HashMap;
 
 use render_spec::{Control, InputPhase, Layout, Section, SectionContent, TabInputState};
 
-#[derive(Default)]
-pub struct AppContext {}
+use crate::ui::theme::Theme;
+
+pub struct AppContext {
+    pub theme: Theme,
+}
+
+impl Default for AppContext {
+    fn default() -> Self {
+        Self {
+            theme: Theme::default(),
+        }
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Default)]
 pub enum UiMode {
