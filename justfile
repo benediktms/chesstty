@@ -81,5 +81,5 @@ changelog-update:
 
 # Bump version, update changelog, commit and tag (just tag patch/minor/major)
 [group('release')]
-tag level: changelog
+tag level:
     ./scripts/tag-release.sh {{level}}
