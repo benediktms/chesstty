@@ -4,69 +4,27 @@ use ratatui::{
     layout::Rect,
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph, Widget},
+    widgets::{Paragraph, Widget},
 };
 
 pub struct EngineAnalysisPanel<'a> {
     pub engine_info: Option<&'a EngineInfo>,
     pub is_thinking: bool,
     pub scroll: u16,
-    pub is_selected: bool,
-    pub title: &'static str,
-    pub number_key_hint: Option<char>,
 }
 
 impl<'a> EngineAnalysisPanel<'a> {
-    pub fn new(
-        engine_info: Option<&'a EngineInfo>,
-        is_thinking: bool,
-        scroll: u16,
-        is_selected: bool,
-        title: &'static str,
-        number_key_hint: Option<char>,
-    ) -> Self {
+    pub fn new(engine_info: Option<&'a EngineInfo>, is_thinking: bool, scroll: u16) -> Self {
         Self {
             engine_info,
             is_thinking,
             scroll,
-            is_selected,
-            title,
-            number_key_hint,
         }
     }
 }
 
 impl Widget for EngineAnalysisPanel<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        let thinking_suffix = if self.is_thinking { " (Thinking...)" } else { "" };
-        let title = if self.is_selected {
-            format!("{} [SELECTED]{}", self.title, thinking_suffix)
-        } else {
-            format!(
-                "[{}] {}{}",
-                self.number_key_hint.unwrap_or(' '),
-                self.title,
-                thinking_suffix
-            )
-        };
-
-        let border_style = if self.is_selected {
-            Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(Color::Cyan)
-        };
-
-        let block = Block::default()
-            .title(title)
-            .borders(Borders::ALL)
-            .border_style(border_style)
-            .style(Style::default());
-
-        let inner = block.inner(area);
-        block.render(area, buf);
-
         if let Some(info) = self.engine_info {
             let mut lines = Vec::new();
 
@@ -136,7 +94,7 @@ impl Widget for EngineAnalysisPanel<'_> {
 
                 // Display PV moves (wrap if too long)
                 let pv_text = info.pv.join(" ");
-                let max_width = (inner.width as usize).saturating_sub(2);
+                let max_width = (area.width as usize).saturating_sub(2);
 
                 for chunk in wrap_text(&pv_text, max_width) {
                     lines.push(Line::from(Span::styled(
@@ -147,7 +105,7 @@ impl Widget for EngineAnalysisPanel<'_> {
             }
 
             let paragraph = Paragraph::new(lines).scroll((self.scroll, 0));
-            paragraph.render(inner, buf);
+            paragraph.render(area, buf);
         } else {
             // No engine info available
             let text = if self.is_thinking {
@@ -162,7 +120,7 @@ impl Widget for EngineAnalysisPanel<'_> {
                     .fg(Color::DarkGray)
                     .add_modifier(Modifier::ITALIC),
             )));
-            paragraph.render(inner, buf);
+            paragraph.render(area, buf);
         }
     }
 }

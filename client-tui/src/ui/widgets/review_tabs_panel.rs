@@ -10,52 +10,21 @@ use ratatui::{
     layout::Rect,
     style::{Color, Modifier, Style, Stylize},
     text::{Line, Span},
-    widgets::{
-        Block, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, StatefulWidget,
-        Widget,
-    },
+    widgets::{Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, StatefulWidget, Widget},
 };
 
 pub const REVIEW_TAB_OVERVIEW: u8 = 0;
 pub const REVIEW_TAB_POSITION: u8 = 1;
 
 pub struct ReviewTabsPanel<'a> {
-    pub title: &'static str,
-    pub number_key_hint: Option<char>,
     pub review_state: &'a ReviewState,
     pub current_tab: u8,
     pub scroll: u16,
-    pub is_selected: bool,
-    pub expanded: bool,
     pub moves_selection: Option<u32>,
 }
 
 impl Widget for ReviewTabsPanel<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        let title = if self.expanded {
-            format!("{} (Expanded)", self.title)
-        } else if self.is_selected {
-            format!("{} [SELECTED]", self.title)
-        } else {
-            self.title.to_string()
-        };
-
-        let border_style = if self.is_selected || self.expanded {
-            Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(Color::Green)
-        };
-
-        let block = Block::default()
-            .title(title)
-            .borders(Borders::ALL)
-            .border_style(border_style);
-
-        let inner = block.inner(area);
-        block.render(area, buf);
-
         // Build horizontal tab line
         let tab_names = ["[1]Overview", "[2]Position"];
         let mut tab_spans: Vec<Span<'static>> = vec![];
@@ -85,7 +54,7 @@ impl Widget for ReviewTabsPanel<'_> {
         let effective_scroll = self.scroll;
 
         let tab_content = match self.current_tab {
-            REVIEW_TAB_OVERVIEW => self.render_overview(inner.width),
+            REVIEW_TAB_OVERVIEW => self.render_overview(area.width),
             REVIEW_TAB_POSITION => self.render_position(),
             _ => vec![],
         };
@@ -93,15 +62,15 @@ impl Widget for ReviewTabsPanel<'_> {
 
         let content_height = lines.len() as u16;
         let paragraph = Paragraph::new(lines).scroll((effective_scroll, 0));
-        paragraph.render(inner, buf);
+        paragraph.render(area, buf);
 
         // Add scrollbar for all tabs
-        if content_height > inner.height.saturating_sub(1) {
+        if content_height > area.height.saturating_sub(1) {
             let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
                 .thumb_style(Style::default().fg(Color::Cyan).bg(Color::DarkGray));
             let mut scrollbar_state =
                 ScrollbarState::new(content_height as usize).position(effective_scroll as usize);
-            scrollbar.render(inner, buf, &mut scrollbar_state);
+            scrollbar.render(area, buf, &mut scrollbar_state);
         }
     }
 }

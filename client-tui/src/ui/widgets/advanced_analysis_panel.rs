@@ -8,44 +8,16 @@ use ratatui::{
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::StatefulWidget,
-    widgets::{Block, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Widget},
+    widgets::{Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Widget},
 };
 
 pub struct AdvancedAnalysisPanel<'a> {
     pub review_state: &'a ReviewState,
     pub scroll: u16,
-    pub is_selected: bool,
-    pub expanded: bool,
-    pub title: &'static str,
-    pub number_key_hint: Option<char>,
 }
 
 impl Widget for AdvancedAnalysisPanel<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        let title = if self.expanded {
-            format!("{} (Expanded)", self.title)
-        } else if self.is_selected {
-            format!("{} [SELECTED]", self.title)
-        } else {
-            format!("[{}] {}", self.number_key_hint.unwrap_or(' '), self.title)
-        };
-
-        let border_style = if self.is_selected || self.expanded {
-            Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(Color::Magenta)
-        };
-
-        let block = Block::default()
-            .title(title)
-            .borders(Borders::ALL)
-            .border_style(border_style);
-
-        let inner = block.inner(area);
-        block.render(area, buf);
-
         let mut lines: Vec<Line<'static>> = vec![];
 
         let advanced = match &self.review_state.advanced {
@@ -56,7 +28,7 @@ impl Widget for AdvancedAnalysisPanel<'_> {
                     Style::default().fg(Color::DarkGray),
                 )));
                 let paragraph = Paragraph::new(lines).scroll((self.scroll, 0));
-                paragraph.render(inner, buf);
+                paragraph.render(area, buf);
                 return;
             }
         };
@@ -236,14 +208,14 @@ impl Widget for AdvancedAnalysisPanel<'_> {
 
         let content_height = lines.len() as u16;
         let paragraph = Paragraph::new(lines).scroll((self.scroll, 0));
-        paragraph.render(inner, buf);
+        paragraph.render(area, buf);
 
-        if content_height > inner.height {
+        if content_height > area.height {
             let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
                 .thumb_style(Style::default().fg(Color::Cyan).bg(Color::DarkGray));
             let mut scrollbar_state =
                 ScrollbarState::new(content_height as usize).position(self.scroll as usize);
-            scrollbar.render(inner, buf, &mut scrollbar_state);
+            scrollbar.render(area, buf, &mut scrollbar_state);
         }
     }
 }

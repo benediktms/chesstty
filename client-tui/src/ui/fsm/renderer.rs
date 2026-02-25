@@ -202,91 +202,75 @@ impl Renderer {
             }
             Component::InfoPanel => {
                 let ps = component.panel_state(fsm);
-                let widget =
-                    GameInfoPanel::new(game_session, fsm, ps.is_selected, ps.scroll, ps.title, ps.number_key_hint);
-                frame.render_widget(widget, area);
+                let inner = ps.render_chrome(area, frame.buffer_mut(), "");
+                let widget = GameInfoPanel::new(game_session, fsm, ps.scroll);
+                frame.render_widget(widget, inner);
             }
             Component::HistoryPanel => {
                 let ps = component.panel_state(fsm);
+                let inner = ps.render_chrome(area, frame.buffer_mut(), "");
                 let review_positions = game_session
                     .review_state
                     .as_ref()
                     .map(|rs| rs.review.positions.as_slice());
                 let current_ply = game_session.review_state.as_ref().map(|rs| rs.current_ply);
-                let widget = MoveHistoryPanel::new(game_session.history(), ps.scroll, ps.is_selected)
-                    .with_title(ps.title, ps.number_key_hint)
+                let widget = MoveHistoryPanel::new(game_session.history(), ps.scroll, ps.expanded)
                     .with_review_positions(review_positions)
                     .with_current_ply(current_ply);
-                frame.render_widget(widget, area);
+                frame.render_widget(widget, inner);
             }
             Component::EnginePanel => {
                 let ps = component.panel_state(fsm);
+                let suffix = if game_session.is_engine_thinking { " (Thinking...)" } else { "" };
+                let inner = ps.render_chrome(area, frame.buffer_mut(), suffix);
                 let widget = EngineAnalysisPanel::new(
                     game_session.engine_info.as_ref(),
                     game_session.is_engine_thinking,
                     ps.scroll,
-                    ps.is_selected,
-                    ps.title,
-                    ps.number_key_hint,
                 );
-                frame.render_widget(widget, area);
+                frame.render_widget(widget, inner);
             }
             Component::DebugPanel => {
                 let ps = component.panel_state(fsm);
-                let widget = UciDebugPanel::new(
-                    &game_session.uci_log,
-                    ps.scroll,
-                    ps.is_selected,
-                    ps.title,
-                    ps.number_key_hint,
-                );
-                frame.render_widget(widget, area);
+                let inner = ps.render_chrome(area, frame.buffer_mut(), "");
+                let widget = UciDebugPanel::new(&game_session.uci_log, ps.scroll);
+                frame.render_widget(widget, inner);
             }
             Component::ReviewTabs => {
                 if let Some(ref review_state) = game_session.review_state {
                     let ps = component.panel_state(fsm);
-                    // ReviewTabs reads scroll/is_selected from ReviewSummary's state (quirk)
+                    let inner = ps.render_chrome(area, frame.buffer_mut(), "");
+                    // ReviewTabs reads scroll from ReviewSummary's state (quirk)
                     let scroll = fsm.component_scroll(&Component::ReviewSummary);
-                    let is_selected = fsm.selected_component() == Some(Component::ReviewSummary);
                     let widget = ReviewTabsPanel {
-                        title: ps.title,
-                        number_key_hint: ps.number_key_hint,
                         review_state,
                         current_tab: fsm.review_tab,
                         scroll,
-                        expanded: false,
-                        is_selected,
                         moves_selection: None,
                     };
-                    frame.render_widget(widget, area);
+                    frame.render_widget(widget, inner);
                 }
             }
             Component::ReviewSummary => {
                 if let Some(ref review_state) = game_session.review_state {
                     let ps = component.panel_state(fsm);
+                    let inner = ps.render_chrome(area, frame.buffer_mut(), "");
                     let widget = ReviewSummaryPanel {
                         review_state,
                         scroll: ps.scroll,
-                        is_selected: ps.is_selected,
-                        expanded: false,
-                        title: ps.title,
-                        number_key_hint: ps.number_key_hint,
                     };
-                    frame.render_widget(widget, area);
+                    frame.render_widget(widget, inner);
                 }
             }
             Component::AdvancedAnalysis => {
                 if let Some(ref review_state) = game_session.review_state {
                     let ps = component.panel_state(fsm);
+                    let inner = ps.render_chrome(area, frame.buffer_mut(), "");
                     let widget = AdvancedAnalysisPanel {
                         review_state,
                         scroll: ps.scroll,
-                        is_selected: ps.is_selected,
-                        expanded: false,
-                        title: ps.title,
-                        number_key_hint: ps.number_key_hint,
                     };
-                    frame.render_widget(widget, area);
+                    frame.render_widget(widget, inner);
                 }
             }
         }

@@ -1,3 +1,9 @@
+use ratatui::{
+    buffer::Buffer,
+    layout::Rect,
+    style::{Color, Modifier, Style},
+    widgets::{Block, Borders, Widget},
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -20,6 +26,7 @@ pub struct ComponentProperties {
     pub title: &'static str,
     pub is_selectable: bool,
     pub is_expandable: bool,
+    pub border_color: Color,
 }
 
 impl ComponentProperties {
@@ -30,60 +37,70 @@ impl ComponentProperties {
                 title: "Board",
                 is_selectable: false,
                 is_expandable: false,
+                border_color: Color::Cyan,
             },
             Component::TabInput => ComponentProperties {
                 component: Component::TabInput,
                 title: "Tab Input",
                 is_selectable: false,
                 is_expandable: false,
+                border_color: Color::Cyan,
             },
             Component::Controls => ComponentProperties {
                 component: Component::Controls,
                 title: "Controls",
                 is_selectable: false,
                 is_expandable: false,
+                border_color: Color::Cyan,
             },
             Component::InfoPanel => ComponentProperties {
                 component: Component::InfoPanel,
                 title: "Game Info",
                 is_selectable: true,
                 is_expandable: false,
+                border_color: Color::Cyan,
             },
             Component::HistoryPanel => ComponentProperties {
                 component: Component::HistoryPanel,
                 title: "Move History",
                 is_selectable: true,
                 is_expandable: true,
+                border_color: Color::Cyan,
             },
             Component::EnginePanel => ComponentProperties {
                 component: Component::EnginePanel,
                 title: "Engine Analysis",
                 is_selectable: true,
                 is_expandable: true,
+                border_color: Color::Cyan,
             },
             Component::DebugPanel => ComponentProperties {
                 component: Component::DebugPanel,
                 title: "UCI Debug",
                 is_selectable: true,
                 is_expandable: true,
+                border_color: Color::Magenta,
             },
             Component::ReviewTabs => ComponentProperties {
                 component: Component::ReviewTabs,
                 title: "Review Tabs",
                 is_selectable: false,
                 is_expandable: false,
+                border_color: Color::Green,
             },
             Component::ReviewSummary => ComponentProperties {
                 component: Component::ReviewSummary,
                 title: "Review Summary",
                 is_selectable: true,
                 is_expandable: true,
+                border_color: Color::Green,
             },
             Component::AdvancedAnalysis => ComponentProperties {
                 component: Component::AdvancedAnalysis,
                 title: "Advanced Analysis",
                 is_selectable: true,
                 is_expandable: true,
+                border_color: Color::Magenta,
             },
         }
     }
@@ -92,23 +109,61 @@ impl ComponentProperties {
 /// Bundled panel state computed from the FSM for rendering.
 /// Provides all the common state every panel widget needs.
 pub struct PanelState {
-    #[allow(dead_code)] // structural; will be read when panel list API is extended (Phase 2)
+    #[allow(dead_code)] // structural; will be read when panel list API is extended (Phase 3)
     pub component: Component,
     pub title: &'static str,
     pub number_key_hint: Option<char>,
     pub is_selected: bool,
     pub scroll: u16,
-    #[allow(dead_code)] // structural; will be read when expand logic is wired through PanelState
     pub expanded: bool,
+    pub border_color: Color,
+}
+
+impl PanelState {
+    /// Render the shared panel chrome (titled border with selection/expanded indicators)
+    /// and return the inner `Rect` for content rendering.
+    ///
+    /// Accepts an optional `suffix` for dynamic text appended to the title
+    /// (e.g. " (Thinking...)" for the engine panel).
+    pub fn render_chrome(&self, area: Rect, buf: &mut Buffer, suffix: &str) -> Rect {
+        let base_title = if self.is_selected {
+            format!("{} [SELECTED]{}", self.title, suffix)
+        } else {
+            format!(
+                "[{}] {}{}",
+                self.number_key_hint.unwrap_or(' '),
+                self.title,
+                suffix
+            )
+        };
+        let title = if self.expanded {
+            format!("{} (Expanded)", base_title)
+        } else {
+            base_title
+        };
+
+        let border_style = if self.is_selected || self.expanded {
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(self.border_color)
+        };
+
+        let block = Block::default()
+            .title(title)
+            .borders(Borders::ALL)
+            .border_style(border_style);
+
+        let inner = block.inner(area);
+        block.render(area, buf);
+        inner
+    }
 }
 
 impl Component {
     pub fn properties(&self) -> ComponentProperties {
         ComponentProperties::for_component(self)
-    }
-
-    pub fn title(&self) -> &'static str {
-        self.properties().title
     }
 
     pub fn is_selectable(&self) -> bool {
@@ -138,13 +193,15 @@ impl Component {
     }
 
     pub fn panel_state(&self, fsm: &super::UiStateMachine) -> PanelState {
+        let props = self.properties();
         PanelState {
             component: *self,
-            title: self.title(),
+            title: props.title,
             number_key_hint: self.number_key(&fsm.mode),
             is_selected: fsm.selected_component() == Some(*self),
             scroll: fsm.component_scroll(self),
             expanded: fsm.expanded_component() == Some(*self),
+            border_color: props.border_color,
         }
     }
 

@@ -4,65 +4,30 @@ use ratatui::{
     layout::Rect,
     style::{Color, Modifier, Style},
     text::Line,
-    widgets::{Block, Borders, Paragraph, Widget},
+    widgets::{Paragraph, Widget},
 };
 
 pub struct UciDebugPanel<'a> {
     pub uci_log: &'a [UciLogEntry],
     pub scroll: u16,
-    pub is_selected: bool,
-    pub title: &'static str,
-    pub number_key_hint: Option<char>,
 }
 
 impl<'a> UciDebugPanel<'a> {
-    pub fn new(
-        uci_log: &'a [UciLogEntry],
-        scroll: u16,
-        is_selected: bool,
-        title: &'static str,
-        number_key_hint: Option<char>,
-    ) -> Self {
-        Self {
-            uci_log,
-            scroll,
-            is_selected,
-            title,
-            number_key_hint,
-        }
+    pub fn new(uci_log: &'a [UciLogEntry], scroll: u16) -> Self {
+        Self { uci_log, scroll }
     }
 }
 
 impl Widget for UciDebugPanel<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        let title = if self.is_selected {
-            format!("{} [SELECTED]", self.title)
-        } else {
-            format!("[{}] {}", self.number_key_hint.unwrap_or(' '), self.title)
-        };
-        let border_style = if self.is_selected {
-            Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(Color::Magenta)
-        };
-        let block = Block::default()
-            .title(title)
-            .borders(Borders::ALL)
-            .border_style(border_style);
-
-        let inner = block.inner(area);
-        block.render(area, buf);
-
         if self.uci_log.is_empty() {
             let paragraph = Paragraph::new("No UCI messages yet. Start a game vs engine!");
-            paragraph.render(inner, buf);
+            paragraph.render(area, buf);
             return;
         }
 
         let mut lines = vec![];
-        let max_width = (inner.width as usize).saturating_sub(2);
+        let max_width = (area.width as usize).saturating_sub(2);
 
         // Show all messages and let scroll handle visibility
         for entry in self.uci_log.iter() {
@@ -126,7 +91,7 @@ impl Widget for UciDebugPanel<'_> {
         }
 
         let paragraph = Paragraph::new(lines).scroll((self.scroll, 0));
-        paragraph.render(inner, buf);
+        paragraph.render(area, buf);
     }
 }
 

@@ -6,60 +6,27 @@ use ratatui::{
     layout::Rect,
     style::{Color, Modifier, Style},
     text::Line,
-    widgets::{Block, Borders, Paragraph, Widget},
+    widgets::{Paragraph, Widget},
 };
 
 pub struct GameInfoPanel<'a> {
     pub client_state: &'a GameSession,
     pub fsm: &'a UiStateMachine,
-    pub is_selected: bool,
     pub scroll: u16,
-    pub title: &'static str,
-    pub number_key_hint: Option<char>,
 }
 
 impl<'a> GameInfoPanel<'a> {
-    pub fn new(
-        client_state: &'a GameSession,
-        fsm: &'a UiStateMachine,
-        is_selected: bool,
-        scroll: u16,
-        title: &'static str,
-        number_key_hint: Option<char>,
-    ) -> Self {
+    pub fn new(client_state: &'a GameSession, fsm: &'a UiStateMachine, scroll: u16) -> Self {
         Self {
             client_state,
             fsm,
-            is_selected,
             scroll,
-            title,
-            number_key_hint,
         }
     }
 }
 
 impl Widget for GameInfoPanel<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        let title = if self.is_selected {
-            format!("{} [SELECTED]", self.title)
-        } else {
-            format!("[{}] {}", self.number_key_hint.unwrap_or(' '), self.title)
-        };
-        let border_style = if self.is_selected {
-            Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(Color::Cyan)
-        };
-        let block = Block::default()
-            .title(title)
-            .borders(Borders::ALL)
-            .border_style(border_style);
-
-        let inner = block.inner(area);
-        block.render(area, buf);
-
         let lines = if self.client_state.review_state.is_some() {
             self.brender_stateld_review_lines()
         } else {
@@ -67,7 +34,7 @@ impl Widget for GameInfoPanel<'_> {
         };
 
         let paragraph = Paragraph::new(lines).scroll((self.scroll, 0));
-        paragraph.render(inner, buf);
+        paragraph.render(area, buf);
     }
 }
 
