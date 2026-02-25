@@ -520,29 +520,29 @@ fn handle_component_selected_context(
                 }
             }
         }
-        KeyCode::Up | KeyCode::Char('j') if key.modifiers.contains(KeyModifiers::SHIFT) => {
+        KeyCode::Up | KeyCode::Char('k') if key.modifiers.contains(KeyModifiers::SHIFT) => {
             let scroll = fsm.component_scroll_mut(&component);
             *scroll = scroll.saturating_sub(SCROLL_INCREMENT);
         }
-        KeyCode::Down | KeyCode::Char('k') if key.modifiers.contains(KeyModifiers::SHIFT) => {
+        KeyCode::Down | KeyCode::Char('j') if key.modifiers.contains(KeyModifiers::SHIFT) => {
             let scroll = fsm.component_scroll_mut(&component);
             *scroll = scroll.saturating_add(SCROLL_INCREMENT);
-        }
-        KeyCode::Char('J') => {
-            let scroll = fsm.component_scroll_mut(&component);
-            *scroll = scroll.saturating_sub(SCROLL_INCREMENT);
         }
         KeyCode::Char('K') => {
             let scroll = fsm.component_scroll_mut(&component);
+            *scroll = scroll.saturating_sub(SCROLL_INCREMENT);
+        }
+        KeyCode::Char('J') => {
+            let scroll = fsm.component_scroll_mut(&component);
             *scroll = scroll.saturating_add(SCROLL_INCREMENT);
         }
-        KeyCode::Up | KeyCode::Char('j') => {
-            if let Some(next) = fsm.next_in_section(component, &layout) {
+        KeyCode::Up | KeyCode::Char('k') => {
+            if let Some(next) = fsm.prev_in_section(component, &layout) {
                 fsm.select_component(next);
             }
         }
-        KeyCode::Down | KeyCode::Char('k') => {
-            if let Some(prev) = fsm.prev_in_section(component, &layout) {
+        KeyCode::Down | KeyCode::Char('j') => {
+            if let Some(prev) = fsm.next_in_section(component, &layout) {
                 fsm.select_component(prev);
             }
         }
