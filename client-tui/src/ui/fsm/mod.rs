@@ -36,7 +36,6 @@ pub struct UiStateMachine {
     pub input_phase: InputPhase,
     pub popup_menu: Option<crate::ui::widgets::popup_menu::PopupMenuState>,
     pub snapshot_dialog: Option<crate::ui::widgets::snapshot_dialog::SnapshotDialogState>,
-    pub review_tab: u8,
     #[allow(dead_code)] // used once review board navigation is complete
     pub review_moves_selection: Option<u32>,
     pub selected_promotion_piece: cozy_chess::Piece,
@@ -72,7 +71,6 @@ impl Default for UiStateMachine {
             input_phase: InputPhase::default(),
             popup_menu: None,
             snapshot_dialog: None,
-            review_tab: 0,
             review_moves_selection: None,
             selected_promotion_piece: cozy_chess::Piece::Queen,
             focused_component: None,

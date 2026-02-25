@@ -511,10 +511,7 @@ fn handle_component_selected_context(
             }
         }
         KeyCode::Char(c) if ('1'..='4').contains(&c) => {
-            // ReviewSummary internal tab switching takes priority
-            if component == Component::ReviewSummary && (c == '1' || c == '2') {
-                fsm.review_tab = if c == '1' { 0 } else { 1 };
-            } else if let Some(target) = Component::from_number_key(c, &fsm.mode) {
+            if let Some(target) = Component::from_number_key(c, &fsm.mode) {
                 if fsm.is_component_visible(&target) && target != component {
                     fsm.select_component(target);
                 }

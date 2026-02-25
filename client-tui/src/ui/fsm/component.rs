@@ -16,7 +16,6 @@ pub enum Component {
     HistoryPanel,
     EnginePanel,
     DebugPanel,
-    ReviewTabs,
     ReviewSummary,
     AdvancedAnalysis,
 }
@@ -81,13 +80,6 @@ impl ComponentProperties {
                 is_selectable: true,
                 is_expandable: true,
                 border_color: Color::Magenta,
-            },
-            Component::ReviewTabs => ComponentProperties {
-                component: Component::ReviewTabs,
-                title: "Review Tabs",
-                is_selectable: false,
-                is_expandable: false,
-                border_color: Color::Green,
             },
             Component::ReviewSummary => ComponentProperties {
                 component: Component::ReviewSummary,
@@ -224,7 +216,7 @@ impl Component {
     /// Review panels require an active review_state.
     pub fn should_render(&self, game_session: &GameSession) -> bool {
         match self {
-            Component::ReviewTabs | Component::ReviewSummary | Component::AdvancedAnalysis => {
+            Component::ReviewSummary | Component::AdvancedAnalysis => {
                 game_session.review_state.is_some()
             }
             _ => true,
@@ -252,8 +244,7 @@ impl Component {
         use crate::ui::widgets::{
             advanced_analysis_panel::AdvancedAnalysisPanel, engine_panel::EngineAnalysisPanel,
             game_info_panel::GameInfoPanel, move_history_panel::MoveHistoryPanel,
-            review_summary_panel::ReviewSummaryPanel, review_tabs_panel::ReviewTabsPanel,
-            uci_debug_panel::UciDebugPanel,
+            review_summary_panel::ReviewSummaryPanel, uci_debug_panel::UciDebugPanel,
         };
 
         match self {
@@ -283,19 +274,6 @@ impl Component {
             Component::DebugPanel => {
                 let widget = UciDebugPanel::new(&game_session.uci_log, ps.scroll);
                 widget.render(area, buf);
-            }
-            Component::ReviewTabs => {
-                if let Some(ref review_state) = game_session.review_state {
-                    // ReviewTabs reads scroll from ReviewSummary's state (quirk)
-                    let scroll = fsm.component_scroll(&Component::ReviewSummary);
-                    let widget = ReviewTabsPanel {
-                        review_state,
-                        current_tab: fsm.review_tab,
-                        scroll,
-                        moves_selection: None,
-                    };
-                    widget.render(area, buf);
-                }
             }
             Component::ReviewSummary => {
                 if let Some(ref review_state) = game_session.review_state {
@@ -365,7 +343,6 @@ mod tests {
         assert_eq!(Component::Board.number_key(&mode), None);
         assert_eq!(Component::TabInput.number_key(&mode), None);
         assert_eq!(Component::Controls.number_key(&mode), None);
-        assert_eq!(Component::ReviewTabs.number_key(&mode), None);
     }
 
     #[test]
