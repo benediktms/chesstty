@@ -20,14 +20,10 @@ pub mod uci_debug_panel;
 pub use board::BoardWidget;
 #[allow(unused_imports)]
 pub use board_overlay::{build_review_overlay, BoardOverlay};
-pub use engine_panel::EngineAnalysisPanel;
 pub use fen_dialog::{FenDialogState, FenDialogWidget};
-pub use game_info_panel::GameInfoPanel;
 pub use menu::{MenuState, MenuWidget};
-pub use move_history_panel::MoveHistoryPanel;
 pub use popup_menu::PopupMenuWidget;
 pub use promotion_dialog::PromotionWidget;
 pub use selectable_table::{render_table_overlay, TableOverlayParams};
 pub use snapshot_dialog::SnapshotDialogWidget;
 pub use tab_input::TabInputWidget;
-pub use uci_debug_panel::UciDebugPanel;

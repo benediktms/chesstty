@@ -1,10 +1,7 @@
 use crate::state::{GameMode, GameSession, PlayerColor};
 use crate::ui::fsm::render_spec::{Component, Constraint, Layout, Overlay, Row};
 use crate::ui::fsm::UiStateMachine;
-use crate::ui::widgets::{
-    advanced_analysis_panel::AdvancedAnalysisPanel, board_overlay::build_review_overlay,
-    review_summary_panel::ReviewSummaryPanel, review_tabs_panel::ReviewTabsPanel, BoardWidget,
-};
+use crate::ui::widgets::{board_overlay::build_review_overlay, BoardWidget};
 use ratatui::{layout::Rect, Frame};
 
 pub struct Renderer;
@@ -138,9 +135,7 @@ impl Renderer {
         game_session: &GameSession,
         fsm: &UiStateMachine,
     ) {
-        use crate::ui::widgets::{
-            EngineAnalysisPanel, GameInfoPanel, MoveHistoryPanel, TabInputWidget, UciDebugPanel,
-        };
+        use crate::ui::widgets::TabInputWidget;
 
         match component {
             Component::Board => {
@@ -200,79 +195,18 @@ impl Renderer {
                     Paragraph::new(Line::from(spans)).style(Style::default().bg(Color::Black));
                 frame.render_widget(controls_line, area);
             }
-            Component::InfoPanel => {
-                let ps = component.panel_state(fsm);
-                let inner = ps.render_chrome(area, frame.buffer_mut(), "");
-                let widget = GameInfoPanel::new(game_session, fsm, ps.scroll);
-                frame.render_widget(widget, inner);
-            }
-            Component::HistoryPanel => {
-                let ps = component.panel_state(fsm);
-                let inner = ps.render_chrome(area, frame.buffer_mut(), "");
-                let review_positions = game_session
-                    .review_state
-                    .as_ref()
-                    .map(|rs| rs.review.positions.as_slice());
-                let current_ply = game_session.review_state.as_ref().map(|rs| rs.current_ply);
-                let widget = MoveHistoryPanel::new(game_session.history(), ps.scroll, ps.expanded)
-                    .with_review_positions(review_positions)
-                    .with_current_ply(current_ply);
-                frame.render_widget(widget, inner);
-            }
-            Component::EnginePanel => {
-                let ps = component.panel_state(fsm);
-                let suffix = if game_session.is_engine_thinking { " (Thinking...)" } else { "" };
+            // Generic panel path: all chrome-bearing components share the same flow
+            panel if panel.has_chrome() => {
+                if !panel.should_render(game_session) {
+                    return;
+                }
+                let ps = panel.panel_state(fsm);
+                let suffix = panel.chrome_suffix(game_session);
                 let inner = ps.render_chrome(area, frame.buffer_mut(), suffix);
-                let widget = EngineAnalysisPanel::new(
-                    game_session.engine_info.as_ref(),
-                    game_session.is_engine_thinking,
-                    ps.scroll,
-                );
-                frame.render_widget(widget, inner);
+                panel.render_content(inner, frame.buffer_mut(), game_session, fsm, &ps);
             }
-            Component::DebugPanel => {
-                let ps = component.panel_state(fsm);
-                let inner = ps.render_chrome(area, frame.buffer_mut(), "");
-                let widget = UciDebugPanel::new(&game_session.uci_log, ps.scroll);
-                frame.render_widget(widget, inner);
-            }
-            Component::ReviewTabs => {
-                if let Some(ref review_state) = game_session.review_state {
-                    let ps = component.panel_state(fsm);
-                    let inner = ps.render_chrome(area, frame.buffer_mut(), "");
-                    // ReviewTabs reads scroll from ReviewSummary's state (quirk)
-                    let scroll = fsm.component_scroll(&Component::ReviewSummary);
-                    let widget = ReviewTabsPanel {
-                        review_state,
-                        current_tab: fsm.review_tab,
-                        scroll,
-                        moves_selection: None,
-                    };
-                    frame.render_widget(widget, inner);
-                }
-            }
-            Component::ReviewSummary => {
-                if let Some(ref review_state) = game_session.review_state {
-                    let ps = component.panel_state(fsm);
-                    let inner = ps.render_chrome(area, frame.buffer_mut(), "");
-                    let widget = ReviewSummaryPanel {
-                        review_state,
-                        scroll: ps.scroll,
-                    };
-                    frame.render_widget(widget, inner);
-                }
-            }
-            Component::AdvancedAnalysis => {
-                if let Some(ref review_state) = game_session.review_state {
-                    let ps = component.panel_state(fsm);
-                    let inner = ps.render_chrome(area, frame.buffer_mut(), "");
-                    let widget = AdvancedAnalysisPanel {
-                        review_state,
-                        scroll: ps.scroll,
-                    };
-                    frame.render_widget(widget, inner);
-                }
-            }
+            // Safety: all variants are covered above; Board/TabInput/Controls are non-chrome
+            _ => {}
         }
     }
 

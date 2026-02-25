@@ -1,3 +1,4 @@
+use crate::state::GameSession;
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
@@ -202,6 +203,114 @@ impl Component {
             scroll: fsm.component_scroll(self),
             expanded: fsm.expanded_component() == Some(*self),
             border_color: props.border_color,
+        }
+    }
+
+    /// Whether this component is a panel (has chrome border/title).
+    pub fn has_chrome(&self) -> bool {
+        !matches!(
+            self,
+            Component::Board | Component::TabInput | Component::Controls
+        )
+    }
+
+    /// Whether this panel should render given the current game state.
+    /// Review panels require an active review_state.
+    pub fn should_render(&self, game_session: &GameSession) -> bool {
+        match self {
+            Component::ReviewTabs | Component::ReviewSummary | Component::AdvancedAnalysis => {
+                game_session.review_state.is_some()
+            }
+            _ => true,
+        }
+    }
+
+    /// Dynamic suffix appended to the chrome title bar.
+    pub fn chrome_suffix(&self, game_session: &GameSession) -> &str {
+        match self {
+            Component::EnginePanel if game_session.is_engine_thinking => " (Thinking...)",
+            _ => "",
+        }
+    }
+
+    /// Render the panel's content widget into the given area.
+    /// Assumes chrome has already been rendered and `area` is the inner rect.
+    pub fn render_content(
+        &self,
+        area: Rect,
+        buf: &mut Buffer,
+        game_session: &GameSession,
+        fsm: &super::UiStateMachine,
+        ps: &PanelState,
+    ) {
+        use crate::ui::widgets::{
+            advanced_analysis_panel::AdvancedAnalysisPanel, engine_panel::EngineAnalysisPanel,
+            game_info_panel::GameInfoPanel, move_history_panel::MoveHistoryPanel,
+            review_summary_panel::ReviewSummaryPanel, review_tabs_panel::ReviewTabsPanel,
+            uci_debug_panel::UciDebugPanel,
+        };
+
+        match self {
+            Component::InfoPanel => {
+                let widget = GameInfoPanel::new(game_session, fsm, ps.scroll);
+                widget.render(area, buf);
+            }
+            Component::HistoryPanel => {
+                let review_positions = game_session
+                    .review_state
+                    .as_ref()
+                    .map(|rs| rs.review.positions.as_slice());
+                let current_ply = game_session.review_state.as_ref().map(|rs| rs.current_ply);
+                let widget =
+                    MoveHistoryPanel::new(game_session.history(), ps.scroll, ps.expanded)
+                        .with_review_positions(review_positions)
+                        .with_current_ply(current_ply);
+                widget.render(area, buf);
+            }
+            Component::EnginePanel => {
+                let widget = EngineAnalysisPanel::new(
+                    game_session.engine_info.as_ref(),
+                    game_session.is_engine_thinking,
+                    ps.scroll,
+                );
+                widget.render(area, buf);
+            }
+            Component::DebugPanel => {
+                let widget = UciDebugPanel::new(&game_session.uci_log, ps.scroll);
+                widget.render(area, buf);
+            }
+            Component::ReviewTabs => {
+                if let Some(ref review_state) = game_session.review_state {
+                    // ReviewTabs reads scroll from ReviewSummary's state (quirk)
+                    let scroll = fsm.component_scroll(&Component::ReviewSummary);
+                    let widget = ReviewTabsPanel {
+                        review_state,
+                        current_tab: fsm.review_tab,
+                        scroll,
+                        moves_selection: None,
+                    };
+                    widget.render(area, buf);
+                }
+            }
+            Component::ReviewSummary => {
+                if let Some(ref review_state) = game_session.review_state {
+                    let widget = ReviewSummaryPanel {
+                        review_state,
+                        scroll: ps.scroll,
+                    };
+                    widget.render(area, buf);
+                }
+            }
+            Component::AdvancedAnalysis => {
+                if let Some(ref review_state) = game_session.review_state {
+                    let widget = AdvancedAnalysisPanel {
+                        review_state,
+                        scroll: ps.scroll,
+                    };
+                    widget.render(area, buf);
+                }
+            }
+            _ => {} // Non-panel components handled by renderer directly
         }
     }
 
