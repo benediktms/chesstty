@@ -1,0 +1,6 @@
+[tools]
+just = "1.46"
+git-cliff = "2.12"
+protoc = "33.4"
+"cargo:cargo-dist" = "0.31"
+"cargo:cargo-edit" = "0.13"
