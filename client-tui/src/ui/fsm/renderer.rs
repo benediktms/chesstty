@@ -1,5 +1,5 @@
 use crate::state::{GameMode, GameSession, PlayerColor};
-use crate::ui::fsm::render_spec::{Component, Constraint, Layout, Overlay, Row};
+use crate::ui::fsm::render_spec::{Component, Constraint, Layout, Overlay, Row, Section};
 use crate::ui::fsm::UiStateMachine;
 use crate::ui::widgets::{board_overlay::build_review_overlay, BoardWidget};
 use ratatui::{layout::Rect, Frame};
@@ -23,7 +23,7 @@ impl Renderer {
                 Self::render_section_content(
                     frame,
                     *section_area,
-                    &section.content,
+                    section,
                     game_session,
                     fsm,
                 );
@@ -105,21 +105,28 @@ impl Renderer {
     fn render_section_content(
         frame: &mut Frame,
         area: Rect,
-        content: &crate::ui::fsm::render_spec::SectionContent,
+        section: &Section,
         game_session: &GameSession,
         fsm: &UiStateMachine,
     ) {
-        match content {
+        match &section.content {
             crate::ui::fsm::render_spec::SectionContent::Component(component) => {
-                Self::render_component(frame, area, component, game_session, fsm);
+                Self::render_component(
+                    frame,
+                    area,
+                    component,
+                    game_session,
+                    fsm,
+                    section.dimmed,
+                );
             }
             crate::ui::fsm::render_spec::SectionContent::Nested(sections) => {
                 let section_areas = Self::split_vertical_nested(area, sections);
-                for (section, section_area) in sections.iter().zip(section_areas.iter()) {
+                for (nested, section_area) in sections.iter().zip(section_areas.iter()) {
                     Self::render_section_content(
                         frame,
                         *section_area,
-                        &section.content,
+                        nested,
                         game_session,
                         fsm,
                     );
@@ -134,6 +141,7 @@ impl Renderer {
         component: &Component,
         game_session: &GameSession,
         fsm: &UiStateMachine,
+        dimmed: bool,
     ) {
         use crate::ui::widgets::TabInputWidget;
 
@@ -200,10 +208,13 @@ impl Renderer {
                 if !panel.should_render(game_session) {
                     return;
                 }
-                let ps = panel.panel_state(fsm);
+                let mut ps = panel.panel_state(fsm);
+                ps.dimmed = dimmed;
                 let suffix = panel.chrome_suffix(game_session);
                 let inner = ps.render_chrome(area, frame.buffer_mut(), suffix);
-                panel.render_content(inner, frame.buffer_mut(), game_session, fsm, &ps);
+                if !dimmed {
+                    panel.render_content(inner, frame.buffer_mut(), game_session, fsm, &ps);
+                }
             }
             // Safety: all variants are covered above; Board/TabInput/Controls are non-chrome
             _ => {}

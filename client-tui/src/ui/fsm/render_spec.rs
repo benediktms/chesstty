@@ -204,6 +204,10 @@ impl Default for SectionContent {
 pub struct Section {
     pub constraint: Constraint,
     pub content: SectionContent,
+    /// When true, the section renders with dimmed chrome and no content.
+    /// Used for the sidebar instance of an expanded panel.
+    #[serde(default)]
+    pub dimmed: bool,
 }
 
 impl Section {
@@ -212,6 +216,7 @@ impl Section {
         Self {
             constraint,
             content,
+            dimmed: false,
         }
     }
 
@@ -219,6 +224,7 @@ impl Section {
         Self {
             constraint,
             content: SectionContent::Component(component),
+            dimmed: false,
         }
     }
 
@@ -226,7 +232,14 @@ impl Section {
         Self {
             constraint,
             content: SectionContent::Nested(sections),
+            dimmed: false,
         }
+    }
+
+    /// Mark this section as dimmed (grayed-out chrome, no content).
+    pub fn with_dimmed(mut self, dimmed: bool) -> Self {
+        self.dimmed = dimmed;
+        self
     }
 }
 

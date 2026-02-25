@@ -110,7 +110,7 @@ impl ComponentProperties {
 /// Bundled panel state computed from the FSM for rendering.
 /// Provides all the common state every panel widget needs.
 pub struct PanelState {
-    #[allow(dead_code)] // structural; will be read when panel list API is extended (Phase 3)
+    #[allow(dead_code)] // structural; used when panel list API is extended
     pub component: Component,
     pub title: &'static str,
     pub number_key_hint: Option<char>,
@@ -118,6 +118,9 @@ pub struct PanelState {
     pub scroll: u16,
     pub expanded: bool,
     pub border_color: Color,
+    /// When true, this is the sidebar instance of an expanded panel.
+    /// Chrome renders dimmed and content is skipped.
+    pub dimmed: bool,
 }
 
 impl PanelState {
@@ -143,7 +146,9 @@ impl PanelState {
             base_title
         };
 
-        let border_style = if self.is_selected || self.expanded {
+        let border_style = if self.dimmed {
+            Style::default().fg(Color::DarkGray)
+        } else if self.is_selected || self.expanded {
             Style::default()
                 .fg(Color::Yellow)
                 .add_modifier(Modifier::BOLD)
@@ -203,6 +208,7 @@ impl Component {
             scroll: fsm.component_scroll(self),
             expanded: fsm.expanded_component() == Some(*self),
             border_color: props.border_color,
+            dimmed: false, // set by renderer when this is the sidebar duplicate
         }
     }
 

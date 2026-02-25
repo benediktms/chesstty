@@ -12,15 +12,20 @@ impl ReviewBoardState {
         _shared: &crate::ui::fsm::UiStateMachine,
     ) -> Layout {
         // Left column: Advanced Analysis (35%) on top, Review Summary below
+        // Dim the sidebar instance of the expanded component
         let left_columns = vec![
-            Section::component(Constraint::Percentage(35), Component::AdvancedAnalysis),
-            Section::component(Constraint::Min(10), Component::ReviewSummary),
+            Section::component(Constraint::Percentage(35), Component::AdvancedAnalysis)
+                .with_dimmed(component == Component::AdvancedAnalysis),
+            Section::component(Constraint::Min(10), Component::ReviewSummary)
+                .with_dimmed(component == Component::ReviewSummary),
         ];
 
         // Right column: Game Info on top, Move History below taking rest
         let right_columns = vec![
-            Section::component(Constraint::Length(8), Component::InfoPanel),
-            Section::component(Constraint::Min(10), Component::HistoryPanel),
+            Section::component(Constraint::Length(8), Component::InfoPanel)
+                .with_dimmed(component == Component::InfoPanel),
+            Section::component(Constraint::Min(10), Component::HistoryPanel)
+                .with_dimmed(component == Component::HistoryPanel),
         ];
 
         Layout {
