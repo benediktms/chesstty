@@ -1,0 +1,60 @@
+# git-cliff configuration for chesstty
+# https://git-cliff.org/docs/configuration
+
+[changelog]
+header = """
+# Changelog\n
+All notable changes to this project will be documented in this file.\n
+"""
+body = """
+{% if version %}\
+    ## [{{ version | trim_start_matches(pat="v") }}] - {{ timestamp | date(format="%Y-%m-%d") }}
+{% else %}\
+    ## [Unreleased]
+{% endif %}\
+{% for group, commits in commits | group_by(attribute="group") %}
+    ### {{ group | upper_first }}
+    {% for commit in commits %}
+        - {% if commit.breaking %}[**breaking**] {% endif %}\
+            {{ commit.message | upper_first }}\
+    {% endfor %}
+{% endfor %}\n
+"""
+trim = true
+
+[git]
+conventional_commits = true
+filter_unconventional = true
+
+# Rewrite non-conventional commit messages before parsing.
+# This avoids parse warnings without rewriting git history.
+commit_preprocessors = [
+  # Squash merges and merge commits → skip via chore:
+  { pattern = "^Squash merge .+", replace = "chore: squash merge" },
+  { pattern = "^Merge .+", replace = "chore: merge" },
+  # Crate-scoped commits (e.g. "server: migrate...") → feat(crate):
+  { pattern = "^(chesstty|server|chess-client|client-tui|chess|engine|analysis|proto|justfile): (.+)", replace = "feat(${1}): ${2}" },
+  # Beads bookkeeping
+  { pattern = "^beads: .+", replace = "chore: beads update" },
+  # WIP commits
+  { pattern = "^wip: (.+)", replace = "feat: ${1}" },
+  { pattern = "^wip$", replace = "chore: wip" },
+  # Bare descriptions (no type prefix) → feat:
+  { pattern = "^(Add|Wire|Scaffold|Fix|Implement) (.+)", replace = "feat: ${1} ${2}" },
+]
+
+commit_parsers = [
+  { message = "^feat", group = "Features" },
+  { message = "^fix", group = "Bug Fixes" },
+  { message = "^refactor", group = "Refactoring" },
+  { message = "^perf", group = "Performance" },
+  { message = "^docs", group = "Documentation" },
+  { message = "^test", group = "Testing" },
+  { message = "^ci", skip = true },
+  { message = "^chore\\(release\\)", skip = true },
+  { message = "^chore", skip = true },
+  { message = "^build", skip = true },
+]
+filter_commits = true
+tag_pattern = "v[0-9]*"
+sort_commits = "newest"

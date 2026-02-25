@@ -40,6 +40,14 @@ enum_glob_use = "deny"
 - Imports: external crates first (alphabetical), then internal
 - Types: `PascalCase`, functions/vars: `snake_case`, constants: `SCREAMING_SNAKE_CASE`
 
+## Git Conventions
+- **All commits MUST use [Conventional Commits](https://www.conventionalcommits.org/)** format: `type(scope): description`
+- Types: `feat`, `fix`, `refactor`, `perf`, `docs`, `test`, `chore`, `ci`, `build`
+- Scope is optional but encouraged for crate-specific changes: `feat(server): add health endpoint`
+- Breaking changes: add `!` after type/scope: `feat!: remove legacy API`
+- Changelog is auto-generated from these commits via git-cliff (`cliff.toml`)
+- `chore`, `ci`, `build` commits are excluded from the changelog
+
 ## Error Handling
 - `thiserror` for domain errors with `#[from]` for conversion
 - `anyhow` for application-level
