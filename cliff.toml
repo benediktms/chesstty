@@ -25,6 +25,24 @@ trim = true
 [git]
 conventional_commits = true
 filter_unconventional = true
+
+# Rewrite non-conventional commit messages before parsing.
+# This avoids parse warnings without rewriting git history.
+commit_preprocessors = [
+  # Squash merges and merge commits → skip via chore:
+  { pattern = "^Squash merge .+", replace = "chore: squash merge" },
+  { pattern = "^Merge .+", replace = "chore: merge" },
+  # Crate-scoped commits (e.g. "server: migrate...") → feat(crate):
+  { pattern = "^(chesstty|server|chess-client|client-tui|chess|engine|analysis|proto|justfile): (.+)", replace = "feat(${1}): ${2}" },
+  # Beads bookkeeping
+  { pattern = "^beads: .+", replace = "chore: beads update" },
+  # WIP commits
+  { pattern = "^wip: (.+)", replace = "feat: ${1}" },
+  { pattern = "^wip$", replace = "chore: wip" },
+  # Bare descriptions (no type prefix) → feat:
+  { pattern = "^(Add|Wire|Scaffold|Fix|Implement) (.+)", replace = "feat: ${1} ${2}" },
+]
+
 commit_parsers = [
   { message = "^feat", group = "Features" },
   { message = "^fix", group = "Bug Fixes" },
@@ -36,8 +54,6 @@ commit_parsers = [
   { message = "^chore\\(release\\)", skip = true },
   { message = "^chore", skip = true },
   { message = "^build", skip = true },
-  { message = "^Merge", skip = true },
-  { message = "^Squash", skip = true },
 ]
 filter_commits = true
 tag_pattern = "v[0-9]*"
