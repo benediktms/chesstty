@@ -4,7 +4,8 @@ pub use states::*;
 
 pub mod component;
 pub use component::Component;
-#[allow(unused_imports)] // re-export for external consumers; internal use is via method return type
+#[allow(unused_imports)]
+// re-export for external consumers; internal use is via method return type
 pub use component::PanelState;
 pub mod hooks;
 pub mod render_spec;

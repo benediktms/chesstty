@@ -267,10 +267,9 @@ impl Component {
                     .as_ref()
                     .map(|rs| rs.review.positions.as_slice());
                 let current_ply = game_session.review_state.as_ref().map(|rs| rs.current_ply);
-                let widget =
-                    MoveHistoryPanel::new(game_session.history(), ps.scroll, ps.expanded)
-                        .with_review_positions(review_positions)
-                        .with_current_ply(current_ply);
+                let widget = MoveHistoryPanel::new(game_session.history(), ps.scroll, ps.expanded)
+                    .with_review_positions(review_positions)
+                    .with_current_ply(current_ply);
                 widget.render(area, buf);
             }
             Component::EnginePanel => {

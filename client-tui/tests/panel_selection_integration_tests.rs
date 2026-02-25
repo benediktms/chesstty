@@ -320,21 +320,35 @@ fn expanded_layout_dims_sidebar_instance_in_game_mode() {
         dimmed.extend(find_dimmed_components(&row.sections));
     }
 
-    assert_eq!(dimmed, vec![Component::HistoryPanel], "Only the sidebar HistoryPanel should be dimmed");
+    assert_eq!(
+        dimmed,
+        vec![Component::HistoryPanel],
+        "Only the sidebar HistoryPanel should be dimmed"
+    );
 
     // The expanded instance in center should NOT be dimmed
     let all = all_sections(&layout);
     let expanded_instances: Vec<_> = all
         .iter()
-        .filter(|s| matches!(&s.content, SectionContent::Component(Component::HistoryPanel)))
+        .filter(|s| {
+            matches!(
+                &s.content,
+                SectionContent::Component(Component::HistoryPanel)
+            )
+        })
         .collect();
-    assert_eq!(expanded_instances.len(), 2, "HistoryPanel should appear twice in expanded layout");
+    assert_eq!(
+        expanded_instances.len(),
+        2,
+        "HistoryPanel should appear twice in expanded layout"
+    );
 
-    let non_dimmed: Vec<_> = expanded_instances
-        .iter()
-        .filter(|s| !s.dimmed)
-        .collect();
-    assert_eq!(non_dimmed.len(), 1, "Exactly one instance should be non-dimmed (the expanded view)");
+    let non_dimmed: Vec<_> = expanded_instances.iter().filter(|s| !s.dimmed).collect();
+    assert_eq!(
+        non_dimmed.len(),
+        1,
+        "Exactly one instance should be non-dimmed (the expanded view)"
+    );
 }
 
 #[test]
@@ -349,7 +363,11 @@ fn expanded_layout_dims_sidebar_instance_in_review_mode() {
         dimmed.extend(find_dimmed_components(&row.sections));
     }
 
-    assert_eq!(dimmed, vec![Component::AdvancedAnalysis], "Only the sidebar AdvancedAnalysis should be dimmed");
+    assert_eq!(
+        dimmed,
+        vec![Component::AdvancedAnalysis],
+        "Only the sidebar AdvancedAnalysis should be dimmed"
+    );
 }
 
 #[test]
@@ -366,5 +384,8 @@ fn non_sidebar_expanded_component_has_no_dimmed_sections() {
         dimmed.extend(find_dimmed_components(&row.sections));
     }
 
-    assert!(dimmed.is_empty(), "DebugPanel is not in the sidebar, so nothing should be dimmed");
+    assert!(
+        dimmed.is_empty(),
+        "DebugPanel is not in the sidebar, so nothing should be dimmed"
+    );
 }

@@ -20,13 +20,7 @@ impl Renderer {
             let section_areas = Self::split_horizontal(*row_area, &row.sections);
 
             for (section, section_area) in row.sections.iter().zip(section_areas.iter()) {
-                Self::render_section_content(
-                    frame,
-                    *section_area,
-                    section,
-                    game_session,
-                    fsm,
-                );
+                Self::render_section_content(frame, *section_area, section, game_session, fsm);
             }
         }
 
@@ -111,25 +105,12 @@ impl Renderer {
     ) {
         match &section.content {
             crate::ui::fsm::render_spec::SectionContent::Component(component) => {
-                Self::render_component(
-                    frame,
-                    area,
-                    component,
-                    game_session,
-                    fsm,
-                    section.dimmed,
-                );
+                Self::render_component(frame, area, component, game_session, fsm, section.dimmed);
             }
             crate::ui::fsm::render_spec::SectionContent::Nested(sections) => {
                 let section_areas = Self::split_vertical_nested(area, sections);
                 for (nested, section_area) in sections.iter().zip(section_areas.iter()) {
-                    Self::render_section_content(
-                        frame,
-                        *section_area,
-                        nested,
-                        game_session,
-                        fsm,
-                    );
+                    Self::render_section_content(frame, *section_area, nested, game_session, fsm);
                 }
             }
         }

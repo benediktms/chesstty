@@ -24,11 +24,11 @@ impl GameBoardState {
 
         // Build right column - stacked: GameInfo → EngineAnalysis → MoveHistory
         // Dim the sidebar instance of the expanded component
-        let mut right_columns = vec![Section::component(
-            Constraint::Length(8),
-            Component::InfoPanel,
-        )
-        .with_dimmed(component == Component::InfoPanel)];
+        let mut right_columns =
+            vec![
+                Section::component(Constraint::Length(8), Component::InfoPanel)
+                    .with_dimmed(component == Component::InfoPanel),
+            ];
 
         // Only include EnginePanel if visible (from shared state)
         if shared.is_component_visible(&Component::EnginePanel) {
