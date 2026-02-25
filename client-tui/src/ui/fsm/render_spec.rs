@@ -2,8 +2,7 @@ use serde::{Deserialize, Serialize};
 
 pub use super::component::Component;
 
-use chess_client::MoveRecord;
-use cozy_chess::{Board, Square};
+use cozy_chess::Square;
 
 // ============================================================================
 // Input Phase - tracks move input state
@@ -93,82 +92,6 @@ pub enum Overlay {
         from: Square,
         to: Square,
     },
-}
-
-// ============================================================================
-// Review UI State - UI navigation state for review mode
-// ============================================================================
-
-#[allow(dead_code)]
-#[derive(Clone, Debug)]
-pub struct ReviewUIState {
-    pub current_ply: u32,
-    pub board_at_ply: Board,
-    pub fen_at_ply: String,
-    pub auto_play: bool,
-    pub move_history: Vec<MoveRecord>,
-}
-
-impl Default for ReviewUIState {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-#[allow(dead_code)]
-impl ReviewUIState {
-    pub fn new() -> Self {
-        Self {
-            current_ply: 0,
-            board_at_ply: Board::default(),
-            fen_at_ply: Board::default().to_string(),
-            auto_play: false,
-            move_history: Vec::new(),
-        }
-    }
-
-    pub fn with_review(_review: &chess_client::GameReviewProto) -> Self {
-        let board = Board::default();
-        let fen = board.to_string();
-        Self {
-            current_ply: 0,
-            board_at_ply: board,
-            fen_at_ply: fen,
-            auto_play: false,
-            move_history: Vec::new(), // Will be built from review positions
-        }
-    }
-
-    pub fn go_to_ply(&mut self, ply: u32, review: &chess_client::GameReviewProto) {
-        let max_ply = review.total_plies;
-        let target = ply.min(max_ply);
-
-        if target == 0 {
-            self.board_at_ply = Board::default();
-            self.fen_at_ply = self.board_at_ply.to_string();
-        } else if let Some(position) = review.positions.get(target as usize) {
-            self.board_at_ply = position.fen.parse().unwrap_or_default();
-            self.fen_at_ply = position.fen.clone();
-        }
-
-        self.current_ply = target;
-    }
-
-    pub fn next_ply(&mut self, review: &chess_client::GameReviewProto) -> bool {
-        if self.current_ply < review.total_plies {
-            self.go_to_ply(self.current_ply + 1, review);
-            true
-        } else {
-            false
-        }
-    }
-
-    pub fn prev_ply(&mut self) {
-        if self.current_ply > 0 {
-            self.current_ply -= 1;
-            // Note: In a full implementation, we'd rebuild the board here
-        }
-    }
 }
 
 /// Layout constraint types
