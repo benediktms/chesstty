@@ -11,10 +11,10 @@ impl ReviewBoardState {
         component: Component,
         _shared: &crate::ui::fsm::UiStateMachine,
     ) -> Layout {
-        // Left column: Advanced Analysis (35%) on top, Review Summary below
+        // Left column: Advanced Analysis (25%) on top, Review Summary below
         // Dim the sidebar instance of the expanded component
         let left_columns = vec![
-            Section::component(Constraint::Percentage(35), Component::AdvancedAnalysis)
+            Section::component(Constraint::Percentage(25), Component::AdvancedAnalysis)
                 .with_dimmed(component == Component::AdvancedAnalysis),
             Section::component(Constraint::Min(10), Component::ReviewSummary)
                 .with_dimmed(component == Component::ReviewSummary),
@@ -58,9 +58,9 @@ impl ReviewBoardState {
             return self.layout_with_expanded(component, shared);
         }
 
-        // Left column: Advanced Analysis (35%) on top, Review Summary below
+        // Left column: Advanced Analysis (25%) on top, Review Summary below
         let left_columns = vec![
-            Section::component(Constraint::Percentage(35), Component::AdvancedAnalysis),
+            Section::component(Constraint::Percentage(25), Component::AdvancedAnalysis),
             Section::component(Constraint::Min(10), Component::ReviewSummary),
         ];
 
