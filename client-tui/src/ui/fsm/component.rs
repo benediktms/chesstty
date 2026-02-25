@@ -89,6 +89,19 @@ impl ComponentProperties {
     }
 }
 
+/// Bundled panel state computed from the FSM for rendering.
+/// Provides all the common state every panel widget needs.
+pub struct PanelState {
+    #[allow(dead_code)] // structural; will be read when panel list API is extended (Phase 2)
+    pub component: Component,
+    pub title: &'static str,
+    pub number_key_hint: Option<char>,
+    pub is_selected: bool,
+    pub scroll: u16,
+    #[allow(dead_code)] // structural; will be read when expand logic is wired through PanelState
+    pub expanded: bool,
+}
+
 impl Component {
     pub fn properties(&self) -> ComponentProperties {
         ComponentProperties::for_component(self)
@@ -121,6 +134,17 @@ impl Component {
             (Component::AdvancedAnalysis, _) => Some('3'),
             (Component::ReviewSummary, _) => Some('4'),
             _ => None,
+        }
+    }
+
+    pub fn panel_state(&self, fsm: &super::UiStateMachine) -> PanelState {
+        PanelState {
+            component: *self,
+            title: self.title(),
+            number_key_hint: self.number_key(&fsm.mode),
+            is_selected: fsm.selected_component() == Some(*self),
+            scroll: fsm.component_scroll(self),
+            expanded: fsm.expanded_component() == Some(*self),
         }
     }
 
