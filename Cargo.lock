@@ -19,7 +19,7 @@ checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
 
 [[package]]
 name = "analysis"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "chess",
  "cozy-chess",
@@ -281,7 +281,7 @@ checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
 
 [[package]]
 name = "chess"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "cozy-chess",
  "proptest",
@@ -291,7 +291,7 @@ dependencies = [
 
 [[package]]
 name = "chess-client"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "async-trait",
  "chess-proto",
@@ -305,7 +305,7 @@ dependencies = [
 
 [[package]]
 name = "chess-proto"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "prost",
  "prost-types",
@@ -316,7 +316,7 @@ dependencies = [
 
 [[package]]
 name = "chesstty"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -330,7 +330,7 @@ dependencies = [
 
 [[package]]
 name = "chesstty-server"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "analysis",
  "anyhow",
@@ -396,7 +396,7 @@ checksum = "3a822ea5bc7590f9d40f1ba12c0dc3c2760f3482c6984db1573ad11031420831"
 
 [[package]]
 name = "client-tui"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "chess",
@@ -678,7 +678,7 @@ dependencies = [
 
 [[package]]
 name = "engine"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "chess",
  "cozy-chess",
