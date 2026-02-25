@@ -102,6 +102,10 @@ pub async fn handle_key(
 
     // Global toggles that work in any context
     match key.code {
+        KeyCode::Char('t') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            fsm.context.theme.toggle();
+            return AppAction::Continue;
+        }
         KeyCode::Char('@') => {
             fsm.toggle_component_visibility(Component::DebugPanel);
             return AppAction::Continue;

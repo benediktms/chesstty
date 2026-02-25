@@ -76,7 +76,6 @@ pub struct Theme {
     pub accuracy_low: Color,
 }
 
-#[allow(dead_code)] // light() and resolve_overlay() used once theme switching is wired
 impl Theme {
     /// Dark theme — matches the original hardcoded colors exactly.
     /// Designed for terminals with a dark background.
@@ -231,7 +230,50 @@ impl Theme {
         }
     }
 
+    /// Detect theme from the `CHESSTTY_THEME` environment variable.
+    ///
+    /// Set `CHESSTTY_THEME=light` for light terminals. Defaults to dark.
+    pub fn detect() -> Self {
+        Self::from_preference(std::env::var("CHESSTTY_THEME").ok().as_deref())
+    }
+
+    /// Create a theme from a preference string ("light" or "dark").
+    /// Returns dark for any unrecognized or `None` value.
+    pub fn from_preference(pref: Option<&str>) -> Self {
+        match pref {
+            Some("light") => Self::light(),
+            _ => Self::dark(),
+        }
+    }
+
+    /// Toggle between dark and light theme in place.
+    pub fn toggle(&mut self) {
+        *self = if self.is_dark() {
+            Self::light()
+        } else {
+            Self::dark()
+        };
+    }
+
+    /// Returns true if this is the dark theme variant.
+    pub fn is_dark(&self) -> bool {
+        // Dark theme uses ANSI Color::White for text_primary;
+        // light theme uses Rgb(30,30,30).
+        self.text_primary == Color::White
+    }
+
+    /// Human-readable name of the current theme variant.
+    #[allow(dead_code)] // used in tests and available for status display
+    pub fn name(&self) -> &'static str {
+        if self.is_dark() {
+            "Dark"
+        } else {
+            "Light"
+        }
+    }
+
     /// Resolve an overlay color pair for a given square.
+    #[allow(dead_code)] // public API for overlay resolution
     pub fn resolve_overlay(&self, overlay: OverlayKind, is_light_square: bool) -> Color {
         let (light, dark) = match overlay {
             OverlayKind::Selected => self.overlay_selected,
@@ -254,7 +296,7 @@ impl Theme {
 
 /// Overlay types for theme resolution (mirrors OverlayColor variants minus Custom).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)] // used once theme switching is wired
+#[allow(dead_code)] // variants used via resolve_overlay()
 pub enum OverlayKind {
     Selected,
     LegalMove,
@@ -269,6 +311,54 @@ pub enum OverlayKind {
 
 impl Default for Theme {
     fn default() -> Self {
-        Self::dark()
+        Self::detect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dark_theme_is_dark() {
+        let theme = Theme::dark();
+        assert!(theme.is_dark());
+        assert_eq!(theme.name(), "Dark");
+    }
+
+    #[test]
+    fn light_theme_is_not_dark() {
+        let theme = Theme::light();
+        assert!(!theme.is_dark());
+        assert_eq!(theme.name(), "Light");
+    }
+
+    #[test]
+    fn toggle_switches_variant() {
+        let mut theme = Theme::dark();
+        assert!(theme.is_dark());
+
+        theme.toggle();
+        assert!(!theme.is_dark());
+
+        theme.toggle();
+        assert!(theme.is_dark());
+    }
+
+    #[test]
+    fn detect_falls_back_to_dark_for_unknown_values() {
+        // detect() returns dark for any value other than "light"
+        // (including when CHESSTTY_THEME is unset, which is the common case)
+        let theme = Theme::from_preference(Some("dark"));
+        assert!(theme.is_dark());
+
+        let theme = Theme::from_preference(Some("bogus"));
+        assert!(theme.is_dark());
+
+        let theme = Theme::from_preference(None);
+        assert!(theme.is_dark());
+
+        let theme = Theme::from_preference(Some("light"));
+        assert!(!theme.is_dark());
     }
 }
