@@ -85,13 +85,9 @@ fn classification_marker(
 ) -> Option<(&'static str, Color)> {
     positions.iter().find(|p| p.ply as usize == ply).and_then(
         |p| match MoveClassification::try_from(p.classification) {
-            Ok(MoveClassification::ClassificationBrilliant) => {
-                Some(("!!", theme.move_brilliant))
-            }
+            Ok(MoveClassification::ClassificationBrilliant) => Some(("!!", theme.move_brilliant)),
             Ok(MoveClassification::ClassificationExcellent) => Some(("!", theme.move_excellent)),
-            Ok(MoveClassification::ClassificationInaccuracy) => {
-                Some(("?!", theme.move_inaccuracy))
-            }
+            Ok(MoveClassification::ClassificationInaccuracy) => Some(("?!", theme.move_inaccuracy)),
             Ok(MoveClassification::ClassificationMistake) => Some(("?", theme.move_mistake)),
             Ok(MoveClassification::ClassificationBlunder) => Some(("??", theme.move_blunder)),
             Ok(MoveClassification::ClassificationForced) => Some(("[]", theme.move_forced)),
@@ -174,8 +170,7 @@ impl MoveHistoryPanel<'_> {
 
             // Add classification marker if review data is available
             if let Some(positions) = self.review_positions {
-                if let Some((marker, color)) = classification_marker(positions, i + 1, self.theme)
-                {
+                if let Some((marker, color)) = classification_marker(positions, i + 1, self.theme) {
                     move_spans.push(Span::styled(marker.to_string(), Style::default().fg(color)));
                 }
                 if let Some(clock_text) = format_clock_span(positions, i + 1) {
@@ -238,10 +233,7 @@ impl MoveHistoryPanel<'_> {
             };
 
             let mut spans = vec![
-                ratatui::text::Span::styled(
-                    prefix,
-                    Style::default().fg(self.theme.warning).bg(bg),
-                ),
+                ratatui::text::Span::styled(prefix, Style::default().fg(self.theme.warning).bg(bg)),
                 ratatui::text::Span::styled(
                     format!("{:<8}", san),
                     Style::default()

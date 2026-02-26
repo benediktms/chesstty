@@ -86,7 +86,10 @@ impl Widget for EngineAnalysisPanel<'_> {
             if let Some(time_ms) = info.time_ms {
                 lines.push(Line::from(vec![
                     Span::styled("Time: ", Style::default().fg(self.theme.muted)),
-                    Span::styled(format_time(time_ms), Style::default().fg(self.theme.text_primary)),
+                    Span::styled(
+                        format_time(time_ms),
+                        Style::default().fg(self.theme.text_primary),
+                    ),
                 ]));
             }
 

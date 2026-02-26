@@ -107,10 +107,7 @@ fn render_piece_content(state: &GameSession, fsm: &UiStateMachine, buf: &mut Buf
         ) {
             let symbol = piece_to_unicode(piece, color);
             let label = format!("{}{}", symbol, square_str);
-            spans.push(Span::styled(
-                label,
-                Style::default().fg(theme.text_primary),
-            ));
+            spans.push(Span::styled(label, Style::default().fg(theme.text_primary)));
             spans.push(Span::raw("  "));
         }
     }

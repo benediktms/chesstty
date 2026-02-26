@@ -490,4 +490,3 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
         }
     }
 }
-

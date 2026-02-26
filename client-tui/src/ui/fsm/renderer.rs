@@ -161,8 +161,9 @@ impl Renderer {
                 let key_style = Style::default()
                     .fg(theme.positive)
                     .add_modifier(Modifier::BOLD);
-                let alert_style =
-                    Style::default().fg(theme.negative).add_modifier(Modifier::BOLD);
+                let alert_style = Style::default()
+                    .fg(theme.negative)
+                    .add_modifier(Modifier::BOLD);
 
                 let mut spans = Vec::new();
                 for (i, control) in controls.iter().enumerate() {

@@ -1,6 +1,8 @@
 use crate::review_state::ReviewState;
 use crate::ui::theme::Theme;
-use crate::ui::widgets::review_helpers::{render_king_safety, render_tactical_tags, render_tension};
+use crate::ui::widgets::review_helpers::{
+    render_king_safety, render_tactical_tags, render_tension,
+};
 use ratatui::{
     buffer::Buffer,
     layout::Rect,

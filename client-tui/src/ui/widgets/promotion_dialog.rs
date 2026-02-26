@@ -65,10 +65,7 @@ impl Widget for PromotionWidget<'_> {
                 Span::styled(prefix, style),
                 Span::styled(format!("{} ", symbol), style),
                 Span::styled(format!("{:<8}", name), style),
-                Span::styled(
-                    format!("({})", key),
-                    Style::default().fg(self.theme.muted),
-                ),
+                Span::styled(format!("({})", key), Style::default().fg(self.theme.muted)),
             ]);
 
             lines.push(line);

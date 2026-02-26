@@ -88,7 +88,8 @@ pub async fn show_menu(
 
             // Render FEN dialog if active
             if let Some(ref mut dialog_state) = menu_state.fen_dialog_state {
-                let fen_dialog = FenDialogWidget::new(dialog_state, &menu_state.saved_positions, &theme);
+                let fen_dialog =
+                    FenDialogWidget::new(dialog_state, &menu_state.saved_positions, &theme);
                 f.render_widget(fen_dialog, f.area());
             }
 

@@ -366,24 +366,15 @@ impl Widget for MenuWidget<'_> {
                 }
                 MenuItem::ResumeSession => Line::from(vec![
                     Span::styled(prefix, style),
-                    Span::styled(
-                        "\u{25b6} Resume Session",
-                        style.fg(self.theme.info),
-                    ),
+                    Span::styled("\u{25b6} Resume Session", style.fg(self.theme.info)),
                 ]),
                 MenuItem::ReviewGame => Line::from(vec![
                     Span::styled(prefix, style),
-                    Span::styled(
-                        "\u{25b6} Review Game",
-                        style.fg(self.theme.positive),
-                    ),
+                    Span::styled("\u{25b6} Review Game", style.fg(self.theme.positive)),
                 ]),
                 MenuItem::StartGame => Line::from(vec![
                     Span::styled(prefix, style),
-                    Span::styled(
-                        "\u{25b6} Start Game",
-                        style.fg(self.theme.positive),
-                    ),
+                    Span::styled("\u{25b6} Start Game", style.fg(self.theme.positive)),
                 ]),
                 MenuItem::Quit => Line::from(vec![
                     Span::styled(prefix, style),

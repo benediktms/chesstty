@@ -251,7 +251,10 @@ impl GameInfoPanel<'_> {
             let black_indicator = if black_active { "\u{25b6} " } else { "  " };
 
             lines.push(Line::from(vec![
-                Span::styled(white_indicator, Style::default().fg(self.theme.text_primary)),
+                Span::styled(
+                    white_indicator,
+                    Style::default().fg(self.theme.text_primary),
+                ),
                 Span::styled("\u{2654} ", Style::default().fg(self.theme.text_primary)),
                 Span::styled(
                     format_ms(white_ms),
@@ -260,7 +263,10 @@ impl GameInfoPanel<'_> {
                         .add_modifier(Modifier::BOLD),
                 ),
                 Span::raw("  "),
-                Span::styled(black_indicator, Style::default().fg(self.theme.text_secondary)),
+                Span::styled(
+                    black_indicator,
+                    Style::default().fg(self.theme.text_secondary),
+                ),
                 Span::styled("\u{265a} ", Style::default().fg(self.theme.text_secondary)),
                 Span::styled(
                     format_ms(black_ms),

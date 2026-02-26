@@ -397,9 +397,15 @@ mod tests {
     #[test]
     fn test_overlay_color_resolve() {
         let theme = crate::ui::theme::Theme::dark();
-        assert_eq!(OverlayColor::Selected.resolve(true, &theme), Color::LightYellow);
+        assert_eq!(
+            OverlayColor::Selected.resolve(true, &theme),
+            Color::LightYellow
+        );
         assert_eq!(OverlayColor::Selected.resolve(false, &theme), Color::Yellow);
-        assert_eq!(OverlayColor::BestMove.resolve(true, &theme), Color::LightGreen);
+        assert_eq!(
+            OverlayColor::BestMove.resolve(true, &theme),
+            Color::LightGreen
+        );
         assert_eq!(OverlayColor::BestMove.resolve(false, &theme), Color::Green);
     }
 

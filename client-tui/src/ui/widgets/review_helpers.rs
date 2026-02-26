@@ -259,11 +259,7 @@ pub fn render_tactical_tags(lines: &mut Vec<Line<'_>>, tags: &[TacticalTagProto]
     }
 }
 
-pub fn render_king_safety(
-    lines: &mut Vec<Line<'_>>,
-    ks: &PositionKingSafetyProto,
-    theme: &Theme,
-) {
+pub fn render_king_safety(lines: &mut Vec<Line<'_>>, ks: &PositionKingSafetyProto, theme: &Theme) {
     lines.push(Line::from(Span::styled(
         "  King Safety",
         Style::default().fg(theme.warning),
