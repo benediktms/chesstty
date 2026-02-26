@@ -72,7 +72,6 @@ pub fn should_disable_input(mode: &GameMode) -> bool {
 pub async fn handle_key(
     state: &mut GameSession,
     fsm: &mut UiStateMachine,
-    input_buffer: &mut String,
     key: KeyEvent,
 ) -> AppAction {
     // Tab input mode takes priority (modal overlay)
@@ -92,7 +91,7 @@ pub async fn handle_key(
 
     // Promotion dialog takes priority (modal overlay)
     if matches!(fsm.input_phase, InputPhase::SelectPromotion { .. }) {
-        return handle_promotion_input(state, fsm, input_buffer, key);
+        return handle_promotion_input(state, fsm, key).await;
     }
 
     // Ctrl+C always quits
@@ -123,17 +122,17 @@ pub async fn handle_key(
 
     // Dispatch by context
     match (fsm.focused_component, fsm.expanded) {
-        (None, _) => handle_board_context(state, fsm, input_buffer, key).await,
+        (None, _) => handle_board_context(state, fsm, key).await,
         (Some(component), false) => handle_component_selected_context(state, fsm, component, key),
         (Some(component), true) => handle_component_expanded_context(state, fsm, component, key),
     }
 }
 
 /// Handle keys in Board context (default — user is interacting with the chess board).
+/// In normal mode: panel selection, pause, menu. Press 'i' to enter insert mode for moves.
 async fn handle_board_context(
     state: &mut GameSession,
     fsm: &mut UiStateMachine,
-    input_buffer: &mut String,
     key: KeyEvent,
 ) -> AppAction {
     // Review mode: navigation keys instead of move input
@@ -191,7 +190,18 @@ async fn handle_board_context(
                 }
             }
         }
-        // Pause toggle (any engine mode) — must be before Char(c) catch-all
+        // Undo last move (only in allowed modes)
+        KeyCode::Char('u') if !should_disable_input(&state.mode) => {
+            if !state.is_undo_allowed() {
+                state.status_message = Some(
+                    "Undo is only available in Human vs Engine mode with Beginner difficulty"
+                        .to_string(),
+                );
+            } else if let Err(e) = state.undo().await {
+                state.status_message = Some(format!("Undo error: {}", e));
+            }
+        }
+        // Pause toggle (any engine mode)
         KeyCode::Char('p')
             if matches!(
                 state.mode,
@@ -220,26 +230,10 @@ async fn handle_board_context(
                 }
             }
         }
-        KeyCode::Char(c) => {
-            if !should_disable_input(&state.mode) {
-                input_buffer.push(c);
-            }
-        }
-        KeyCode::Backspace => {
-            input_buffer.pop();
-        }
-        KeyCode::Enter => {
-            if !input_buffer.is_empty() {
-                crate::ui::render_loop::handle_input(state, fsm, input_buffer).await;
-                input_buffer.clear();
-            }
-        }
         KeyCode::Esc => {
             if state.selected_square.is_some() {
                 state.clear_selection();
-                input_buffer.clear();
             } else {
-                input_buffer.clear();
                 // Auto-pause on server when opening menu (any mode with an engine)
                 let has_engine = matches!(
                     state.mode,
@@ -606,22 +600,33 @@ fn handle_component_expanded_context(
 }
 
 /// Handle keys when the promotion dialog is active (modal overlay).
-fn handle_promotion_input(
+/// Executes immediately on q/r/b/n keypress — no buffering needed.
+async fn handle_promotion_input(
     state: &mut GameSession,
-    _fsm: &mut UiStateMachine,
-    input_buffer: &mut String,
+    fsm: &mut UiStateMachine,
     key: KeyEvent,
 ) -> AppAction {
+    use cozy_chess::Piece;
+
     match key.code {
         KeyCode::Char(c) => {
-            input_buffer.push(c);
-        }
-        KeyCode::Enter => {
-            // Handled through the normal input flow
+            let piece = match c {
+                'q' => Some(Piece::Queen),
+                'r' => Some(Piece::Rook),
+                'b' => Some(Piece::Bishop),
+                'n' => Some(Piece::Knight),
+                _ => None,
+            };
+            if let Some(piece) = piece {
+                if let InputPhase::SelectPromotion { from, to } = fsm.input_phase {
+                    if let Err(e) = state.execute_promotion(from, to, piece).await {
+                        state.status_message = Some(format!("Promotion error: {}", e));
+                    }
+                }
+            }
         }
         KeyCode::Esc => {
             state.clear_selection();
-            input_buffer.clear();
         }
         _ => {}
     }
