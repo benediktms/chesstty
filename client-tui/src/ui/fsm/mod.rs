@@ -255,9 +255,9 @@ impl UiStateMachine {
             overlay.outline(to, OverlayColor::BestMove);
         }
 
-        // Layer 3: Legal move destinations (highlighted squares)
+        // Layer 3: Legal move destinations (outlined squares)
         for &sq in &game_session.highlighted_squares {
-            overlay.tint(sq, OverlayColor::LegalMove);
+            overlay.outline(sq, OverlayColor::LegalMove);
         }
 
         // Layer 4: Selected piece (highest priority)
