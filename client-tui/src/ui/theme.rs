@@ -84,8 +84,10 @@ impl Theme {
             // Board
             light_square: Color::Rgb(240, 217, 181),
             dark_square: Color::Rgb(181, 136, 99),
-            white_piece: Color::White,
-            black_piece: Color::Black,
+            // Use explicit RGB instead of ANSI White/Black — many terminals
+            // remap ANSI colors, causing pieces to blend into the board.
+            white_piece: Color::Rgb(255, 255, 255),
+            black_piece: Color::Rgb(0, 0, 0),
             board_border: Color::Cyan,
             board_label: Color::Yellow,
 

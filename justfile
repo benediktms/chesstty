@@ -4,6 +4,7 @@ export CHESSTTY_DATA_DIR := _project_root + "/data"
 export CHESSTTY_DB_PATH := _project_root + "/data/chesstty.db"
 export CHESSTTY_SOCKET_PATH := _project_root + "/data/chesstty.sock"
 export CHESSTTY_PID_PATH := _project_root + "/data/chesstty.pid"
+export CHESSTTY_THEME := "dark"
 
 # Default recipe - show all available commands
 default:
