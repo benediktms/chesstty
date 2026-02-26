@@ -1,10 +1,7 @@
 use crate::state::{GameMode, GameSession, PlayerColor};
-use crate::ui::fsm::render_spec::{Component, Constraint, Layout, Overlay, Row};
+use crate::ui::fsm::render_spec::{Component, Constraint, Layout, Overlay, Row, Section};
 use crate::ui::fsm::UiStateMachine;
-use crate::ui::widgets::{
-    advanced_analysis_panel::AdvancedAnalysisPanel, board_overlay::build_review_overlay,
-    review_summary_panel::ReviewSummaryPanel, review_tabs_panel::ReviewTabsPanel, BoardWidget,
-};
+use crate::ui::widgets::{board_overlay::build_review_overlay, BoardWidget};
 use ratatui::{layout::Rect, Frame};
 
 pub struct Renderer;
@@ -23,13 +20,7 @@ impl Renderer {
             let section_areas = Self::split_horizontal(*row_area, &row.sections);
 
             for (section, section_area) in row.sections.iter().zip(section_areas.iter()) {
-                Self::render_section_content(
-                    frame,
-                    *section_area,
-                    &section.content,
-                    game_session,
-                    fsm,
-                );
+                Self::render_section_content(frame, *section_area, section, game_session, fsm);
             }
         }
 
@@ -108,24 +99,18 @@ impl Renderer {
     fn render_section_content(
         frame: &mut Frame,
         area: Rect,
-        content: &crate::ui::fsm::render_spec::SectionContent,
+        section: &Section,
         game_session: &GameSession,
         fsm: &UiStateMachine,
     ) {
-        match content {
+        match &section.content {
             crate::ui::fsm::render_spec::SectionContent::Component(component) => {
-                Self::render_component(frame, area, component, game_session, fsm);
+                Self::render_component(frame, area, component, game_session, fsm, section.dimmed);
             }
             crate::ui::fsm::render_spec::SectionContent::Nested(sections) => {
                 let section_areas = Self::split_vertical_nested(area, sections);
-                for (section, section_area) in sections.iter().zip(section_areas.iter()) {
-                    Self::render_section_content(
-                        frame,
-                        *section_area,
-                        &section.content,
-                        game_session,
-                        fsm,
-                    );
+                for (nested, section_area) in sections.iter().zip(section_areas.iter()) {
+                    Self::render_section_content(frame, *section_area, nested, game_session, fsm);
                 }
             }
         }
@@ -137,10 +122,9 @@ impl Renderer {
         component: &Component,
         game_session: &GameSession,
         fsm: &UiStateMachine,
+        dimmed: bool,
     ) {
-        use crate::ui::widgets::{
-            EngineAnalysisPanel, GameInfoPanel, MoveHistoryPanel, TabInputWidget, UciDebugPanel,
-        };
+        use crate::ui::widgets::TabInputWidget;
 
         match component {
             Component::Board => {
@@ -159,6 +143,7 @@ impl Renderer {
                     board: game_session.board(),
                     overlay: &board_overlay,
                     flipped: is_flipped,
+                    theme: &fsm.context.theme,
                 };
                 frame.render_widget(board_widget, area);
             }
@@ -167,15 +152,18 @@ impl Renderer {
                 frame.render_widget(widget, area);
             }
             Component::Controls => {
-                use ratatui::style::{Color, Modifier, Style};
+                use ratatui::style::{Modifier, Style};
                 use ratatui::text::{Line, Span};
                 use ratatui::widgets::Paragraph;
 
+                let theme = &fsm.context.theme;
                 let controls = fsm.derive_controls(game_session);
                 let key_style = Style::default()
-                    .fg(Color::Green)
+                    .fg(theme.positive)
                     .add_modifier(Modifier::BOLD);
-                let alert_style = Style::default().fg(Color::Red).add_modifier(Modifier::BOLD);
+                let alert_style = Style::default()
+                    .fg(theme.negative)
+                    .add_modifier(Modifier::BOLD);
 
                 let mut spans = Vec::new();
                 for (i, control) in controls.iter().enumerate() {
@@ -197,86 +185,24 @@ impl Renderer {
                 }
 
                 let controls_line =
-                    Paragraph::new(Line::from(spans)).style(Style::default().bg(Color::Black));
+                    Paragraph::new(Line::from(spans)).style(Style::default().bg(theme.dialog_bg));
                 frame.render_widget(controls_line, area);
             }
-            Component::InfoPanel => {
-                let is_selected = fsm.selected_component() == Some(Component::InfoPanel);
-                let scroll = fsm.component_scroll(&Component::InfoPanel);
-                let widget = GameInfoPanel::new(game_session, fsm, is_selected, scroll);
-                frame.render_widget(widget, area);
-            }
-            Component::HistoryPanel => {
-                let scroll = fsm.component_scroll(&Component::HistoryPanel);
-                let is_selected = fsm.selected_component() == Some(Component::HistoryPanel);
-                let review_positions = game_session
-                    .review_state
-                    .as_ref()
-                    .map(|rs| rs.review.positions.as_slice());
-                let current_ply = game_session.review_state.as_ref().map(|rs| rs.current_ply);
-                let widget = MoveHistoryPanel::new(game_session.history(), scroll, is_selected)
-                    .with_review_positions(review_positions)
-                    .with_current_ply(current_ply);
-                frame.render_widget(widget, area);
-            }
-            Component::EnginePanel => {
-                let scroll = fsm.component_scroll(&Component::EnginePanel);
-                let is_selected = fsm.selected_component() == Some(Component::EnginePanel);
-                let widget = EngineAnalysisPanel::new(
-                    game_session.engine_info.as_ref(),
-                    game_session.is_engine_thinking,
-                    scroll,
-                    is_selected,
-                );
-                frame.render_widget(widget, area);
-            }
-            Component::DebugPanel => {
-                let scroll = fsm.component_scroll(&Component::DebugPanel);
-                let is_selected = fsm.selected_component() == Some(Component::DebugPanel);
-                let widget = UciDebugPanel::new(&game_session.uci_log, scroll, is_selected);
-                frame.render_widget(widget, area);
-            }
-            Component::ReviewTabs => {
-                if let Some(ref review_state) = game_session.review_state {
-                    let is_selected = fsm.selected_component() == Some(Component::ReviewSummary);
-                    let scroll = fsm.component_scroll(&Component::ReviewSummary);
-                    let widget = ReviewTabsPanel {
-                        review_state,
-                        current_tab: fsm.review_tab,
-                        scroll,
-                        expanded: false,
-                        is_selected,
-                        moves_selection: None,
-                    };
-                    frame.render_widget(widget, area);
+            // Generic panel path: all chrome-bearing components share the same flow
+            panel if panel.has_chrome() => {
+                if !panel.should_render(game_session) {
+                    return;
+                }
+                let mut ps = panel.panel_state(fsm);
+                ps.dimmed = dimmed;
+                let suffix = panel.chrome_suffix(game_session);
+                let inner = ps.render_chrome(area, frame.buffer_mut(), suffix, &fsm.context.theme);
+                if !dimmed {
+                    panel.render_content(inner, frame.buffer_mut(), game_session, fsm, &ps);
                 }
             }
-            Component::ReviewSummary => {
-                if let Some(ref review_state) = game_session.review_state {
-                    let is_selected = fsm.selected_component() == Some(Component::ReviewSummary);
-                    let scroll = fsm.component_scroll(&Component::ReviewSummary);
-                    let widget = ReviewSummaryPanel {
-                        review_state,
-                        scroll,
-                        is_selected,
-                        expanded: false,
-                    };
-                    frame.render_widget(widget, area);
-                }
-            }
-            Component::AdvancedAnalysis => {
-                if let Some(ref review_state) = game_session.review_state {
-                    let is_selected = fsm.selected_component() == Some(Component::AdvancedAnalysis);
-                    let scroll = fsm.component_scroll(&Component::AdvancedAnalysis);
-                    let widget = AdvancedAnalysisPanel {
-                        review_state,
-                        scroll,
-                        is_selected,
-                        expanded: false,
-                    };
-                    frame.render_widget(widget, area);
-                }
-            }
+            // Safety: all variants are covered above; Board/TabInput/Controls are non-chrome
+            _ => {}
         }
     }
 
@@ -289,23 +215,26 @@ impl Renderer {
     ) {
         use crate::ui::widgets::{PopupMenuWidget, PromotionWidget, SnapshotDialogWidget};
 
+        let theme = &fsm.context.theme;
+
         match overlay {
             Overlay::None => {}
             Overlay::PopupMenu => {
                 if let Some(ref state) = fsm.popup_menu {
-                    let widget = PopupMenuWidget { state };
+                    let widget = PopupMenuWidget { state, theme };
                     frame.render_widget(widget, area);
                 }
             }
             Overlay::SnapshotDialog => {
                 if let Some(ref state) = fsm.snapshot_dialog {
-                    let widget = SnapshotDialogWidget { state };
+                    let widget = SnapshotDialogWidget { state, theme };
                     frame.render_widget(widget, area);
                 }
             }
             Overlay::PromotionDialog { .. } => {
                 let widget = PromotionWidget {
                     selected_piece: fsm.selected_promotion_piece,
+                    theme,
                 };
                 frame.render_widget(widget, area);
             }

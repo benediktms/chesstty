@@ -1,58 +1,39 @@
 use crate::state::{UciDirection, UciLogEntry};
+use crate::ui::theme::Theme;
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::Line,
-    widgets::{Block, Borders, Paragraph, Widget},
+    widgets::{Paragraph, Widget},
 };
 
 pub struct UciDebugPanel<'a> {
     pub uci_log: &'a [UciLogEntry],
     pub scroll: u16,
-    pub is_selected: bool,
+    pub theme: &'a Theme,
 }
 
 impl<'a> UciDebugPanel<'a> {
-    pub fn new(uci_log: &'a [UciLogEntry], scroll: u16, is_selected: bool) -> Self {
+    pub fn new(uci_log: &'a [UciLogEntry], scroll: u16, theme: &'a Theme) -> Self {
         Self {
             uci_log,
             scroll,
-            is_selected,
+            theme,
         }
     }
 }
 
 impl Widget for UciDebugPanel<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        let title = if self.is_selected {
-            "UCI Debug Panel [SELECTED]"
-        } else {
-            "[4] UCI Debug Panel (@ to toggle)"
-        };
-        let border_style = if self.is_selected {
-            Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(Color::Magenta)
-        };
-        let block = Block::default()
-            .title(title)
-            .borders(Borders::ALL)
-            .border_style(border_style);
-
-        let inner = block.inner(area);
-        block.render(area, buf);
-
         if self.uci_log.is_empty() {
             let paragraph = Paragraph::new("No UCI messages yet. Start a game vs engine!");
-            paragraph.render(inner, buf);
+            paragraph.render(area, buf);
             return;
         }
 
         let mut lines = vec![];
-        let max_width = (inner.width as usize).saturating_sub(2);
+        let max_width = (area.width as usize).saturating_sub(2);
 
         // Show all messages and let scroll handle visibility
         for entry in self.uci_log.iter() {
@@ -61,15 +42,15 @@ impl Widget for UciDebugPanel<'_> {
                 lines.push(Line::from(vec![ratatui::text::Span::styled(
                     format!("─── {} ───", context),
                     Style::default()
-                        .fg(Color::Yellow)
+                        .fg(self.theme.warning)
                         .add_modifier(Modifier::BOLD),
                 )]));
             }
 
             // Show direction indicator and message
             let (prefix, color) = match entry.direction {
-                UciDirection::ToEngine => ("→ OUT: ", Color::Cyan),
-                UciDirection::FromEngine => ("← IN:  ", Color::Green),
+                UciDirection::ToEngine => ("→ OUT: ", self.theme.info),
+                UciDirection::FromEngine => ("← IN:  ", self.theme.positive),
             };
 
             // Parse message for syntax highlighting
@@ -85,13 +66,13 @@ impl Widget for UciDebugPanel<'_> {
             for (text, highlight) in message_parts {
                 let style = match highlight {
                     HighlightType::Command => Style::default()
-                        .fg(Color::Yellow)
+                        .fg(self.theme.warning)
                         .add_modifier(Modifier::BOLD),
-                    HighlightType::Value => Style::default().fg(Color::White),
+                    HighlightType::Value => Style::default().fg(self.theme.text_primary),
                     HighlightType::Keyword => Style::default()
-                        .fg(Color::Magenta)
+                        .fg(self.theme.secondary)
                         .add_modifier(Modifier::BOLD),
-                    HighlightType::Normal => Style::default().fg(Color::Gray),
+                    HighlightType::Normal => Style::default().fg(self.theme.text_secondary),
                 };
 
                 // Check if adding this text would exceed max_width
@@ -116,7 +97,7 @@ impl Widget for UciDebugPanel<'_> {
         }
 
         let paragraph = Paragraph::new(lines).scroll((self.scroll, 0));
-        paragraph.render(inner, buf);
+        paragraph.render(area, buf);
     }
 }
 

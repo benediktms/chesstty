@@ -1,3 +1,4 @@
+use crate::ui::theme::Theme;
 use chess_client::{MoveClassification, MoveRecord, PositionReview};
 use ratatui::{
     buffer::Buffer,
@@ -5,29 +6,29 @@ use ratatui::{
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::StatefulWidget,
-    widgets::{Block, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Widget},
+    widgets::{Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Widget},
 };
 
 pub struct MoveHistoryPanel<'a> {
     pub history: &'a [MoveRecord],
     pub scroll: u16,
-    pub is_selected: bool,
     pub expanded: bool,
     /// Optional review data for classification markers.
     pub review_positions: Option<&'a [PositionReview]>,
     /// When set (review mode), highlight the move at this 1-indexed ply.
     pub current_ply: Option<u32>,
+    pub theme: &'a Theme,
 }
 
 impl<'a> MoveHistoryPanel<'a> {
-    pub fn new(history: &'a [MoveRecord], scroll: u16, is_selected: bool) -> Self {
+    pub fn new(history: &'a [MoveRecord], scroll: u16, expanded: bool, theme: &'a Theme) -> Self {
         Self {
             history,
             scroll,
-            is_selected,
-            expanded: false,
+            expanded,
             review_positions: None,
             current_ply: None,
+            theme,
         }
     }
 
@@ -80,15 +81,16 @@ fn format_clock_span(positions: &[PositionReview], ply: usize) -> Option<String>
 fn classification_marker(
     positions: &[PositionReview],
     ply: usize,
+    theme: &Theme,
 ) -> Option<(&'static str, Color)> {
     positions.iter().find(|p| p.ply as usize == ply).and_then(
         |p| match MoveClassification::try_from(p.classification) {
-            Ok(MoveClassification::ClassificationBrilliant) => Some(("!!", Color::Cyan)),
-            Ok(MoveClassification::ClassificationExcellent) => Some(("!", Color::Cyan)),
-            Ok(MoveClassification::ClassificationInaccuracy) => Some(("?!", Color::Yellow)),
-            Ok(MoveClassification::ClassificationMistake) => Some(("?", Color::Magenta)),
-            Ok(MoveClassification::ClassificationBlunder) => Some(("??", Color::Red)),
-            Ok(MoveClassification::ClassificationForced) => Some(("[]", Color::DarkGray)),
+            Ok(MoveClassification::ClassificationBrilliant) => Some(("!!", theme.move_brilliant)),
+            Ok(MoveClassification::ClassificationExcellent) => Some(("!", theme.move_excellent)),
+            Ok(MoveClassification::ClassificationInaccuracy) => Some(("?!", theme.move_inaccuracy)),
+            Ok(MoveClassification::ClassificationMistake) => Some(("?", theme.move_mistake)),
+            Ok(MoveClassification::ClassificationBlunder) => Some(("??", theme.move_blunder)),
+            Ok(MoveClassification::ClassificationForced) => Some(("[]", theme.move_forced)),
             _ => None,
         },
     )
@@ -96,34 +98,9 @@ fn classification_marker(
 
 impl Widget for MoveHistoryPanel<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        let is_review = self.current_ply.is_some();
-        let title = if self.expanded {
-            "Move History (Expanded)"
-        } else if self.is_selected {
-            "Move History [SELECTED]"
-        } else if is_review {
-            "[2] Move History"
-        } else {
-            "[3] Move History"
-        };
-        let border_style = if self.is_selected || self.expanded {
-            Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(Color::Cyan)
-        };
-        let block = Block::default()
-            .title(title)
-            .borders(Borders::ALL)
-            .border_style(border_style);
-
-        let inner = block.inner(area);
-        block.render(area, buf);
-
         if self.history.is_empty() {
             let paragraph = Paragraph::new("No moves yet");
-            paragraph.render(inner, buf);
+            paragraph.render(area, buf);
             return;
         }
 
@@ -134,15 +111,15 @@ impl Widget for MoveHistoryPanel<'_> {
         };
 
         let paragraph = Paragraph::new(lines).scroll((self.scroll, 0));
-        paragraph.render(inner, buf);
+        paragraph.render(area, buf);
 
         let total_rows = self.history.len().div_ceil(2);
-        if total_rows > inner.height as usize {
+        if total_rows > area.height as usize {
             let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
-                .thumb_style(Style::default().fg(Color::Cyan).bg(Color::DarkGray));
+                .thumb_style(Style::default().fg(self.theme.info).bg(self.theme.muted));
             let mut scrollbar_state =
                 ScrollbarState::new(total_rows).position(self.scroll as usize);
-            scrollbar.render(inner, buf, &mut scrollbar_state);
+            scrollbar.render(area, buf, &mut scrollbar_state);
         }
     }
 }
@@ -155,7 +132,11 @@ impl MoveHistoryPanel<'_> {
             let move_number = (i / 2) + 1;
             let is_white = i % 2 == 0;
 
-            let move_color = if is_white { Color::White } else { Color::Gray };
+            let move_color = if is_white {
+                self.theme.text_primary
+            } else {
+                self.theme.text_secondary
+            };
 
             let move_str = if !record.san.is_empty() {
                 record.san.clone()
@@ -173,7 +154,7 @@ impl MoveHistoryPanel<'_> {
             let ply = (i as u32) + 1;
             let is_current = self.current_ply == Some(ply);
             let bg = if is_current {
-                Color::DarkGray
+                self.theme.muted
             } else {
                 Color::Reset
             };
@@ -189,13 +170,13 @@ impl MoveHistoryPanel<'_> {
 
             // Add classification marker if review data is available
             if let Some(positions) = self.review_positions {
-                if let Some((marker, color)) = classification_marker(positions, i + 1) {
+                if let Some((marker, color)) = classification_marker(positions, i + 1, self.theme) {
                     move_spans.push(Span::styled(marker.to_string(), Style::default().fg(color)));
                 }
                 if let Some(clock_text) = format_clock_span(positions, i + 1) {
                     move_spans.push(Span::styled(
                         clock_text,
-                        Style::default().fg(Color::DarkGray),
+                        Style::default().fg(self.theme.muted),
                     ));
                 }
             }
@@ -203,7 +184,7 @@ impl MoveHistoryPanel<'_> {
             if is_white {
                 let mut spans = vec![Span::styled(
                     format!("{}. ", move_number),
-                    Style::default().fg(Color::Yellow),
+                    Style::default().fg(self.theme.warning),
                 )];
                 spans.extend(move_spans);
                 lines.push(Line::from(spans));
@@ -223,12 +204,16 @@ impl MoveHistoryPanel<'_> {
             let move_number = (i / 2) + 1;
             let is_white = i % 2 == 0;
 
-            let move_color = if is_white { Color::White } else { Color::Gray };
+            let move_color = if is_white {
+                self.theme.text_primary
+            } else {
+                self.theme.text_secondary
+            };
 
             let ply = (i as u32) + 1;
             let is_current = self.current_ply == Some(ply);
             let bg = if is_current {
-                Color::DarkGray
+                self.theme.muted
             } else {
                 Color::Reset
             };
@@ -248,7 +233,7 @@ impl MoveHistoryPanel<'_> {
             };
 
             let mut spans = vec![
-                ratatui::text::Span::styled(prefix, Style::default().fg(Color::Yellow).bg(bg)),
+                ratatui::text::Span::styled(prefix, Style::default().fg(self.theme.warning).bg(bg)),
                 ratatui::text::Span::styled(
                     format!("{:<8}", san),
                     Style::default()
@@ -258,7 +243,7 @@ impl MoveHistoryPanel<'_> {
                 ),
                 ratatui::text::Span::styled(
                     description,
-                    Style::default().fg(Color::DarkGray).bg(bg),
+                    Style::default().fg(self.theme.muted).bg(bg),
                 ),
             ];
 
@@ -266,7 +251,7 @@ impl MoveHistoryPanel<'_> {
                 if let Some(clock_text) = format_clock_span(positions, i + 1) {
                     spans.push(ratatui::text::Span::styled(
                         clock_text,
-                        Style::default().fg(Color::DarkGray).bg(bg),
+                        Style::default().fg(self.theme.muted).bg(bg),
                     ));
                 }
             }
@@ -376,6 +361,7 @@ fn promotion_piece_name(promo: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui::theme::Theme;
 
     fn make_record(
         piece: &str,
@@ -473,38 +459,43 @@ mod tests {
 
     #[test]
     fn test_classification_marker_blunder() {
+        let theme = Theme::dark();
         let positions = vec![make_position(1, MoveClassification::ClassificationBlunder)];
-        let (marker, color) = classification_marker(&positions, 1).unwrap();
+        let (marker, color) = classification_marker(&positions, 1, &theme).unwrap();
         assert_eq!(marker, "??");
-        assert_eq!(color, Color::Red);
+        assert_eq!(color, theme.move_blunder);
     }
 
     #[test]
     fn test_classification_marker_mistake() {
+        let theme = Theme::dark();
         let positions = vec![make_position(2, MoveClassification::ClassificationMistake)];
-        let (marker, color) = classification_marker(&positions, 2).unwrap();
+        let (marker, color) = classification_marker(&positions, 2, &theme).unwrap();
         assert_eq!(marker, "?");
-        assert_eq!(color, Color::Magenta);
+        assert_eq!(color, theme.move_mistake);
     }
 
     #[test]
     fn test_classification_marker_best_returns_none() {
+        let theme = Theme::dark();
         let positions = vec![make_position(1, MoveClassification::ClassificationBest)];
-        assert!(classification_marker(&positions, 1).is_none());
+        assert!(classification_marker(&positions, 1, &theme).is_none());
     }
 
     #[test]
     fn test_classification_marker_no_match_returns_none() {
+        let theme = Theme::dark();
         let positions = vec![make_position(5, MoveClassification::ClassificationBlunder)];
-        assert!(classification_marker(&positions, 1).is_none());
+        assert!(classification_marker(&positions, 1, &theme).is_none());
     }
 
     #[test]
     fn test_with_review_positions_sets_field() {
+        let theme = Theme::dark();
         let history = vec![make_record("P", "e2", "e4", None, "e4", None)];
         let positions = vec![make_position(1, MoveClassification::ClassificationBlunder)];
 
-        let panel = MoveHistoryPanel::new(&history, 0, false);
+        let panel = MoveHistoryPanel::new(&history, 0, false, &theme);
         assert!(panel.review_positions.is_none());
 
         let panel = panel.with_review_positions(Some(&positions));
@@ -514,6 +505,7 @@ mod tests {
 
     #[test]
     fn test_compact_lines_include_classification_markers() {
+        let theme = Theme::dark();
         let history = vec![
             make_record("P", "e2", "e4", None, "e4", None),
             make_record("P", "e7", "e5", None, "e5", None),
@@ -523,8 +515,8 @@ mod tests {
             make_position(2, MoveClassification::ClassificationExcellent), // ply 2: !
         ];
 
-        let panel =
-            MoveHistoryPanel::new(&history, 0, false).with_review_positions(Some(&positions));
+        let panel = MoveHistoryPanel::new(&history, 0, false, &theme)
+            .with_review_positions(Some(&positions));
         let lines = panel.build_compact_lines();
 
         // Both moves on one line: "1. e4??  e5!"
@@ -544,9 +536,10 @@ mod tests {
 
     #[test]
     fn test_compact_lines_without_review_omit_markers() {
+        let theme = Theme::dark();
         let history = vec![make_record("P", "e2", "e4", None, "e4", None)];
 
-        let panel = MoveHistoryPanel::new(&history, 0, false);
+        let panel = MoveHistoryPanel::new(&history, 0, false, &theme);
         let lines = panel.build_compact_lines();
 
         assert_eq!(lines.len(), 1);
@@ -556,6 +549,7 @@ mod tests {
 
     #[test]
     fn test_compact_lines_include_clock_spans() {
+        let theme = Theme::dark();
         let history = vec![
             make_record("P", "e2", "e4", None, "e4", None),
             make_record("P", "e7", "e5", None, "e5", None),
@@ -575,8 +569,8 @@ mod tests {
             },
         ];
 
-        let panel =
-            MoveHistoryPanel::new(&history, 0, false).with_review_positions(Some(&positions));
+        let panel = MoveHistoryPanel::new(&history, 0, false, &theme)
+            .with_review_positions(Some(&positions));
         let lines = panel.build_compact_lines();
 
         assert_eq!(lines.len(), 1);
@@ -595,6 +589,7 @@ mod tests {
 
     #[test]
     fn test_compact_lines_no_clock_when_none() {
+        let theme = Theme::dark();
         let history = vec![make_record("P", "e2", "e4", None, "e4", None)];
         let positions = vec![PositionReview {
             ply: 1,
@@ -603,8 +598,8 @@ mod tests {
             ..Default::default()
         }];
 
-        let panel =
-            MoveHistoryPanel::new(&history, 0, false).with_review_positions(Some(&positions));
+        let panel = MoveHistoryPanel::new(&history, 0, false, &theme)
+            .with_review_positions(Some(&positions));
         let lines = panel.build_compact_lines();
 
         // No clock span, no classification marker for Best — just move number + SAN

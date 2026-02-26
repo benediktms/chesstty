@@ -1,59 +1,40 @@
 use crate::state::GameSession;
 use crate::ui::fsm::UiStateMachine;
+use crate::ui::theme::Theme;
 use chess_client::{review_score, MoveClassification, ReviewScore};
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
     style::{Color, Modifier, Style},
     text::Line,
-    widgets::{Block, Borders, Paragraph, Widget},
+    widgets::{Paragraph, Widget},
 };
 
 pub struct GameInfoPanel<'a> {
     pub client_state: &'a GameSession,
     pub fsm: &'a UiStateMachine,
-    pub is_selected: bool,
     pub scroll: u16,
+    pub theme: &'a Theme,
 }
 
 impl<'a> GameInfoPanel<'a> {
     pub fn new(
         client_state: &'a GameSession,
         fsm: &'a UiStateMachine,
-        is_selected: bool,
         scroll: u16,
+        theme: &'a Theme,
     ) -> Self {
         Self {
             client_state,
             fsm,
-            is_selected,
             scroll,
+            theme,
         }
     }
 }
 
 impl Widget for GameInfoPanel<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        let title = if self.is_selected {
-            "Game Info [SELECTED]"
-        } else {
-            "[1] Game Info"
-        };
-        let border_style = if self.is_selected {
-            Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(Color::Cyan)
-        };
-        let block = Block::default()
-            .title(title)
-            .borders(Borders::ALL)
-            .border_style(border_style);
-
-        let inner = block.inner(area);
-        block.render(area, buf);
-
         let lines = if self.client_state.review_state.is_some() {
             self.brender_stateld_review_lines()
         } else {
@@ -61,7 +42,7 @@ impl Widget for GameInfoPanel<'_> {
         };
 
         let paragraph = Paragraph::new(lines).scroll((self.scroll, 0));
-        paragraph.render(inner, buf);
+        paragraph.render(area, buf);
     }
 }
 
@@ -71,7 +52,7 @@ impl GameInfoPanel<'_> {
 
         let mut lines = vec![];
         let label_style = Style::default()
-            .fg(Color::Cyan)
+            .fg(self.theme.info)
             .add_modifier(Modifier::BOLD);
 
         // Mode
@@ -80,7 +61,7 @@ impl GameInfoPanel<'_> {
             Span::styled(
                 "Review",
                 Style::default()
-                    .fg(Color::Green)
+                    .fg(self.theme.positive)
                     .add_modifier(Modifier::BOLD),
             ),
         ]));
@@ -91,9 +72,9 @@ impl GameInfoPanel<'_> {
             let is_white_turn = turn_str == "white";
             let turn_text = if is_white_turn { "White" } else { "Black" };
             let turn_color = if is_white_turn {
-                Color::White
+                self.theme.text_primary
             } else {
-                Color::Gray
+                self.theme.text_secondary
             };
 
             lines.push(Line::from(vec![
@@ -101,7 +82,7 @@ impl GameInfoPanel<'_> {
                 Span::styled(
                     format!("{}/{}", rs.current_ply, rs.review.total_plies),
                     Style::default()
-                        .fg(Color::Yellow)
+                        .fg(self.theme.warning)
                         .add_modifier(Modifier::BOLD),
                 ),
                 Span::raw("  "),
@@ -117,7 +98,7 @@ impl GameInfoPanel<'_> {
                 lines.push(Line::from(Span::styled(
                     "AUTO-PLAY".to_string(),
                     Style::default()
-                        .fg(Color::Green)
+                        .fg(self.theme.positive)
                         .add_modifier(Modifier::BOLD),
                 )));
             }
@@ -133,15 +114,17 @@ impl GameInfoPanel<'_> {
                         _ => "Unknown",
                     };
                     let status_color = match winner.as_str() {
-                        "White" => Color::White,
-                        "Black" => Color::Gray,
-                        "Draw" => Color::Yellow,
-                        _ => Color::Red,
+                        "White" => self.theme.text_primary,
+                        "Black" => self.theme.text_secondary,
+                        "Draw" => self.theme.warning,
+                        _ => self.theme.negative,
                     };
                     lines.push(Line::from(vec![
                         Span::styled(
                             "Result: ",
-                            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                            Style::default()
+                                .fg(self.theme.negative)
+                                .add_modifier(Modifier::BOLD),
                         ),
                         Span::styled(
                             status_text,
@@ -167,7 +150,7 @@ impl GameInfoPanel<'_> {
             Span::styled(
                 "Mode: ",
                 Style::default()
-                    .fg(Color::Cyan)
+                    .fg(self.theme.info)
                     .add_modifier(Modifier::BOLD),
             ),
             Span::raw(format_game_mode(&self.client_state.mode)),
@@ -184,15 +167,15 @@ impl GameInfoPanel<'_> {
             }
         };
         let phase_color = match self.fsm.input_phase {
-            crate::ui::fsm::render_spec::InputPhase::SelectPiece => Color::Green,
-            crate::ui::fsm::render_spec::InputPhase::SelectDestination => Color::Cyan,
-            crate::ui::fsm::render_spec::InputPhase::SelectPromotion { .. } => Color::Magenta,
+            crate::ui::fsm::render_spec::InputPhase::SelectPiece => self.theme.positive,
+            crate::ui::fsm::render_spec::InputPhase::SelectDestination => self.theme.info,
+            crate::ui::fsm::render_spec::InputPhase::SelectPromotion { .. } => self.theme.secondary,
         };
         lines.push(Line::from(vec![
             Span::styled(
                 "Phase: ",
                 Style::default()
-                    .fg(Color::Yellow)
+                    .fg(self.theme.warning)
                     .add_modifier(Modifier::BOLD),
             ),
             Span::styled(
@@ -217,16 +200,16 @@ impl GameInfoPanel<'_> {
             Span::styled(
                 "Turn: ",
                 Style::default()
-                    .fg(Color::Yellow)
+                    .fg(self.theme.warning)
                     .add_modifier(Modifier::BOLD),
             ),
             Span::styled(
                 turn_text,
                 Style::default()
                     .fg(if is_white_turn {
-                        Color::White
+                        self.theme.text_primary
                     } else {
-                        Color::Gray
+                        self.theme.text_secondary
                     })
                     .add_modifier(Modifier::BOLD),
             ),
@@ -239,15 +222,16 @@ impl GameInfoPanel<'_> {
             let white_active = timer.active_side.as_deref() == Some("white");
             let black_active = timer.active_side.as_deref() == Some("black");
 
+            let theme = self.theme;
             let timer_color = |ms: u64, is_active: bool| -> Color {
                 if ms < 10_000 {
-                    Color::Red
+                    theme.negative
                 } else if ms < 60_000 {
-                    Color::Yellow
+                    theme.warning
                 } else if is_active {
-                    Color::Green
+                    theme.positive
                 } else {
-                    Color::White
+                    theme.text_primary
                 }
             };
 
@@ -267,8 +251,11 @@ impl GameInfoPanel<'_> {
             let black_indicator = if black_active { "\u{25b6} " } else { "  " };
 
             lines.push(Line::from(vec![
-                Span::styled(white_indicator, Style::default().fg(Color::White)),
-                Span::styled("\u{2654} ", Style::default().fg(Color::White)),
+                Span::styled(
+                    white_indicator,
+                    Style::default().fg(self.theme.text_primary),
+                ),
+                Span::styled("\u{2654} ", Style::default().fg(self.theme.text_primary)),
                 Span::styled(
                     format_ms(white_ms),
                     Style::default()
@@ -276,8 +263,11 @@ impl GameInfoPanel<'_> {
                         .add_modifier(Modifier::BOLD),
                 ),
                 Span::raw("  "),
-                Span::styled(black_indicator, Style::default().fg(Color::Gray)),
-                Span::styled("\u{265a} ", Style::default().fg(Color::Gray)),
+                Span::styled(
+                    black_indicator,
+                    Style::default().fg(self.theme.text_secondary),
+                ),
+                Span::styled("\u{265a} ", Style::default().fg(self.theme.text_secondary)),
                 Span::styled(
                     format_ms(black_ms),
                     Style::default()
@@ -294,13 +284,13 @@ impl GameInfoPanel<'_> {
                 Span::styled(
                     "Selected: ",
                     Style::default()
-                        .fg(Color::Yellow)
+                        .fg(self.theme.warning)
                         .add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(
                     format_square(selected),
                     Style::default()
-                        .fg(Color::Yellow)
+                        .fg(self.theme.warning)
                         .add_modifier(Modifier::BOLD),
                 ),
             ]));
@@ -310,7 +300,7 @@ impl GameInfoPanel<'_> {
                 lines.push(Line::from(vec![Span::styled(
                     "Legal: ",
                     Style::default()
-                        .fg(Color::Green)
+                        .fg(self.theme.positive)
                         .add_modifier(Modifier::BOLD),
                 )]));
 
@@ -325,7 +315,7 @@ impl GameInfoPanel<'_> {
 
                 lines.push(Line::from(vec![Span::styled(
                     moves_str,
-                    Style::default().fg(Color::Green),
+                    Style::default().fg(self.theme.positive),
                 )]));
             }
         }
@@ -337,7 +327,7 @@ impl GameInfoPanel<'_> {
                 Span::styled(
                     "Status: ",
                     Style::default()
-                        .fg(Color::Cyan)
+                        .fg(self.theme.info)
                         .add_modifier(Modifier::BOLD),
                 ),
                 Span::raw(msg.clone()),
@@ -357,11 +347,15 @@ impl GameInfoPanel<'_> {
             lines.push(Line::from(vec![
                 Span::styled(
                     "Game: ",
-                    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(self.theme.negative)
+                        .add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(
                     status_text,
-                    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(self.theme.negative)
+                        .add_modifier(Modifier::BOLD),
                 ),
             ]));
 
@@ -377,16 +371,16 @@ impl GameInfoPanel<'_> {
                     Span::styled(
                         "Winner: ",
                         Style::default()
-                            .fg(Color::Green)
+                            .fg(self.theme.positive)
                             .add_modifier(Modifier::BOLD),
                     ),
                     Span::styled(
                         winner,
                         Style::default()
                             .fg(if winner == "White" {
-                                Color::White
+                                self.theme.text_primary
                             } else {
-                                Color::Gray
+                                self.theme.text_secondary
                             })
                             .add_modifier(Modifier::BOLD),
                     ),
@@ -396,13 +390,13 @@ impl GameInfoPanel<'_> {
                     Span::styled(
                         "Result: ",
                         Style::default()
-                            .fg(Color::Yellow)
+                            .fg(self.theme.warning)
                             .add_modifier(Modifier::BOLD),
                     ),
                     Span::styled(
                         "Draw",
                         Style::default()
-                            .fg(Color::Yellow)
+                            .fg(self.theme.warning)
                             .add_modifier(Modifier::BOLD),
                     ),
                 ]));
@@ -425,46 +419,46 @@ fn format_game_mode(mode: &crate::state::GameMode) -> &'static str {
 
 /// Format a ReviewScore as a human-readable string with appropriate color.
 #[allow(dead_code)]
-pub(crate) fn format_review_score(score: &ReviewScore) -> (String, Color) {
+pub(crate) fn format_review_score(score: &ReviewScore, theme: &Theme) -> (String, Color) {
     match score.score.as_ref() {
         Some(review_score::Score::Centipawns(cp)) => {
             let pawns = *cp as f32 / 100.0;
             let color = if pawns > 0.5 {
-                Color::Green
+                theme.eval_positive
             } else if pawns < -0.5 {
-                Color::Red
+                theme.eval_negative
             } else {
-                Color::White
+                theme.eval_equal
             };
             (format!("{:+.2}", pawns), color)
         }
         Some(review_score::Score::Mate(m)) => {
             let color = if *m > 0 {
-                Color::LightGreen
+                theme.eval_mate_positive
             } else {
-                Color::LightRed
+                theme.eval_mate_negative
             };
             let sign = if *m > 0 { "+" } else { "" };
             (format!("{}M{}", sign, m.abs()), color)
         }
-        None => ("N/A".to_string(), Color::DarkGray),
+        None => ("N/A".to_string(), theme.muted),
     }
 }
 
 /// Get the color for a classification value.
 #[allow(dead_code)]
-pub(crate) fn classification_color(classification: i32) -> Color {
+pub(crate) fn classification_color(classification: i32, theme: &Theme) -> Color {
     match MoveClassification::try_from(classification) {
-        Ok(MoveClassification::ClassificationBrilliant) => Color::Cyan,
-        Ok(MoveClassification::ClassificationBest) => Color::LightGreen,
-        Ok(MoveClassification::ClassificationExcellent) => Color::Cyan,
-        Ok(MoveClassification::ClassificationGood) => Color::White,
-        Ok(MoveClassification::ClassificationInaccuracy) => Color::Yellow,
-        Ok(MoveClassification::ClassificationMistake) => Color::Magenta,
-        Ok(MoveClassification::ClassificationBlunder) => Color::Red,
-        Ok(MoveClassification::ClassificationForced) => Color::DarkGray,
-        Ok(MoveClassification::ClassificationBook) => Color::DarkGray,
-        _ => Color::White,
+        Ok(MoveClassification::ClassificationBrilliant) => theme.move_brilliant,
+        Ok(MoveClassification::ClassificationBest) => theme.move_good,
+        Ok(MoveClassification::ClassificationExcellent) => theme.move_excellent,
+        Ok(MoveClassification::ClassificationGood) => theme.move_good,
+        Ok(MoveClassification::ClassificationInaccuracy) => theme.move_inaccuracy,
+        Ok(MoveClassification::ClassificationMistake) => theme.move_mistake,
+        Ok(MoveClassification::ClassificationBlunder) => theme.move_blunder,
+        Ok(MoveClassification::ClassificationForced) => theme.move_forced,
+        Ok(MoveClassification::ClassificationBook) => theme.move_forced,
+        _ => theme.text_primary,
     }
 }
 

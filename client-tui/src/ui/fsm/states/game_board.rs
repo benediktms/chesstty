@@ -23,24 +23,26 @@ impl GameBoardState {
         }
 
         // Build right column - stacked: GameInfo → EngineAnalysis → MoveHistory
-        let mut right_columns = vec![Section::component(
-            Constraint::Length(8),
-            Component::InfoPanel,
-        )];
+        // Dim the sidebar instance of the expanded component
+        let mut right_columns =
+            vec![
+                Section::component(Constraint::Length(8), Component::InfoPanel)
+                    .with_dimmed(component == Component::InfoPanel),
+            ];
 
         // Only include EnginePanel if visible (from shared state)
         if shared.is_component_visible(&Component::EnginePanel) {
-            right_columns.push(Section::component(
-                Constraint::Length(12),
-                Component::EnginePanel,
-            ));
+            right_columns.push(
+                Section::component(Constraint::Length(12), Component::EnginePanel)
+                    .with_dimmed(component == Component::EnginePanel),
+            );
         }
 
         // Move history takes remaining space
-        right_columns.push(Section::component(
-            Constraint::Min(10),
-            Component::HistoryPanel,
-        ));
+        right_columns.push(
+            Section::component(Constraint::Min(10), Component::HistoryPanel)
+                .with_dimmed(component == Component::HistoryPanel),
+        );
 
         Layout {
             rows: vec![

@@ -4,6 +4,9 @@ pub use states::*;
 
 pub mod component;
 pub use component::Component;
+#[allow(unused_imports)]
+// re-export for external consumers; internal use is via method return type
+pub use component::PanelState;
 pub mod hooks;
 pub mod render_spec;
 pub mod renderer;
@@ -12,8 +15,19 @@ use std::collections::HashMap;
 
 use render_spec::{Control, InputPhase, Layout, Section, SectionContent, TabInputState};
 
-#[derive(Default)]
-pub struct AppContext {}
+use crate::ui::theme::Theme;
+
+pub struct AppContext {
+    pub theme: Theme,
+}
+
+impl Default for AppContext {
+    fn default() -> Self {
+        Self {
+            theme: Theme::default(),
+        }
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Default)]
 pub enum UiMode {
@@ -33,7 +47,6 @@ pub struct UiStateMachine {
     pub input_phase: InputPhase,
     pub popup_menu: Option<crate::ui::widgets::popup_menu::PopupMenuState>,
     pub snapshot_dialog: Option<crate::ui::widgets::snapshot_dialog::SnapshotDialogState>,
-    pub review_tab: u8,
     #[allow(dead_code)] // used once review board navigation is complete
     pub review_moves_selection: Option<u32>,
     pub selected_promotion_piece: cozy_chess::Piece,
@@ -69,7 +82,6 @@ impl Default for UiStateMachine {
             input_phase: InputPhase::default(),
             popup_menu: None,
             snapshot_dialog: None,
-            review_tab: 0,
             review_moves_selection: None,
             selected_promotion_piece: cozy_chess::Piece::Queen,
             focused_component: None,
@@ -243,9 +255,9 @@ impl UiStateMachine {
             overlay.outline(to, OverlayColor::BestMove);
         }
 
-        // Layer 3: Legal move destinations (highlighted squares)
+        // Layer 3: Legal move destinations (outlined squares)
         for &sq in &game_session.highlighted_squares {
-            overlay.tint(sq, OverlayColor::LegalMove);
+            overlay.outline(sq, OverlayColor::LegalMove);
         }
 
         // Layer 4: Selected piece (highest priority)
@@ -262,7 +274,7 @@ impl UiStateMachine {
     }
 }
 
-#[allow(dead_code)] // FSM navigation methods, wired up as states are implemented
+#[allow(dead_code)] // FSM navigation methods used in tests (fsm_tests, panel_selection_integration_tests)
 impl UiStateMachine {
     pub fn is_board_focused(&self) -> bool {
         self.focused_component.is_none()

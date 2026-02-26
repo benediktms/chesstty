@@ -1,6 +1,7 @@
 //! Integration tests for panel selection using the flat focus model on UiStateMachine
 
 use client_tui::prelude::*;
+use client_tui::ui::fsm::render_spec::{Section, SectionContent};
 use client_tui::ui::fsm::UiStateMachine;
 
 /// Test helper to create an FSM in GameBoard state
@@ -270,4 +271,121 @@ fn debug_panel_selectable_when_visible() {
         fsm.select_component(target);
     }
     assert_eq!(fsm.selected_component(), Some(Component::DebugPanel));
+}
+
+// ============================================================================
+// Dimmed layout tests — expanded panels dim their sidebar instance
+// ============================================================================
+
+/// Helper: find all dimmed components in a layout by walking sections recursively
+fn find_dimmed_components(sections: &[Section]) -> Vec<Component> {
+    let mut result = Vec::new();
+    for section in sections {
+        match &section.content {
+            SectionContent::Component(c) if section.dimmed => result.push(*c),
+            SectionContent::Nested(nested) => result.extend(find_dimmed_components(nested)),
+            _ => {}
+        }
+    }
+    result
+}
+
+/// Helper: collect all sections from a layout
+fn all_sections(layout: &Layout) -> Vec<&Section> {
+    fn collect<'a>(sections: &'a [Section], out: &mut Vec<&'a Section>) {
+        for s in sections {
+            out.push(s);
+            if let SectionContent::Nested(nested) = &s.content {
+                collect(nested, out);
+            }
+        }
+    }
+    let mut out = Vec::new();
+    for row in &layout.rows {
+        collect(&row.sections, &mut out);
+    }
+    out
+}
+
+#[test]
+fn expanded_layout_dims_sidebar_instance_in_game_mode() {
+    let mut fsm = create_game_board_fsm();
+    fsm.expand_component(Component::HistoryPanel);
+
+    let layout = GameBoardState.layout(&fsm);
+
+    // Collect all dimmed components across the layout
+    let mut dimmed = Vec::new();
+    for row in &layout.rows {
+        dimmed.extend(find_dimmed_components(&row.sections));
+    }
+
+    assert_eq!(
+        dimmed,
+        vec![Component::HistoryPanel],
+        "Only the sidebar HistoryPanel should be dimmed"
+    );
+
+    // The expanded instance in center should NOT be dimmed
+    let all = all_sections(&layout);
+    let expanded_instances: Vec<_> = all
+        .iter()
+        .filter(|s| {
+            matches!(
+                &s.content,
+                SectionContent::Component(Component::HistoryPanel)
+            )
+        })
+        .collect();
+    assert_eq!(
+        expanded_instances.len(),
+        2,
+        "HistoryPanel should appear twice in expanded layout"
+    );
+
+    let non_dimmed: Vec<_> = expanded_instances.iter().filter(|s| !s.dimmed).collect();
+    assert_eq!(
+        non_dimmed.len(),
+        1,
+        "Exactly one instance should be non-dimmed (the expanded view)"
+    );
+}
+
+#[test]
+fn expanded_layout_dims_sidebar_instance_in_review_mode() {
+    let mut fsm = create_review_board_fsm();
+    fsm.expand_component(Component::AdvancedAnalysis);
+
+    let layout = ReviewBoardState.layout(&fsm);
+
+    let mut dimmed = Vec::new();
+    for row in &layout.rows {
+        dimmed.extend(find_dimmed_components(&row.sections));
+    }
+
+    assert_eq!(
+        dimmed,
+        vec![Component::AdvancedAnalysis],
+        "Only the sidebar AdvancedAnalysis should be dimmed"
+    );
+}
+
+#[test]
+fn non_sidebar_expanded_component_has_no_dimmed_sections() {
+    let mut fsm = create_game_board_fsm();
+    // DebugPanel is expandable but not in the sidebar layout
+    fsm.set_component_visible(Component::DebugPanel, true);
+    fsm.expand_component(Component::DebugPanel);
+
+    let layout = GameBoardState.layout(&fsm);
+
+    let mut dimmed = Vec::new();
+    for row in &layout.rows {
+        dimmed.extend(find_dimmed_components(&row.sections));
+    }
+
+    assert!(
+        dimmed.is_empty(),
+        "DebugPanel is not in the sidebar, so nothing should be dimmed"
+    );
 }
