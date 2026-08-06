@@ -139,7 +139,6 @@ fn selection_persists_through_transitions() {
         "Should be selected after transition"
     );
 
-    // Verify selection persists (no statig wrapper to interfere)
     assert_eq!(
         fsm.selected_component(),
         Some(Component::InfoPanel),
