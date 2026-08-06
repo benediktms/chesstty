@@ -1,4 +1,5 @@
 use crate::review_state::ReviewState;
+use chess::converters::parse_square;
 use chess_client;
 use cozy_chess::Square;
 use ratatui::style::Color;
@@ -277,23 +278,6 @@ pub fn build_review_overlay(review: &ReviewState) -> BoardOverlay {
     overlay
 }
 
-/// Parse a square string like "e4" into a cozy_chess Square.
-fn parse_square_str(sq_str: &str) -> Option<Square> {
-    if sq_str.len() < 2 {
-        return None;
-    }
-    let bytes = sq_str.as_bytes();
-    let file = match bytes[0] {
-        b'a'..=b'h' => cozy_chess::File::index((bytes[0] - b'a') as usize),
-        _ => return None,
-    };
-    let rank = match bytes[1] {
-        b'1'..=b'8' => cozy_chess::Rank::index((bytes[1] - b'1') as usize),
-        _ => return None,
-    };
-    Some(Square::new(file, rank))
-}
-
 /// Add tactical tag overlays to the board using the new TacticalTagProto model.
 fn add_tactical_tag_overlays(overlay: &mut BoardOverlay, tags: &[chess_client::TacticalTagProto]) {
     use chess_client::TacticalTagKindProto;
@@ -313,16 +297,16 @@ fn add_tactical_tag_overlays(overlay: &mut BoardOverlay, tags: &[chess_client::T
 
         // Draw arrows from attacker to each victim
         if let Some(ref attacker_str) = tag.attacker {
-            if let Some(from) = parse_square_str(attacker_str) {
+            if let Some(from) = parse_square(attacker_str) {
                 for victim_str in &tag.victims {
-                    if let Some(to) = parse_square_str(victim_str) {
+                    if let Some(to) = parse_square(victim_str) {
                         overlay.arrow(from, to, color);
                     }
                 }
                 // If no victims but has target_square, draw arrow to target
                 if tag.victims.is_empty() {
                     if let Some(ref target_str) = tag.target_square {
-                        if let Some(to) = parse_square_str(target_str) {
+                        if let Some(to) = parse_square(target_str) {
                             overlay.arrow(from, to, color);
                         }
                     }
@@ -334,20 +318,20 @@ fn add_tactical_tag_overlays(overlay: &mut BoardOverlay, tags: &[chess_client::T
         match kind {
             Some(TacticalTagKindProto::TacticalTagKindHangingPiece) => {
                 if let Some(ref target_str) = tag.target_square {
-                    if let Some(sq) = parse_square_str(target_str) {
+                    if let Some(sq) = parse_square(target_str) {
                         overlay.tint(sq, OverlayColor::Blunder);
                     }
                 }
                 // Also tint victims as hanging squares
                 for victim_str in &tag.victims {
-                    if let Some(sq) = parse_square_str(victim_str) {
+                    if let Some(sq) = parse_square(victim_str) {
                         overlay.tint(sq, OverlayColor::Blunder);
                     }
                 }
             }
             Some(TacticalTagKindProto::TacticalTagKindBackRankWeakness) => {
                 if let Some(ref target_str) = tag.target_square {
-                    if let Some(sq) = parse_square_str(target_str) {
+                    if let Some(sq) = parse_square(target_str) {
                         overlay.tint(sq, OverlayColor::Danger);
                     }
                 }

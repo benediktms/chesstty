@@ -1,6 +1,7 @@
 use crate::state::GameSession;
 use crate::ui::fsm::UiStateMachine;
 use crate::ui::theme::Theme;
+use chess::converters::format_square;
 use chess_client::{review_score, MoveClassification, ReviewScore};
 use ratatui::{
     buffer::Buffer,
@@ -460,28 +461,4 @@ pub(crate) fn classification_color(classification: i32, theme: &Theme) -> Color 
         Ok(MoveClassification::ClassificationBook) => theme.move_forced,
         _ => theme.text_primary,
     }
-}
-
-fn format_square(sq: cozy_chess::Square) -> String {
-    let file = match sq.file() {
-        cozy_chess::File::A => 'a',
-        cozy_chess::File::B => 'b',
-        cozy_chess::File::C => 'c',
-        cozy_chess::File::D => 'd',
-        cozy_chess::File::E => 'e',
-        cozy_chess::File::F => 'f',
-        cozy_chess::File::G => 'g',
-        cozy_chess::File::H => 'h',
-    };
-    let rank = match sq.rank() {
-        cozy_chess::Rank::First => '1',
-        cozy_chess::Rank::Second => '2',
-        cozy_chess::Rank::Third => '3',
-        cozy_chess::Rank::Fourth => '4',
-        cozy_chess::Rank::Fifth => '5',
-        cozy_chess::Rank::Sixth => '6',
-        cozy_chess::Rank::Seventh => '7',
-        cozy_chess::Rank::Eighth => '8',
-    };
-    format!("{}{}", file, rank)
 }
