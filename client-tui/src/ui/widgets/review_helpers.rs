@@ -115,7 +115,7 @@ pub fn build_eval_graph(
             // Color critical moments
             let col_color = match MoveClassification::try_from(pos.classification) {
                 Ok(MoveClassification::ClassificationBlunder) => Some(theme.move_blunder),
-                Ok(MoveClassification::ClassificationMistake) => Some(theme.move_inaccuracy),
+                Ok(MoveClassification::ClassificationMistake) => Some(theme.move_mistake),
                 _ => None,
             };
             (cp, col_color)

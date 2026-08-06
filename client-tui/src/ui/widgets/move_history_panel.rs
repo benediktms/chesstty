@@ -113,7 +113,11 @@ impl Widget for MoveHistoryPanel<'_> {
         let paragraph = Paragraph::new(lines).scroll((self.scroll, 0));
         paragraph.render(area, buf);
 
-        let total_rows = self.history.len().div_ceil(2);
+        let total_rows = if self.expanded {
+            self.history.len()
+        } else {
+            self.history.len().div_ceil(2)
+        };
         if total_rows > area.height as usize {
             let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
                 .thumb_style(Style::default().fg(self.theme.info).bg(self.theme.muted));

@@ -623,10 +623,12 @@ async fn handle_promotion_input(
                         state.status_message = Some(format!("Promotion error: {}", e));
                     }
                 }
+                fsm.input_phase = InputPhase::SelectPiece;
             }
         }
         KeyCode::Esc => {
             state.clear_selection();
+            fsm.input_phase = InputPhase::SelectPiece;
         }
         _ => {}
     }
@@ -703,7 +705,17 @@ async fn handle_tab_input(
                                 let to_str = chess::format_square(to_square);
                                 if moves.iter().any(|m| m.to == to_str) {
                                     fsm.tab_input.deactivate();
-                                    if let Err(e) = state.try_move_to(to_square).await {
+                                    let needs_promotion = moves
+                                        .iter()
+                                        .any(|m| m.to == to_str && m.promotion.is_some());
+                                    if needs_promotion {
+                                        fsm.input_phase = InputPhase::SelectPromotion {
+                                            from: from_square,
+                                            to: to_square,
+                                        };
+                                        state.status_message =
+                                            Some("Select promotion piece".to_string());
+                                    } else if let Err(e) = state.try_move_to(to_square).await {
                                         state.status_message = Some(format!("Move failed: {}", e));
                                     }
                                     return AppAction::Continue;

@@ -64,8 +64,6 @@ pub struct GameSession {
     pub last_move: Option<(Square, Square)>,
     /// Best move squares (from engine analysis)
     pub best_move_squares: Option<(Square, Square)>,
-    /// Selected promotion piece
-    pub selected_promotion_piece: Piece,
     /// Status message to display
     pub status_message: Option<String>,
 
@@ -166,7 +164,6 @@ impl GameSession {
             selectable_squares: Vec::new(),
             last_move: None,
             best_move_squares: None,
-            selected_promotion_piece: Piece::Queen,
             status_message: None,
             // Snapshot and board
             snapshot,
@@ -210,7 +207,6 @@ impl GameSession {
             selectable_squares: Vec::new(),
             last_move: None,
             best_move_squares: None,
-            selected_promotion_piece: Piece::Queen,
             status_message: Some("Review mode - use arrow keys to navigate".to_string()),
             // Snapshot and board
             snapshot,
@@ -355,10 +351,7 @@ impl GameSession {
         };
 
         if needs_promotion {
-            // input_phase now handled by FSM - select promotion piece in FSM
-            self.selected_promotion_piece = Piece::Queen;
-            self.status_message = Some("Select promotion piece".to_string());
-            return Ok(());
+            return Err("Promotion must be picked via the promotion dialog".to_string());
         }
 
         let snapshot = self
