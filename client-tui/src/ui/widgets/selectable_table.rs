@@ -1,7 +1,8 @@
+use crate::ui::theme::Theme;
 use ratatui::{
     buffer::Buffer,
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::Text,
     widgets::{Block, Borders, Cell, Clear, Row, StatefulWidget, Table, TableState, Widget},
 };
@@ -69,6 +70,7 @@ pub struct TableOverlayParams<'a> {
     pub height: u16,
     /// Optional help text shown at the bottom of the overlay.
     pub footer: Option<&'a str>,
+    pub theme: &'a Theme,
 }
 
 /// Renders a selectable table as a centered overlay dialog.
@@ -82,6 +84,7 @@ pub fn render_table_overlay(area: Rect, buf: &mut Buffer, params: TableOverlayPa
         width,
         height,
         footer,
+        theme,
     } = params;
     let popup_area = centered_rect(width, height, area);
 
@@ -93,10 +96,10 @@ pub fn render_table_overlay(area: Rect, buf: &mut Buffer, params: TableOverlayPa
         .borders(Borders::ALL)
         .border_style(
             Style::default()
-                .fg(Color::Yellow)
+                .fg(theme.dialog_border)
                 .add_modifier(Modifier::BOLD),
         )
-        .style(Style::default().bg(Color::Black));
+        .style(Style::default().bg(theme.dialog_bg));
 
     let inner = block.inner(popup_area);
     block.render(popup_area, buf);
@@ -106,7 +109,7 @@ pub fn render_table_overlay(area: Rect, buf: &mut Buffer, params: TableOverlayPa
         .map(|h| {
             Cell::from(Text::from(*h)).style(
                 Style::default()
-                    .fg(Color::Yellow)
+                    .fg(theme.dialog_highlight)
                     .add_modifier(Modifier::BOLD),
             )
         })
@@ -125,9 +128,9 @@ pub fn render_table_overlay(area: Rect, buf: &mut Buffer, params: TableOverlayPa
         .collect();
 
     let highlight_style = Style::default()
-        .fg(Color::Yellow)
+        .fg(theme.dialog_highlight)
         .add_modifier(Modifier::BOLD)
-        .bg(Color::DarkGray);
+        .bg(theme.dialog_highlight_bg);
 
     let table = Table::new(table_rows, column_widths)
         .header(header)
@@ -144,7 +147,7 @@ pub fn render_table_overlay(area: Rect, buf: &mut Buffer, params: TableOverlayPa
         StatefulWidget::render(table, chunks[0], buf, &mut state.table_state);
 
         let footer_line =
-            Text::from(footer_text.to_string()).style(Style::default().fg(Color::DarkGray));
+            Text::from(footer_text.to_string()).style(Style::default().fg(theme.muted));
         footer_line.render(chunks[1], buf);
     } else {
         StatefulWidget::render(table, inner, buf, &mut state.table_state);

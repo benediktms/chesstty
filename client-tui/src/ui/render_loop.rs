@@ -1,5 +1,4 @@
 use crate::state::{GameMode, GameSession, PlayerColor};
-use crate::ui::fsm::render_spec::InputPhase;
 use crate::ui::menu_app;
 use chess_client::{GameModeProto, GameModeType, PlayerSideProto};
 use crossterm::{
@@ -373,7 +372,6 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
     use crossterm::event::EventStream;
     use futures::StreamExt;
 
-    let mut input_buffer = String::new();
     let mut term_events = EventStream::new();
 
     // UI refresh interval — controls max frame rate (~30fps).
@@ -436,14 +434,12 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
             continue;
         }
 
-        // Calculate typeahead squares based on current input and store on FSM
+        // Calculate typeahead squares based on tab input mode (modal — only when 'i' is active)
         fsm.typeahead_squares = if fsm.tab_input.active
             && fsm.tab_input.current_tab == 0
             && !fsm.tab_input.typeahead_buffer.is_empty()
         {
             state.filter_selectable_by_input(&fsm.tab_input.typeahead_buffer)
-        } else if !input_buffer.is_empty() && matches!(fsm.input_phase, InputPhase::SelectPiece) {
-            state.filter_selectable_by_input(&input_buffer)
         } else {
             Vec::new()
         };
@@ -461,7 +457,7 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
 
         // Handle keyboard event if one arrived
         if let Some(Event::Key(key)) = term_event {
-            match input::handle_key(state, &mut fsm, &mut input_buffer, key).await {
+            match input::handle_key(state, &mut fsm, key).await {
                 AppAction::Continue => {}
                 AppAction::Quit => {
                     // Review mode has no server session to close
@@ -492,83 +488,5 @@ async fn run_ui_loop<B: ratatui::backend::Backend>(
                 }
             }
         }
-    }
-}
-
-pub(super) async fn handle_input(
-    state: &mut GameSession,
-    fsm: &mut crate::ui::fsm::UiStateMachine,
-    input: &str,
-) {
-    let input = input.trim().to_lowercase();
-
-    // Check for special commands
-    match input.as_str() {
-        "undo" | "u" => {
-            if !state.is_undo_allowed() {
-                state.status_message = Some(
-                    "Undo is only available in Human vs Engine mode with Beginner difficulty"
-                        .to_string(),
-                );
-                return;
-            }
-            if let Err(e) = state.undo().await {
-                state.status_message = Some(format!("Undo error: {}", e));
-            }
-            return;
-        }
-        _ => {}
-    }
-
-    // Parse square notation (e.g., "e2", "e4")
-    if input.len() == 2 {
-        use chess::parse_square;
-        use cozy_chess::Piece;
-
-        match fsm.input_phase {
-            InputPhase::SelectPiece => {
-                if let Some(square) = parse_square(&input) {
-                    if state.selectable_squares.contains(&square) {
-                        state.select_square(square);
-                    } else {
-                        state.status_message =
-                            Some("No piece on that square or not your turn".to_string());
-                    }
-                } else {
-                    state.status_message = Some("Invalid square".to_string());
-                }
-            }
-            InputPhase::SelectDestination => {
-                if let Some(square) = parse_square(&input) {
-                    if let Err(e) = state.try_move_to(square).await {
-                        state.status_message = Some(format!("Move error: {}", e));
-                    }
-                } else {
-                    state.status_message = Some("Invalid square".to_string());
-                }
-            }
-            InputPhase::SelectPromotion { from, to } => {
-                let piece = match input.as_str() {
-                    "q" | "queen" => Piece::Queen,
-                    "r" | "rook" => Piece::Rook,
-                    "b" | "bishop" => Piece::Bishop,
-                    "n" | "knight" => Piece::Knight,
-                    _ => {
-                        state.status_message = Some(
-                            "Invalid promotion piece. Use q/r/b/n for queen/rook/bishop/knight"
-                                .to_string(),
-                        );
-                        return;
-                    }
-                };
-
-                if let Err(e) = state.execute_promotion(from, to, piece).await {
-                    state.status_message = Some(format!("Promotion error: {}", e));
-                }
-            }
-        }
-    } else {
-        state.status_message =
-            Some("Enter a square (e.g., 'e2'). Use 'undo' for special commands".to_string());
     }
 }

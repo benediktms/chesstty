@@ -1,8 +1,9 @@
 use crate::state::GameMode;
+use crate::ui::theme::Theme;
 use ratatui::{
     buffer::Buffer,
     layout::{Constraint, Layout, Rect},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph, Widget},
 };
@@ -79,6 +80,7 @@ impl PopupMenuState {
 /// Widget for rendering the popup menu as a centered overlay.
 pub struct PopupMenuWidget<'a> {
     pub state: &'a PopupMenuState,
+    pub theme: &'a Theme,
 }
 
 impl Widget for PopupMenuWidget<'_> {
@@ -96,10 +98,10 @@ impl Widget for PopupMenuWidget<'_> {
             .borders(Borders::ALL)
             .border_style(
                 Style::default()
-                    .fg(Color::Yellow)
+                    .fg(self.theme.dialog_border)
                     .add_modifier(Modifier::BOLD),
             )
-            .style(Style::default().bg(Color::Black));
+            .style(Style::default().bg(self.theme.dialog_bg));
 
         let inner = block.inner(popup_area);
         block.render(popup_area, buf);
@@ -112,10 +114,10 @@ impl Widget for PopupMenuWidget<'_> {
 
             let style = if is_selected {
                 Style::default()
-                    .fg(Color::Yellow)
+                    .fg(self.theme.dialog_highlight)
                     .add_modifier(Modifier::BOLD)
             } else {
-                Style::default().fg(Color::White)
+                Style::default().fg(self.theme.text_primary)
             };
 
             lines.push(Line::from(Span::styled(
@@ -128,7 +130,7 @@ impl Widget for PopupMenuWidget<'_> {
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled(
             " Esc: Close  Enter: Select",
-            Style::default().fg(Color::DarkGray),
+            Style::default().fg(self.theme.muted),
         )));
 
         let paragraph = Paragraph::new(lines);

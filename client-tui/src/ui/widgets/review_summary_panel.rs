@@ -1,48 +1,27 @@
 use crate::review_state::ReviewState;
+use crate::ui::theme::Theme;
+use crate::ui::widgets::review_helpers::{
+    accuracy_bar, accuracy_color, build_eval_graph, count_classifications,
+};
 use chess::is_white_ply;
-use chess_client::{review_score, MoveClassification, PositionReview};
+use chess_client::MoveClassification;
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::StatefulWidget,
-    widgets::{Block, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Widget},
+    widgets::{Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Widget},
 };
 
 pub struct ReviewSummaryPanel<'a> {
     pub review_state: &'a ReviewState,
     pub scroll: u16,
-    pub is_selected: bool,
-    pub expanded: bool,
+    pub theme: &'a Theme,
 }
 
 impl Widget for ReviewSummaryPanel<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        let title = if self.expanded {
-            "Review Summary (Expanded)"
-        } else if self.is_selected {
-            "Review Summary [SELECTED]"
-        } else {
-            "[4] Review Summary"
-        };
-
-        let border_style = if self.is_selected || self.expanded {
-            Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(Color::Green)
-        };
-
-        let block = Block::default()
-            .title(title)
-            .borders(Borders::ALL)
-            .border_style(border_style);
-
-        let inner = block.inner(area);
-        block.render(area, buf);
-
         let mut lines: Vec<Line<'static>> = vec![];
 
         let review = &self.review_state.review;
@@ -56,10 +35,10 @@ impl Widget for ReviewSummaryPanel<'_> {
                 _ => "Unknown",
             };
             let status_color = match winner.as_str() {
-                "White" => Color::White,
-                "Black" => Color::Gray,
-                "Draw" => Color::Yellow,
-                _ => Color::Red,
+                "White" => self.theme.text_primary,
+                "Black" => self.theme.text_secondary,
+                "Draw" => self.theme.warning,
+                _ => self.theme.negative,
             };
             lines.push(Line::from(Span::styled(
                 status_text,
@@ -70,66 +49,11 @@ impl Widget for ReviewSummaryPanel<'_> {
             lines.push(Line::raw(""));
         }
 
-        // === CURRENT POSITION ANALYSIS (TOP) ===
-        if self.review_state.current_ply > 0 {
-            lines.push(Line::from(Span::styled(
-                "Current Position",
-                Style::default()
-                    .fg(Color::White)
-                    .add_modifier(Modifier::BOLD),
-            )));
-
-            if let Some(pos) = self.review_state.current_position() {
-                let is_white = is_white_ply(pos.ply);
-                let move_num = pos.ply.div_ceil(2);
-                let side = if is_white { "White" } else { "Black" };
-
-                lines.push(Line::from(vec![
-                    Span::raw("Move "),
-                    Span::styled(
-                        format!("{}. {}", move_num, side),
-                        Style::default()
-                            .fg(Color::White)
-                            .add_modifier(Modifier::BOLD),
-                    ),
-                ]));
-
-                if let Some((marker, color)) = classification_marker(&pos.classification) {
-                    lines
-                        .last_mut()
-                        .unwrap()
-                        .push_span(Span::styled(marker, Style::default().fg(color)));
-                }
-
-                if pos.cp_loss > 0 {
-                    lines.push(Line::from(vec![
-                        Span::raw("  cp_loss: "),
-                        Span::styled(
-                            format!("{}", pos.cp_loss),
-                            Style::default().fg(cp_loss_color(pos.cp_loss)),
-                        ),
-                    ]));
-                }
-            }
-
-            // Check if there's advanced position analysis
-            if let Some(adv_pos) = self.review_state.advanced_position() {
-                if adv_pos.is_critical {
-                    lines.push(Line::from(Span::styled(
-                        "  \u{26A0} CRITICAL POSITION \u{26A0}",
-                        Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
-                    )));
-                }
-            }
-
-            lines.push(Line::raw(""));
-        }
-
         // Accuracy section
         lines.push(Line::from(Span::styled(
             "Accuracy",
             Style::default()
-                .fg(Color::White)
+                .fg(self.theme.text_primary)
                 .add_modifier(Modifier::BOLD),
         )));
 
@@ -138,7 +62,7 @@ impl Widget for ReviewSummaryPanel<'_> {
                 Span::raw("  White: "),
                 Span::styled(
                     format!("{:.1}%", white_acc),
-                    Style::default().fg(accuracy_color(white_acc)),
+                    Style::default().fg(accuracy_color(white_acc, self.theme)),
                 ),
                 Span::raw("  "),
                 Span::raw(accuracy_bar(white_acc, 20)),
@@ -149,7 +73,7 @@ impl Widget for ReviewSummaryPanel<'_> {
                 Span::raw("  Black: "),
                 Span::styled(
                     format!("{:.1}%", black_acc),
-                    Style::default().fg(accuracy_color(black_acc)),
+                    Style::default().fg(accuracy_color(black_acc, self.theme)),
                 ),
                 Span::raw("  "),
                 Span::raw(accuracy_bar(black_acc, 20)),
@@ -162,11 +86,11 @@ impl Widget for ReviewSummaryPanel<'_> {
             lines.push(Line::from(Span::styled(
                 "Evaluation",
                 Style::default()
-                    .fg(Color::White)
+                    .fg(self.theme.text_primary)
                     .add_modifier(Modifier::BOLD),
             )));
-            let graph_width = (inner.width as usize).saturating_sub(4).min(60);
-            let graph_lines = build_eval_graph(&review.positions, graph_width);
+            let graph_width = (area.width as usize).saturating_sub(4).min(60);
+            let graph_lines = build_eval_graph(&review.positions, graph_width, self.theme);
             lines.extend(graph_lines);
         }
 
@@ -176,7 +100,7 @@ impl Widget for ReviewSummaryPanel<'_> {
         lines.push(Line::from(Span::styled(
             "Move Quality",
             Style::default()
-                .fg(Color::White)
+                .fg(self.theme.text_primary)
                 .add_modifier(Modifier::BOLD),
         )));
 
@@ -186,37 +110,37 @@ impl Widget for ReviewSummaryPanel<'_> {
             (
                 "!! Brilliant",
                 MoveClassification::ClassificationBrilliant as i32,
-                Color::Cyan,
+                self.theme.move_brilliant,
             ),
             (
                 "!  Excellent",
                 MoveClassification::ClassificationExcellent as i32,
-                Color::Cyan,
+                self.theme.move_excellent,
             ),
             (
                 "   Good/Best",
                 MoveClassification::ClassificationGood as i32,
-                Color::White,
+                self.theme.move_good,
             ),
             (
                 "?! Inaccuracy",
                 MoveClassification::ClassificationInaccuracy as i32,
-                Color::Yellow,
+                self.theme.move_inaccuracy,
             ),
             (
                 "?  Mistake",
                 MoveClassification::ClassificationMistake as i32,
-                Color::Magenta,
+                self.theme.move_mistake,
             ),
             (
                 "?? Blunder",
                 MoveClassification::ClassificationBlunder as i32,
-                Color::Red,
+                self.theme.move_blunder,
             ),
             (
                 "[] Forced",
                 MoveClassification::ClassificationForced as i32,
-                Color::DarkGray,
+                self.theme.move_forced,
             ),
         ];
 
@@ -249,7 +173,7 @@ impl Widget for ReviewSummaryPanel<'_> {
             lines.push(Line::from(Span::styled(
                 "Critical Moments",
                 Style::default()
-                    .fg(Color::White)
+                    .fg(self.theme.text_primary)
                     .add_modifier(Modifier::BOLD),
             )));
 
@@ -263,8 +187,8 @@ impl Widget for ReviewSummaryPanel<'_> {
                     _ => "",
                 };
                 let color = match MoveClassification::try_from(pos.classification) {
-                    Ok(MoveClassification::ClassificationBlunder) => Color::Red,
-                    _ => Color::Magenta,
+                    Ok(MoveClassification::ClassificationBlunder) => self.theme.move_blunder,
+                    _ => self.theme.move_mistake,
                 };
 
                 lines.push(Line::from(vec![
@@ -279,185 +203,164 @@ impl Widget for ReviewSummaryPanel<'_> {
             }
         }
 
+        // Game-wide advanced analysis (psychology / momentum)
+        if let Some(ref advanced) = self.review_state.advanced {
+            let white_psy = advanced.white_psychology.as_ref();
+            let black_psy = advanced.black_psychology.as_ref();
+
+            // Phase performance
+            lines.push(Line::from(Span::styled(
+                "Phase Performance (avg cp_loss)",
+                Style::default().fg(self.theme.info),
+            )));
+
+            let w_opening = white_psy.map(|p| p.opening_avg_cp_loss).unwrap_or(0.0);
+            let b_opening = black_psy.map(|p| p.opening_avg_cp_loss).unwrap_or(0.0);
+            let w_mid = white_psy.map(|p| p.middlegame_avg_cp_loss).unwrap_or(0.0);
+            let b_mid = black_psy.map(|p| p.middlegame_avg_cp_loss).unwrap_or(0.0);
+            let w_end = white_psy.map(|p| p.endgame_avg_cp_loss).unwrap_or(0.0);
+            let b_end = black_psy.map(|p| p.endgame_avg_cp_loss).unwrap_or(0.0);
+
+            lines.push(Line::from(vec![
+                Span::raw("  "),
+                Span::styled("Opening", Style::default().fg(self.theme.text_primary)),
+                Span::raw(": W "),
+                Span::styled(
+                    format!("{:.1}", w_opening),
+                    Style::default().fg(self.theme.info_light),
+                ),
+                Span::raw("  B "),
+                Span::styled(
+                    format!("{:.1}", b_opening),
+                    Style::default().fg(self.theme.info_light),
+                ),
+            ]));
+            lines.push(Line::from(vec![
+                Span::raw("  "),
+                Span::styled("Middlegame", Style::default().fg(self.theme.text_primary)),
+                Span::raw(": W "),
+                Span::styled(
+                    format!("{:.1}", w_mid),
+                    Style::default().fg(self.theme.info_light),
+                ),
+                Span::raw("  B "),
+                Span::styled(
+                    format!("{:.1}", b_mid),
+                    Style::default().fg(self.theme.info_light),
+                ),
+            ]));
+            lines.push(Line::from(vec![
+                Span::raw("  "),
+                Span::styled("Endgame", Style::default().fg(self.theme.text_primary)),
+                Span::raw(": W "),
+                Span::styled(
+                    format!("{:.1}", w_end),
+                    Style::default().fg(self.theme.info_light),
+                ),
+                Span::raw("  B "),
+                Span::styled(
+                    format!("{:.1}", b_end),
+                    Style::default().fg(self.theme.info_light),
+                ),
+            ]));
+
+            lines.push(Line::raw(""));
+
+            // Error patterns
+            let w_max_err = white_psy.map(|p| p.max_consecutive_errors).unwrap_or(0);
+            let b_max_err = black_psy.map(|p| p.max_consecutive_errors).unwrap_or(0);
+            let w_blunder = white_psy.map(|p| p.blunder_cluster_density).unwrap_or(0);
+            let b_blunder = black_psy.map(|p| p.blunder_cluster_density).unwrap_or(0);
+
+            lines.push(Line::from(Span::styled(
+                "Error Patterns",
+                Style::default().fg(self.theme.info),
+            )));
+            lines.push(Line::from(vec![
+                Span::raw("  Max consecutive: "),
+                Span::styled(
+                    format!("W:{}  B:{}", w_max_err, b_max_err),
+                    Style::default().fg(self.theme.negative_light),
+                ),
+            ]));
+            lines.push(Line::from(vec![
+                Span::raw("  Blunder cluster: "),
+                Span::styled(
+                    format!("W:{}  B:{}", w_blunder, b_blunder),
+                    Style::default().fg(self.theme.secondary_light),
+                ),
+            ]));
+
+            lines.push(Line::raw(""));
+
+            // Momentum
+            let w_fav = white_psy.map(|p| p.favorable_swings).unwrap_or(0);
+            let b_fav = black_psy.map(|p| p.favorable_swings).unwrap_or(0);
+            let w_unfav = white_psy.map(|p| p.unfavorable_swings).unwrap_or(0);
+            let b_unfav = black_psy.map(|p| p.unfavorable_swings).unwrap_or(0);
+            let w_streak = white_psy.map(|p| p.max_momentum_streak).unwrap_or(0);
+            let b_streak = black_psy.map(|p| p.max_momentum_streak).unwrap_or(0);
+
+            lines.push(Line::from(Span::styled(
+                "Momentum",
+                Style::default().fg(self.theme.info),
+            )));
+            lines.push(Line::from(vec![
+                Span::raw("  Favorable swings: "),
+                Span::styled(
+                    format!("W:{}  B:{}", w_fav, b_fav),
+                    Style::default().fg(self.theme.positive),
+                ),
+            ]));
+            lines.push(Line::from(vec![
+                Span::raw("  Unfavorable swings: "),
+                Span::styled(
+                    format!("W:{}  B:{}", w_unfav, b_unfav),
+                    Style::default().fg(self.theme.negative),
+                ),
+            ]));
+            lines.push(Line::from(vec![
+                Span::raw("  Max streak: "),
+                Span::styled(
+                    format!("W:{}  B:{}", w_streak, b_streak),
+                    Style::default().fg(self.theme.warning),
+                ),
+            ]));
+
+            lines.push(Line::raw(""));
+
+            // Critical positions count
+            lines.push(Line::from(vec![
+                Span::styled(
+                    "Critical positions: ",
+                    Style::default().fg(self.theme.muted),
+                ),
+                Span::raw(format!("{}", advanced.critical_positions_count)),
+            ]));
+
+            lines.push(Line::raw(""));
+        }
+
         // Analysis info
         lines.push(Line::raw(""));
         lines.push(Line::from(vec![
-            Span::styled("Depth: ", Style::default().fg(Color::DarkGray)),
+            Span::styled("Depth: ", Style::default().fg(self.theme.muted)),
             Span::raw(format!("{}", review.analysis_depth)),
             Span::raw("  "),
-            Span::styled("Plies: ", Style::default().fg(Color::DarkGray)),
+            Span::styled("Plies: ", Style::default().fg(self.theme.muted)),
             Span::raw(format!("{}/{}", review.analyzed_plies, review.total_plies)),
         ]));
 
         let content_height = lines.len() as u16;
         let paragraph = Paragraph::new(lines).scroll((self.scroll, 0));
-        paragraph.render(inner, buf);
+        paragraph.render(area, buf);
 
-        if content_height > inner.height {
+        if content_height > area.height {
             let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
-                .thumb_style(Style::default().fg(Color::Cyan).bg(Color::DarkGray));
+                .thumb_style(Style::default().fg(self.theme.info).bg(self.theme.muted));
             let mut scrollbar_state =
                 ScrollbarState::new(content_height as usize).position(self.scroll as usize);
-            scrollbar.render(inner, buf, &mut scrollbar_state);
+            scrollbar.render(area, buf, &mut scrollbar_state);
         }
-    }
-}
-
-fn accuracy_color(accuracy: f64) -> Color {
-    if accuracy >= 90.0 {
-        Color::Green
-    } else if accuracy >= 70.0 {
-        Color::Yellow
-    } else {
-        Color::Red
-    }
-}
-
-fn accuracy_bar(accuracy: f64, width: usize) -> String {
-    let filled = ((accuracy / 100.0) * width as f64).round() as usize;
-    let empty = width.saturating_sub(filled);
-    format!(
-        "[{}{}]",
-        "\u{2588}".repeat(filled),
-        "\u{2591}".repeat(empty)
-    )
-}
-
-/// Extract centipawn value from a proto ReviewScore, clamped to [-500, 500].
-fn score_to_cp_clamped(pos: &PositionReview) -> i32 {
-    let cp = match pos.eval_before.as_ref().and_then(|s| s.score.as_ref()) {
-        Some(review_score::Score::Centipawns(cp)) => *cp,
-        Some(review_score::Score::Mate(m)) => {
-            if *m > 0 {
-                500
-            } else {
-                -500
-            }
-        }
-        None => 0,
-    };
-    cp.clamp(-500, 500)
-}
-
-/// Build an ASCII eval graph as a series of Line spans.
-/// Renders a sparkline chart: positive = white advantage (above midline),
-/// negative = black advantage (below midline).
-/// Uses 5 rows of height. The midline is row 2 (0-indexed).
-fn build_eval_graph(positions: &[PositionReview], width: usize) -> Vec<Line<'static>> {
-    if positions.is_empty() || width == 0 {
-        return vec![];
-    }
-
-    let height = 5usize;
-    let mid = height / 2; // row 2 = midline (0.0 eval)
-
-    // Sample positions to fit the available width
-    let total = positions.len();
-    let cols: Vec<(i32, Option<Color>)> = (0..width)
-        .map(|col| {
-            let idx = col * total / width;
-            let idx = idx.min(total - 1);
-            let pos = &positions[idx];
-            let cp = score_to_cp_clamped(pos);
-
-            // Color critical moments
-            let col_color = match MoveClassification::try_from(pos.classification) {
-                Ok(MoveClassification::ClassificationBlunder) => Some(Color::Red),
-                Ok(MoveClassification::ClassificationMistake) => Some(Color::Yellow),
-                _ => None,
-            };
-            (cp, col_color)
-        })
-        .collect();
-
-    // Block characters for bar rendering (bottom to top within a cell)
-    let blocks = [
-        ' ', '\u{2581}', '\u{2582}', '\u{2583}', '\u{2584}', '\u{2585}', '\u{2586}', '\u{2587}',
-        '\u{2588}',
-    ];
-
-    // Build rows top to bottom
-    let mut rows: Vec<Line<'static>> = Vec::with_capacity(height);
-    for row in 0..height {
-        let mut spans: Vec<Span<'static>> = vec![Span::raw("  ")];
-        for &(cp, critical_color) in &cols {
-            // Map cp [-500, 500] to a fill level [0.0, height*8] sub-cells
-            // midline at mid*8 sub-cells from bottom
-            let max_sub = (height * 8) as f64;
-            let mid_sub = (mid * 8) as f64;
-            // cp=500 -> full top, cp=-500 -> full bottom, cp=0 -> midline
-            let fill_sub = mid_sub + (cp as f64 / 500.0) * mid_sub;
-            let fill_sub = fill_sub.clamp(0.0, max_sub) as usize;
-
-            // This row spans sub-cells from (height-1-row)*8 to (height-row)*8
-            let row_bottom = (height - 1 - row) * 8;
-            let row_top = row_bottom + 8;
-
-            let block_char = if fill_sub >= row_top {
-                '\u{2588}' // fully filled
-            } else if fill_sub <= row_bottom {
-                ' ' // empty
-            } else {
-                blocks[fill_sub - row_bottom]
-            };
-
-            let fg = if row <= mid {
-                // Above or at midline: white's territory
-                critical_color.unwrap_or(Color::White)
-            } else {
-                critical_color.unwrap_or(Color::Gray)
-            };
-
-            spans.push(Span::styled(
-                block_char.to_string(),
-                Style::default().fg(fg),
-            ));
-        }
-        rows.push(Line::from(spans));
-    }
-
-    rows
-}
-
-fn count_classifications(
-    positions: &[chess_client::PositionReview],
-) -> (
-    std::collections::HashMap<i32, u32>,
-    std::collections::HashMap<i32, u32>,
-) {
-    let mut white = std::collections::HashMap::new();
-    let mut black = std::collections::HashMap::new();
-    for p in positions {
-        let map = if is_white_ply(p.ply) {
-            &mut white
-        } else {
-            &mut black
-        };
-        *map.entry(p.classification).or_insert(0) += 1;
-    }
-    (white, black)
-}
-
-fn classification_marker(classification: &i32) -> Option<(&'static str, Color)> {
-    match MoveClassification::try_from(*classification) {
-        Ok(MoveClassification::ClassificationBrilliant) => Some(("!!", Color::Cyan)),
-        Ok(MoveClassification::ClassificationExcellent) => Some(("!", Color::Cyan)),
-        Ok(MoveClassification::ClassificationInaccuracy) => Some(("?!", Color::Yellow)),
-        Ok(MoveClassification::ClassificationMistake) => Some(("?", Color::Magenta)),
-        Ok(MoveClassification::ClassificationBlunder) => Some(("??", Color::Red)),
-        Ok(MoveClassification::ClassificationForced) => Some(("[]", Color::DarkGray)),
-        _ => None,
-    }
-}
-
-fn cp_loss_color(cp_loss: i32) -> Color {
-    if cp_loss < 10 {
-        Color::Green
-    } else if cp_loss < 30 {
-        Color::Yellow
-    } else if cp_loss < 60 {
-        Color::Magenta
-    } else {
-        Color::Red
     }
 }

@@ -391,9 +391,22 @@ fn main() -> Result<(), CliError> {
             tracing::debug!("Socket: {:?}", socket_path);
             tracing::debug!("PID file: {:?}", pid_path);
 
-            // Check if server is already running
+            // Check if server is already running AND its socket is present.
+            // A live PID without a socket means the server is stale (e.g. socket
+            // was cleaned up from /tmp, or the server failed to bind). In that
+            // case we kill the old process and start a fresh one.
             let server_running = match process::is_server_running(&pid_path) {
-                Ok(true) => true,
+                Ok(true) => {
+                    if socket_path.exists() {
+                        true
+                    } else {
+                        tracing::warn!(
+                            "Server PID alive but socket missing — killing stale server"
+                        );
+                        let _ = handle_engine_stop(false);
+                        false
+                    }
+                }
                 Ok(false) => false, // shouldn't happen with new API but handle it
                 Err(process::ProcessError::ProcessNotFound(_)) => {
                     // Stale PID file — clean up

@@ -1,17 +1,18 @@
+use crate::ui::theme::Theme;
 use chess_client::EngineInfo;
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph, Widget},
+    widgets::{Paragraph, Widget},
 };
 
 pub struct EngineAnalysisPanel<'a> {
     pub engine_info: Option<&'a EngineInfo>,
     pub is_thinking: bool,
     pub scroll: u16,
-    pub is_selected: bool,
+    pub theme: &'a Theme,
 }
 
 impl<'a> EngineAnalysisPanel<'a> {
@@ -19,48 +20,19 @@ impl<'a> EngineAnalysisPanel<'a> {
         engine_info: Option<&'a EngineInfo>,
         is_thinking: bool,
         scroll: u16,
-        is_selected: bool,
+        theme: &'a Theme,
     ) -> Self {
         Self {
             engine_info,
             is_thinking,
             scroll,
-            is_selected,
+            theme,
         }
     }
 }
 
 impl Widget for EngineAnalysisPanel<'_> {
     fn render(self, area: Rect, buf: &mut Buffer) {
-        let title = if self.is_selected {
-            if self.is_thinking {
-                "Engine Analysis (Thinking...) [SELECTED]"
-            } else {
-                "Engine Analysis [SELECTED]"
-            }
-        } else if self.is_thinking {
-            "[2] Engine Analysis (Thinking...)"
-        } else {
-            "[2] Engine Analysis"
-        };
-
-        let border_style = if self.is_selected {
-            Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(Color::Cyan)
-        };
-
-        let block = Block::default()
-            .title(title)
-            .borders(Borders::ALL)
-            .border_style(border_style)
-            .style(Style::default().bg(Color::Black));
-
-        let inner = block.inner(area);
-        block.render(area, buf);
-
         if let Some(info) = self.engine_info {
             let mut lines = Vec::new();
 
@@ -71,11 +43,11 @@ impl Widget for EngineAnalysisPanel<'_> {
                     .map(|sd| format!("/{}", sd))
                     .unwrap_or_default();
                 lines.push(Line::from(vec![
-                    Span::styled("Depth: ", Style::default().fg(Color::DarkGray)),
+                    Span::styled("Depth: ", Style::default().fg(self.theme.muted)),
                     Span::styled(
                         format!("{}{}", depth, seldepth_str),
                         Style::default()
-                            .fg(Color::White)
+                            .fg(self.theme.text_primary)
                             .add_modifier(Modifier::BOLD),
                     ),
                 ]));
@@ -83,9 +55,9 @@ impl Widget for EngineAnalysisPanel<'_> {
 
             // Score/Evaluation
             if let Some(ref score) = info.score {
-                let (score_text, score_color) = parse_score(score);
+                let (score_text, score_color) = parse_score(score, self.theme);
                 lines.push(Line::from(vec![
-                    Span::styled("Score: ", Style::default().fg(Color::DarkGray)),
+                    Span::styled("Score: ", Style::default().fg(self.theme.muted)),
                     Span::styled(
                         score_text,
                         Style::default()
@@ -102,10 +74,10 @@ impl Widget for EngineAnalysisPanel<'_> {
                     .map(|n| format!(" ({}/s)", format_number(n)))
                     .unwrap_or_default();
                 lines.push(Line::from(vec![
-                    Span::styled("Nodes: ", Style::default().fg(Color::DarkGray)),
+                    Span::styled("Nodes: ", Style::default().fg(self.theme.muted)),
                     Span::styled(
                         format!("{}{}", format_number(nodes), nps_str),
-                        Style::default().fg(Color::White),
+                        Style::default().fg(self.theme.text_primary),
                     ),
                 ]));
             }
@@ -113,8 +85,11 @@ impl Widget for EngineAnalysisPanel<'_> {
             // Time
             if let Some(time_ms) = info.time_ms {
                 lines.push(Line::from(vec![
-                    Span::styled("Time: ", Style::default().fg(Color::DarkGray)),
-                    Span::styled(format_time(time_ms), Style::default().fg(Color::White)),
+                    Span::styled("Time: ", Style::default().fg(self.theme.muted)),
+                    Span::styled(
+                        format_time(time_ms),
+                        Style::default().fg(self.theme.text_primary),
+                    ),
                 ]));
             }
 
@@ -124,24 +99,24 @@ impl Widget for EngineAnalysisPanel<'_> {
                 lines.push(Line::from(Span::styled(
                     "Principal Variation:",
                     Style::default()
-                        .fg(Color::Yellow)
+                        .fg(self.theme.warning)
                         .add_modifier(Modifier::BOLD),
                 )));
 
                 // Display PV moves (wrap if too long)
                 let pv_text = info.pv.join(" ");
-                let max_width = (inner.width as usize).saturating_sub(2);
+                let max_width = (area.width as usize).saturating_sub(2);
 
                 for chunk in wrap_text(&pv_text, max_width) {
                     lines.push(Line::from(Span::styled(
                         chunk,
-                        Style::default().fg(Color::Cyan),
+                        Style::default().fg(self.theme.info),
                     )));
                 }
             }
 
             let paragraph = Paragraph::new(lines).scroll((self.scroll, 0));
-            paragraph.render(inner, buf);
+            paragraph.render(area, buf);
         } else {
             // No engine info available
             let text = if self.is_thinking {
@@ -153,21 +128,21 @@ impl Widget for EngineAnalysisPanel<'_> {
             let paragraph = Paragraph::new(Line::from(Span::styled(
                 text,
                 Style::default()
-                    .fg(Color::DarkGray)
+                    .fg(self.theme.muted)
                     .add_modifier(Modifier::ITALIC),
             )));
-            paragraph.render(inner, buf);
+            paragraph.render(area, buf);
         }
     }
 }
 
 // Helper functions
 
-fn parse_score(score: &str) -> (String, Color) {
+fn parse_score(score: &str, theme: &Theme) -> (String, Color) {
     // Score format: "cp 25" (centipawns) or "mate 5" (mate in 5)
     let parts: Vec<&str> = score.split_whitespace().collect();
     if parts.len() < 2 {
-        return (score.to_string(), Color::White);
+        return (score.to_string(), theme.text_primary);
     }
 
     match parts[0] {
@@ -176,32 +151,32 @@ fn parse_score(score: &str) -> (String, Color) {
             if let Ok(cp) = parts[1].parse::<i32>() {
                 let pawns = cp as f32 / 100.0;
                 let color = if pawns > 0.0 {
-                    Color::Green
+                    theme.eval_positive
                 } else if pawns < 0.0 {
-                    Color::Red
+                    theme.eval_negative
                 } else {
-                    Color::White
+                    theme.eval_equal
                 };
                 (format!("{:+.2}", pawns), color)
             } else {
-                (score.to_string(), Color::White)
+                (score.to_string(), theme.text_primary)
             }
         }
         "mate" => {
             // Mate in X moves
             if let Ok(moves) = parts[1].parse::<i32>() {
                 let color = if moves > 0 {
-                    Color::LightGreen
+                    theme.eval_mate_positive
                 } else {
-                    Color::LightRed
+                    theme.eval_mate_negative
                 };
                 let sign = if moves > 0 { "+" } else { "" };
                 (format!("{}M{}", sign, moves.abs()), color)
             } else {
-                (score.to_string(), Color::White)
+                (score.to_string(), theme.text_primary)
             }
         }
-        _ => (score.to_string(), Color::White),
+        _ => (score.to_string(), theme.text_primary),
     }
 }
 

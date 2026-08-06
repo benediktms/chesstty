@@ -4,7 +4,9 @@ pub use states::*;
 
 pub mod component;
 pub use component::Component;
-pub mod hooks;
+#[allow(unused_imports)]
+// re-export for external consumers; internal use is via method return type
+pub use component::PanelState;
 pub mod render_spec;
 pub mod renderer;
 
@@ -12,8 +14,19 @@ use std::collections::HashMap;
 
 use render_spec::{Control, InputPhase, Layout, Section, SectionContent, TabInputState};
 
-#[derive(Default)]
-pub struct AppContext {}
+use crate::ui::theme::Theme;
+
+pub struct AppContext {
+    pub theme: Theme,
+}
+
+impl Default for AppContext {
+    fn default() -> Self {
+        Self {
+            theme: Theme::default(),
+        }
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Default)]
 pub enum UiMode {
@@ -33,7 +46,6 @@ pub struct UiStateMachine {
     pub input_phase: InputPhase,
     pub popup_menu: Option<crate::ui::widgets::popup_menu::PopupMenuState>,
     pub snapshot_dialog: Option<crate::ui::widgets::snapshot_dialog::SnapshotDialogState>,
-    pub review_tab: u8,
     #[allow(dead_code)] // used once review board navigation is complete
     pub review_moves_selection: Option<u32>,
     pub selected_promotion_piece: cozy_chess::Piece,
@@ -69,7 +81,6 @@ impl Default for UiStateMachine {
             input_phase: InputPhase::default(),
             popup_menu: None,
             snapshot_dialog: None,
-            review_tab: 0,
             review_moves_selection: None,
             selected_promotion_piece: cozy_chess::Piece::Queen,
             focused_component: None,
@@ -243,9 +254,9 @@ impl UiStateMachine {
             overlay.outline(to, OverlayColor::BestMove);
         }
 
-        // Layer 3: Legal move destinations (highlighted squares)
+        // Layer 3: Legal move destinations (outlined squares)
         for &sq in &game_session.highlighted_squares {
-            overlay.tint(sq, OverlayColor::LegalMove);
+            overlay.outline(sq, OverlayColor::LegalMove);
         }
 
         // Layer 4: Selected piece (highest priority)
@@ -262,12 +273,8 @@ impl UiStateMachine {
     }
 }
 
-#[allow(dead_code)] // FSM navigation methods, wired up as states are implemented
+#[allow(dead_code)] // FSM navigation methods used in tests (fsm_tests, panel_selection_integration_tests)
 impl UiStateMachine {
-    pub fn is_board_focused(&self) -> bool {
-        self.focused_component.is_none()
-    }
-
     pub fn selected_component(&self) -> Option<Component> {
         if !self.expanded {
             self.focused_component
@@ -308,10 +315,6 @@ impl UiStateMachine {
         self.visibility.get(component).copied().unwrap_or(false)
     }
 
-    pub fn set_component_visible(&mut self, component: Component, visible: bool) {
-        self.visibility.insert(component, visible);
-    }
-
     pub fn toggle_component_visibility(&mut self, component: Component) {
         let current = self.visibility.get(&component).copied().unwrap_or(false);
         self.visibility.insert(component, !current);
@@ -342,42 +345,6 @@ impl UiStateMachine {
             }
         }
         result
-    }
-
-    pub fn tab_order(&self, layout: &Layout) -> Vec<Component> {
-        let mut result = Vec::new();
-        for row in &layout.rows {
-            result.extend(self.flatten_sections(&row.sections));
-        }
-        result
-    }
-
-    fn visible_selectable_components(&self, layout: &Layout) -> Vec<Component> {
-        self.tab_order(layout)
-    }
-
-    pub fn next_component(&self, current: Component, layout: &Layout) -> Option<Component> {
-        let selectable = self.visible_selectable_components(layout);
-        if selectable.is_empty() {
-            return None;
-        }
-        let current_idx = selectable.iter().position(|c| *c == current);
-        match current_idx {
-            Some(idx) => Some(selectable[(idx + 1) % selectable.len()]),
-            None => selectable.first().copied(),
-        }
-    }
-
-    pub fn prev_component(&self, current: Component, layout: &Layout) -> Option<Component> {
-        let selectable = self.visible_selectable_components(layout);
-        if selectable.is_empty() {
-            return None;
-        }
-        let current_idx = selectable.iter().position(|c| *c == current);
-        match current_idx {
-            Some(idx) => Some(selectable[(idx + selectable.len() - 1) % selectable.len()]),
-            None => selectable.last().copied(),
-        }
     }
 
     pub fn section_index(&self, component: Component, layout: &Layout) -> Option<usize> {
@@ -452,12 +419,6 @@ impl UiStateMachine {
             section_idx - 1
         };
         self.components_in_section(prev_section_idx, layout)
-            .into_iter()
-            .next()
-    }
-
-    pub fn first_component(&self, layout: &Layout) -> Option<Component> {
-        self.visible_selectable_components(layout)
             .into_iter()
             .next()
     }

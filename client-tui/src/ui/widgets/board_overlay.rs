@@ -1,4 +1,5 @@
 use crate::review_state::ReviewState;
+use chess::converters::parse_square;
 use chess_client;
 use cozy_chess::Square;
 use ratatui::style::Color;
@@ -42,17 +43,17 @@ pub enum OverlayColor {
 
 impl OverlayColor {
     /// Resolve to a terminal color based on whether the square is light or dark.
-    pub fn resolve(self, is_light_square: bool) -> Color {
+    pub fn resolve(self, is_light_square: bool, theme: &crate::ui::theme::Theme) -> Color {
         let (light, dark) = match self {
-            Self::Selected => (Color::LightYellow, Color::Yellow),
-            Self::LegalMove => (Color::LightBlue, Color::Blue),
-            Self::LastMove => (Color::LightYellow, Color::Yellow),
-            Self::BestMove => (Color::LightGreen, Color::Green),
-            Self::Typeahead => (Color::LightCyan, Color::Cyan),
-            Self::Blunder => (Color::LightRed, Color::Red),
-            Self::Brilliant => (Color::LightMagenta, Color::Magenta),
-            Self::Danger => (Color::LightRed, Color::Red),
-            Self::Tactical => (Color::Rgb(255, 200, 100), Color::Rgb(200, 150, 50)),
+            Self::Selected => theme.overlay_selected,
+            Self::LegalMove => theme.overlay_legal_move,
+            Self::LastMove => theme.overlay_last_move,
+            Self::BestMove => theme.overlay_best_move,
+            Self::Typeahead => theme.overlay_typeahead,
+            Self::Blunder => theme.overlay_blunder,
+            Self::Brilliant => theme.overlay_brilliant,
+            Self::Danger => theme.overlay_danger,
+            Self::Tactical => theme.overlay_tactical,
             Self::Custom(l, d) => (l, d),
         };
         if is_light_square {
@@ -277,23 +278,6 @@ pub fn build_review_overlay(review: &ReviewState) -> BoardOverlay {
     overlay
 }
 
-/// Parse a square string like "e4" into a cozy_chess Square.
-fn parse_square_str(sq_str: &str) -> Option<Square> {
-    if sq_str.len() < 2 {
-        return None;
-    }
-    let bytes = sq_str.as_bytes();
-    let file = match bytes[0] {
-        b'a'..=b'h' => cozy_chess::File::index((bytes[0] - b'a') as usize),
-        _ => return None,
-    };
-    let rank = match bytes[1] {
-        b'1'..=b'8' => cozy_chess::Rank::index((bytes[1] - b'1') as usize),
-        _ => return None,
-    };
-    Some(Square::new(file, rank))
-}
-
 /// Add tactical tag overlays to the board using the new TacticalTagProto model.
 fn add_tactical_tag_overlays(overlay: &mut BoardOverlay, tags: &[chess_client::TacticalTagProto]) {
     use chess_client::TacticalTagKindProto;
@@ -313,16 +297,16 @@ fn add_tactical_tag_overlays(overlay: &mut BoardOverlay, tags: &[chess_client::T
 
         // Draw arrows from attacker to each victim
         if let Some(ref attacker_str) = tag.attacker {
-            if let Some(from) = parse_square_str(attacker_str) {
+            if let Some(from) = parse_square(attacker_str) {
                 for victim_str in &tag.victims {
-                    if let Some(to) = parse_square_str(victim_str) {
+                    if let Some(to) = parse_square(victim_str) {
                         overlay.arrow(from, to, color);
                     }
                 }
                 // If no victims but has target_square, draw arrow to target
                 if tag.victims.is_empty() {
                     if let Some(ref target_str) = tag.target_square {
-                        if let Some(to) = parse_square_str(target_str) {
+                        if let Some(to) = parse_square(target_str) {
                             overlay.arrow(from, to, color);
                         }
                     }
@@ -334,20 +318,20 @@ fn add_tactical_tag_overlays(overlay: &mut BoardOverlay, tags: &[chess_client::T
         match kind {
             Some(TacticalTagKindProto::TacticalTagKindHangingPiece) => {
                 if let Some(ref target_str) = tag.target_square {
-                    if let Some(sq) = parse_square_str(target_str) {
+                    if let Some(sq) = parse_square(target_str) {
                         overlay.tint(sq, OverlayColor::Blunder);
                     }
                 }
                 // Also tint victims as hanging squares
                 for victim_str in &tag.victims {
-                    if let Some(sq) = parse_square_str(victim_str) {
+                    if let Some(sq) = parse_square(victim_str) {
                         overlay.tint(sq, OverlayColor::Blunder);
                     }
                 }
             }
             Some(TacticalTagKindProto::TacticalTagKindBackRankWeakness) => {
                 if let Some(ref target_str) = tag.target_square {
-                    if let Some(sq) = parse_square_str(target_str) {
+                    if let Some(sq) = parse_square(target_str) {
                         overlay.tint(sq, OverlayColor::Danger);
                     }
                 }
@@ -396,10 +380,17 @@ mod tests {
 
     #[test]
     fn test_overlay_color_resolve() {
-        assert_eq!(OverlayColor::Selected.resolve(true), Color::LightYellow);
-        assert_eq!(OverlayColor::Selected.resolve(false), Color::Yellow);
-        assert_eq!(OverlayColor::BestMove.resolve(true), Color::LightGreen);
-        assert_eq!(OverlayColor::BestMove.resolve(false), Color::Green);
+        let theme = crate::ui::theme::Theme::dark();
+        assert_eq!(
+            OverlayColor::Selected.resolve(true, &theme),
+            Color::LightYellow
+        );
+        assert_eq!(OverlayColor::Selected.resolve(false, &theme), Color::Yellow);
+        assert_eq!(
+            OverlayColor::BestMove.resolve(true, &theme),
+            Color::LightGreen
+        );
+        assert_eq!(OverlayColor::BestMove.resolve(false, &theme), Color::Green);
     }
 
     #[test]

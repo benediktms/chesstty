@@ -1,7 +1,10 @@
-export CHESSTTY_DATA_DIR := "data"
-export CHESSTTY_DB_PATH := "data/chesstty.db"
-export CHESSTTY_SOCKET_PATH := "data/chesstty.sock"
-export CHESSTTY_PID_PATH := "data/chesstty.pid"
+# Absolute paths so server (daemon cwd /tmp) and shim/client see the same paths
+_project_root := justfile_directory()
+export CHESSTTY_DATA_DIR := _project_root + "/data"
+export CHESSTTY_DB_PATH := _project_root + "/data/chesstty.db"
+export CHESSTTY_SOCKET_PATH := _project_root + "/data/chesstty.sock"
+export CHESSTTY_PID_PATH := _project_root + "/data/chesstty.pid"
+export CHESSTTY_THEME := "dark"
 
 # Default recipe - show all available commands
 default:
@@ -19,7 +22,7 @@ tui:
 
 # Run the shim CLI (starts server as daemon)
 [group('app')]
-start:
+start: build
     cargo run -p chesstty
 
 # Run all tests
@@ -31,16 +34,6 @@ test scope="--workspace" *opt:
 [group('build')]
 build:
     cargo build --workspace
-
-# Build release
-[group('build')]
-release:
-    cargo build --workspace --release
-
-# Clean build artifacts
-[group('build')]
-clean:
-    cargo clean
 
 # Install stockfish (if not already installed)
 [group('checks')]
@@ -89,5 +82,5 @@ changelog-update:
 
 # Bump version, update changelog, commit and tag (just tag patch/minor/major)
 [group('release')]
-tag level: changelog
+tag level:
     ./scripts/tag-release.sh {{level}}

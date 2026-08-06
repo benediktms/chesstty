@@ -1,8 +1,9 @@
+use crate::ui::theme::Theme;
 use crate::ui::widgets::selectable_table::SelectableTableState;
 use ratatui::{
     buffer::Buffer,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span, Text},
     widgets::{Block, Borders, Cell, Clear, Paragraph, Row, StatefulWidget, Table, Widget},
 };
@@ -34,16 +35,19 @@ impl FenDialogState {
 pub struct FenDialogWidget<'a> {
     pub dialog_state: &'a mut FenDialogState,
     pub positions: &'a [chess_client::SavedPosition],
+    pub theme: &'a Theme,
 }
 
 impl<'a> FenDialogWidget<'a> {
     pub fn new(
         dialog_state: &'a mut FenDialogState,
         positions: &'a [chess_client::SavedPosition],
+        theme: &'a Theme,
     ) -> Self {
         Self {
             dialog_state,
             positions,
+            theme,
         }
     }
 }
@@ -67,8 +71,8 @@ impl Widget for FenDialogWidget<'_> {
         let block = Block::default()
             .title(" \u{265f} Select or Enter Position \u{265f} ")
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Yellow))
-            .style(Style::default().bg(Color::Black));
+            .border_style(Style::default().fg(self.theme.dialog_border))
+            .style(Style::default().bg(self.theme.dialog_bg));
 
         let inner = block.inner(dialog_area);
         block.render(dialog_area, buf);
@@ -85,20 +89,20 @@ impl Widget for FenDialogWidget<'_> {
         // === Input Section ===
         let input_focused = self.dialog_state.focus == FenDialogFocus::Input;
         let input_border_style = if input_focused {
-            Style::default().fg(Color::Green)
+            Style::default().fg(self.theme.positive)
         } else {
-            Style::default().fg(Color::DarkGray)
+            Style::default().fg(self.theme.muted)
         };
 
         let input_text = if self.dialog_state.input_buffer.is_empty() {
             Span::styled(
                 "Type FEN string, then Enter to save & use...",
-                Style::default().fg(Color::DarkGray),
+                Style::default().fg(self.theme.muted),
             )
         } else {
             Span::styled(
                 self.dialog_state.input_buffer.clone(),
-                Style::default().fg(Color::White),
+                Style::default().fg(self.theme.text_primary),
             )
         };
 
@@ -115,20 +119,20 @@ impl Widget for FenDialogWidget<'_> {
         // === Positions Table ===
         let list_focused = self.dialog_state.focus == FenDialogFocus::PositionList;
         let list_border_style = if list_focused {
-            Style::default().fg(Color::Green)
+            Style::default().fg(self.theme.positive)
         } else {
-            Style::default().fg(Color::DarkGray)
+            Style::default().fg(self.theme.muted)
         };
 
         let header = Row::new(vec![
             Cell::from(Text::from("Name")).style(
                 Style::default()
-                    .fg(Color::Yellow)
+                    .fg(self.theme.dialog_highlight)
                     .add_modifier(Modifier::BOLD),
             ),
             Cell::from(Text::from("FEN")).style(
                 Style::default()
-                    .fg(Color::Yellow)
+                    .fg(self.theme.dialog_highlight)
                     .add_modifier(Modifier::BOLD),
             ),
         ])
@@ -157,9 +161,9 @@ impl Widget for FenDialogWidget<'_> {
 
         let highlight_style = if list_focused {
             Style::default()
-                .fg(Color::Yellow)
+                .fg(self.theme.dialog_highlight)
                 .add_modifier(Modifier::BOLD)
-                .bg(Color::DarkGray)
+                .bg(self.theme.dialog_highlight_bg)
         } else {
             Style::default()
         };
@@ -185,13 +189,15 @@ impl Widget for FenDialogWidget<'_> {
         // === Help Text ===
         let mut help_lines = vec![Line::from(vec![Span::styled(
             "Tab: Switch Focus  \u{2191}/\u{2193}/j/k: Navigate  Enter: Select/Save  d: Delete  Esc: Cancel",
-            Style::default().fg(Color::DarkGray),
+            Style::default().fg(self.theme.muted),
         )])];
 
         if let Some(error) = &self.dialog_state.validation_error {
             help_lines.push(Line::from(vec![Span::styled(
                 format!("Error: {}", error),
-                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(self.theme.negative)
+                    .add_modifier(Modifier::BOLD),
             )]));
         }
 

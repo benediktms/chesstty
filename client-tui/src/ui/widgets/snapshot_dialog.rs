@@ -1,8 +1,9 @@
+use crate::ui::theme::Theme;
 use chess_client::PositionReview;
 use ratatui::{
     buffer::Buffer,
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph, Widget},
 };
@@ -163,6 +164,7 @@ fn truncate_id(id: &str) -> &str {
 /// Widget for rendering the snapshot dialog as a centered overlay.
 pub struct SnapshotDialogWidget<'a> {
     pub state: &'a SnapshotDialogState,
+    pub theme: &'a Theme,
 }
 
 impl Widget for SnapshotDialogWidget<'_> {
@@ -179,10 +181,10 @@ impl Widget for SnapshotDialogWidget<'_> {
             .borders(Borders::ALL)
             .border_style(
                 Style::default()
-                    .fg(Color::Yellow)
+                    .fg(self.theme.dialog_border)
                     .add_modifier(Modifier::BOLD),
             )
-            .style(Style::default().bg(Color::Black));
+            .style(Style::default().bg(self.theme.dialog_bg));
 
         let inner = block.inner(popup_area);
         block.render(popup_area, buf);
@@ -211,10 +213,10 @@ impl Widget for SnapshotDialogWidget<'_> {
             .split(inner);
 
         let active_style = Style::default()
-            .fg(Color::Yellow)
+            .fg(self.theme.dialog_highlight)
             .add_modifier(Modifier::BOLD);
-        let normal_style = Style::default().fg(Color::White);
-        let dim_style = Style::default().fg(Color::DarkGray);
+        let normal_style = Style::default().fg(self.theme.text_primary);
+        let dim_style = Style::default().fg(self.theme.muted);
 
         // Moves back
         let mb_style = if self.state.focus == SnapshotDialogFocus::MovesBack {
@@ -237,7 +239,7 @@ impl Widget for SnapshotDialogWidget<'_> {
             Span::styled(
                 format!("Move {}, {} to move", move_num, side),
                 Style::default()
-                    .fg(Color::Cyan)
+                    .fg(self.theme.info)
                     .add_modifier(Modifier::BOLD),
             ),
             Span::styled(format!(" (ply {})", target_ply), dim_style),
@@ -255,7 +257,9 @@ impl Widget for SnapshotDialogWidget<'_> {
 
         // Warning + offset for remaining elements
         let offset = if has_warning {
-            let warning_style = Style::default().fg(Color::Red).add_modifier(Modifier::BOLD);
+            let warning_style = Style::default()
+                .fg(self.theme.negative)
+                .add_modifier(Modifier::BOLD);
             let warning_line = Line::from(Span::styled(
                 "  \u{26a0} Terminal position \u{2014} cannot start here",
                 warning_style,
@@ -313,14 +317,16 @@ impl Widget for SnapshotDialogWidget<'_> {
         let (yes_style, no_style) = if self.state.play_immediately {
             (
                 Style::default()
-                    .fg(Color::Green)
+                    .fg(self.theme.positive)
                     .add_modifier(Modifier::BOLD),
                 dim_style,
             )
         } else {
             (
                 dim_style,
-                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(self.theme.negative)
+                    .add_modifier(Modifier::BOLD),
             )
         };
         let play_line = Line::from(vec![
