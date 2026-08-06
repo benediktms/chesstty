@@ -275,10 +275,6 @@ impl UiStateMachine {
 
 #[allow(dead_code)] // FSM navigation methods used in tests (fsm_tests, panel_selection_integration_tests)
 impl UiStateMachine {
-    pub fn is_board_focused(&self) -> bool {
-        self.focused_component.is_none()
-    }
-
     pub fn selected_component(&self) -> Option<Component> {
         if !self.expanded {
             self.focused_component
@@ -319,10 +315,6 @@ impl UiStateMachine {
         self.visibility.get(component).copied().unwrap_or(false)
     }
 
-    pub fn set_component_visible(&mut self, component: Component, visible: bool) {
-        self.visibility.insert(component, visible);
-    }
-
     pub fn toggle_component_visibility(&mut self, component: Component) {
         let current = self.visibility.get(&component).copied().unwrap_or(false);
         self.visibility.insert(component, !current);
@@ -353,42 +345,6 @@ impl UiStateMachine {
             }
         }
         result
-    }
-
-    pub fn tab_order(&self, layout: &Layout) -> Vec<Component> {
-        let mut result = Vec::new();
-        for row in &layout.rows {
-            result.extend(self.flatten_sections(&row.sections));
-        }
-        result
-    }
-
-    fn visible_selectable_components(&self, layout: &Layout) -> Vec<Component> {
-        self.tab_order(layout)
-    }
-
-    pub fn next_component(&self, current: Component, layout: &Layout) -> Option<Component> {
-        let selectable = self.visible_selectable_components(layout);
-        if selectable.is_empty() {
-            return None;
-        }
-        let current_idx = selectable.iter().position(|c| *c == current);
-        match current_idx {
-            Some(idx) => Some(selectable[(idx + 1) % selectable.len()]),
-            None => selectable.first().copied(),
-        }
-    }
-
-    pub fn prev_component(&self, current: Component, layout: &Layout) -> Option<Component> {
-        let selectable = self.visible_selectable_components(layout);
-        if selectable.is_empty() {
-            return None;
-        }
-        let current_idx = selectable.iter().position(|c| *c == current);
-        match current_idx {
-            Some(idx) => Some(selectable[(idx + selectable.len() - 1) % selectable.len()]),
-            None => selectable.last().copied(),
-        }
     }
 
     pub fn section_index(&self, component: Component, layout: &Layout) -> Option<usize> {
@@ -463,12 +419,6 @@ impl UiStateMachine {
             section_idx - 1
         };
         self.components_in_section(prev_section_idx, layout)
-            .into_iter()
-            .next()
-    }
-
-    pub fn first_component(&self, layout: &Layout) -> Option<Component> {
-        self.visible_selectable_components(layout)
             .into_iter()
             .next()
     }

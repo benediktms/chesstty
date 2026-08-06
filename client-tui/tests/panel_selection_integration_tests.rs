@@ -21,7 +21,7 @@ fn create_review_board_fsm() -> UiStateMachine {
 #[test]
 fn initial_state_is_board_focused() {
     let fsm = create_game_board_fsm();
-    assert!(fsm.is_board_focused());
+    assert!(fsm.focused_component.is_none());
     assert_eq!(fsm.selected_component(), None);
 }
 
@@ -31,76 +31,8 @@ fn selecting_component_changes_focus() {
 
     fsm.select_component(Component::InfoPanel);
 
-    assert!(!fsm.is_board_focused());
+    assert!(fsm.focused_component.is_some());
     assert_eq!(fsm.selected_component(), Some(Component::InfoPanel));
-}
-
-#[test]
-fn selection_persists_after_multiple_selections() {
-    let mut fsm = create_game_board_fsm();
-    let layout = GameBoardState.layout(&fsm);
-
-    fsm.select_component(Component::InfoPanel);
-    assert_eq!(fsm.selected_component(), Some(Component::InfoPanel));
-
-    let next = fsm.next_component(Component::InfoPanel, &layout);
-    assert_eq!(next, Some(Component::EnginePanel));
-    fsm.select_component(next.unwrap());
-    assert_eq!(fsm.selected_component(), Some(Component::EnginePanel));
-
-    let next = fsm.next_component(Component::EnginePanel, &layout);
-    assert_eq!(next, Some(Component::HistoryPanel));
-    fsm.select_component(next.unwrap());
-    assert_eq!(fsm.selected_component(), Some(Component::HistoryPanel));
-
-    assert_eq!(fsm.focused_component, Some(Component::HistoryPanel));
-    assert!(!fsm.expanded);
-    assert!(!fsm.expanded);
-}
-
-#[test]
-fn tab_navigation_works_correctly() {
-    let mut fsm = create_game_board_fsm();
-    let layout = GameBoardState.layout(&fsm);
-
-    // Initial state: nothing selected
-    assert_eq!(fsm.selected_component(), None);
-
-    // First Tab: select first component
-    let first = fsm.first_component(&layout);
-    assert_eq!(first, Some(Component::InfoPanel));
-    fsm.select_component(first.unwrap());
-    assert_eq!(fsm.selected_component(), Some(Component::InfoPanel));
-
-    // Second Tab: navigate to next
-    let next = fsm.next_component(Component::InfoPanel, &layout);
-    assert_eq!(next, Some(Component::EnginePanel));
-    fsm.select_component(next.unwrap());
-    assert_eq!(
-        fsm.selected_component(),
-        Some(Component::EnginePanel),
-        "Should navigate to EnginePanel"
-    );
-}
-
-#[test]
-fn full_tab_workflow() {
-    let mut fsm = create_game_board_fsm();
-    let layout = GameBoardState.layout(&fsm);
-
-    // Initial state
-    assert_eq!(fsm.selected_component(), None);
-    assert!(fsm.is_board_focused());
-
-    // First Tab press
-    let first = fsm.first_component(&layout).unwrap();
-    fsm.select_component(first);
-    assert_eq!(fsm.selected_component(), Some(Component::InfoPanel));
-
-    // Navigate to next
-    let next = fsm.next_component(Component::InfoPanel, &layout).unwrap();
-    fsm.select_component(next);
-    assert_eq!(fsm.selected_component(), Some(Component::EnginePanel));
 }
 
 #[test]
@@ -108,10 +40,10 @@ fn focus_can_be_cleared() {
     let mut fsm = create_game_board_fsm();
 
     fsm.select_component(Component::InfoPanel);
-    assert!(!fsm.is_board_focused());
+    assert!(fsm.focused_component.is_some());
 
     fsm.clear_focus();
-    assert!(fsm.is_board_focused());
+    assert!(fsm.focused_component.is_none());
     assert_eq!(fsm.selected_component(), None);
 }
 
@@ -151,7 +83,7 @@ fn selection_persists_through_transitions() {
 #[test]
 fn number_key_1_selects_info_panel_in_game_mode() {
     let mut fsm = create_game_board_fsm();
-    assert!(fsm.is_board_focused());
+    assert!(fsm.focused_component.is_none());
 
     let target = Component::from_number_key('1', &fsm.mode).unwrap();
     assert_eq!(target, Component::InfoPanel);
@@ -193,7 +125,7 @@ fn number_key_for_hidden_panel_does_nothing() {
         fsm.select_component(target);
     }
     // Should still be board-focused
-    assert!(fsm.is_board_focused());
+    assert!(fsm.focused_component.is_none());
     assert_eq!(fsm.selected_component(), None);
 }
 
@@ -205,7 +137,7 @@ fn esc_from_selected_panel_returns_to_board() {
     assert_eq!(fsm.selected_component(), Some(Component::EnginePanel));
 
     fsm.clear_focus();
-    assert!(fsm.is_board_focused());
+    assert!(fsm.focused_component.is_none());
     assert_eq!(fsm.selected_component(), None);
 }
 
@@ -262,7 +194,7 @@ fn debug_panel_selectable_when_visible() {
     let mut fsm = create_game_board_fsm();
 
     // Make DebugPanel visible
-    fsm.set_component_visible(Component::DebugPanel, true);
+    fsm.toggle_component_visibility(Component::DebugPanel);
     assert!(fsm.is_component_visible(&Component::DebugPanel));
 
     let target = Component::from_number_key('4', &fsm.mode).unwrap();
@@ -373,7 +305,7 @@ fn expanded_layout_dims_sidebar_instance_in_review_mode() {
 fn non_sidebar_expanded_component_has_no_dimmed_sections() {
     let mut fsm = create_game_board_fsm();
     // DebugPanel is expandable but not in the sidebar layout
-    fsm.set_component_visible(Component::DebugPanel, true);
+    fsm.toggle_component_visibility(Component::DebugPanel);
     fsm.expand_component(Component::DebugPanel);
 
     let layout = GameBoardState.layout(&fsm);
