@@ -17,7 +17,7 @@ impl GameBoardState {
         // Only include TabInput if active (from shared state)
         if shared.tab_input.active {
             center_columns.push(Section::component(
-                Constraint::Length(3),
+                Constraint::Length(4),
                 Component::TabInput,
             ));
         }
@@ -80,7 +80,7 @@ impl GameBoardState {
         // Only include TabInput if active (from shared state)
         if shared.tab_input.active {
             center_columns.push(Section::component(
-                Constraint::Length(3),
+                Constraint::Length(4),
                 Component::TabInput,
             ));
         }

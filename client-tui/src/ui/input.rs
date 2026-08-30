@@ -717,6 +717,8 @@ async fn handle_tab_input(
                                             Some("Select promotion piece".to_string());
                                     } else if let Err(e) = state.try_move_to(to_square).await {
                                         state.status_message = Some(format!("Move failed: {}", e));
+                                    } else {
+                                        fsm.tab_input.activate();
                                     }
                                     return AppAction::Continue;
                                 }
