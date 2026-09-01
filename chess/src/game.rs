@@ -312,6 +312,9 @@ fn generate_san(board: &Board, mv: Move, piece: Piece) -> String {
 }
 
 fn captured_piece_on(board: &Board, mv: Move, piece: Piece) -> Option<Piece> {
+    if piece == Piece::King && board.color_on(mv.from) == board.color_on(mv.to) {
+        return None;
+    }
     board
         .piece_on(mv.to)
         .or_else(|| (piece == Piece::Pawn && mv.from.file() != mv.to.file()).then_some(Piece::Pawn))
@@ -395,6 +398,15 @@ mod tests {
         // cozy-chess represents castling as king to rook square (e1h1)
         let san = format_move_as_san(&board, mv(File::E, Rank::First, File::H, Rank::First));
         assert_eq!(san, "O-O");
+    }
+
+    #[test]
+    fn castling_does_not_capture_the_rook() {
+        let game = Game::from_fen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQK2R w KQkq - 0 1")
+            .expect("valid position");
+        let castle = mv(File::E, Rank::First, File::H, Rank::First);
+
+        assert_eq!(game.captured_piece(castle), None);
     }
 
     #[test]
