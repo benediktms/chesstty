@@ -1,5 +1,7 @@
 //! Endpoint handlers organized by domain
 
+#![allow(clippy::result_large_err)]
+
 pub mod engine;
 pub mod events;
 pub mod game;
