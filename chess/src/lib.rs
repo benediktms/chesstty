@@ -13,4 +13,4 @@ pub use game::{
     format_move_as_san, Game, GameError, GameMode, GamePhase, GameResult, HistoryEntry, PlayerSide,
 };
 pub use types::{PieceColor, PieceKind};
-pub use uci::{convert_uci_castling_to_cozy, format_uci_move};
+pub use uci::{convert_cozy_castling_to_uci, convert_uci_castling_to_cozy, format_uci_move};

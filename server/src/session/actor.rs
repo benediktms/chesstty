@@ -1,5 +1,6 @@
 use chess::{
-    convert_uci_castling_to_cozy, format_uci_move, AnalysisScore, EngineAnalysis, PlayerSide,
+    convert_cozy_castling_to_uci, convert_uci_castling_to_cozy, format_uci_move, AnalysisScore,
+    EngineAnalysis, PlayerSide,
 };
 use engine::{EngineCommand, EngineEvent, StockfishConfig, StockfishEngine};
 use tokio::sync::{broadcast, mpsc};
@@ -202,6 +203,12 @@ fn compute_legal_moves(state: &SessionState, from: Option<cozy_chess::Square>) -
         .into_iter()
         .filter(|mv| from.is_none_or(|sq| mv.from == sq))
         .map(|mv| {
+            let piece = state
+                .game
+                .position()
+                .piece_on(mv.from)
+                .expect("legal move must have a source piece");
+            let uci_move = convert_cozy_castling_to_uci(mv, piece);
             let is_capture = state.game.captured_piece(mv).is_some();
             let mut board_position = state.game.position().clone();
             board_position.play(mv);
@@ -210,7 +217,7 @@ fn compute_legal_moves(state: &SessionState, from: Option<cozy_chess::Square>) -
 
             LegalMove {
                 from: chess::format_square(mv.from),
-                to: chess::format_square(mv.to),
+                to: chess::format_square(uci_move.to),
                 promotion: mv.promotion.map(|p| chess::format_piece(p).to_string()),
                 san: String::new(),
                 is_capture,
@@ -388,6 +395,34 @@ mod tests {
 
         let event = events.recv().await.unwrap();
         assert!(matches!(event, SessionEvent::StateChanged(_)));
+    }
+
+    #[tokio::test]
+    async fn test_castling_uses_standard_uci_squares() {
+        use cozy_chess::{File, Rank};
+
+        let (handle, _) = spawn_test_actor_with(
+            "r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1",
+            GameMode::HumanVsHuman,
+        )
+        .await;
+        let moves = handle
+            .get_legal_moves(Some(cozy_chess::Square::E1))
+            .await
+            .unwrap();
+        let destinations = moves.iter().map(|mv| mv.to.as_str()).collect::<Vec<_>>();
+
+        assert!(destinations.contains(&"g1"));
+        assert!(destinations.contains(&"c1"));
+        assert!(!destinations.contains(&"h1"));
+        assert!(!destinations.contains(&"a1"));
+
+        let snapshot = handle
+            .make_move(mv(File::E, Rank::First, File::G, Rank::First))
+            .await
+            .unwrap();
+        assert_eq!(snapshot.last_move, Some(("e1".into(), "g1".into())));
+        assert_eq!(snapshot.history[0].to, "g1");
     }
 
     #[tokio::test]
