@@ -30,6 +30,7 @@
   let pendingPromotion: { from: string; to: string } | undefined;
   let confirmingForfeit = false;
   let suspendedGames: SuspendedGame[] = [];
+  let firstMover: Side = 'white';
 
   onMount(() => {
     let unlistenState: (() => void) | undefined;
@@ -61,8 +62,9 @@
       !busy &&
       (!isBotGame || snapshot.sideToMove === snapshot.humanSide)
   );
-  $: capturedByWhite = capturedPieces(snapshot?.history ?? [], 'white');
-  $: capturedByBlack = capturedPieces(snapshot?.history ?? [], 'black');
+  $: firstMover = snapshot?.startFen.split(/\s+/)[1] === 'b' ? 'black' : 'white';
+  $: capturedByWhite = capturedPieces(snapshot?.history ?? [], 'white', firstMover);
+  $: capturedByBlack = capturedPieces(snapshot?.history ?? [], 'black', firstMover);
 
   function skillName(level: number): string {
     if (level <= 3) return 'Beginner';
@@ -79,9 +81,9 @@
     }
   }
 
-  function capturedPieces(history: MoveRecord[], mover: Side): string[] {
+  function capturedPieces(history: MoveRecord[], mover: Side, first: Side): string[] {
     return history.flatMap((move, index) => {
-      const moveSide: Side = index % 2 === 0 ? 'white' : 'black';
+      const moveSide: Side = index % 2 === 0 ? first : first === 'white' ? 'black' : 'white';
       if (moveSide !== mover || !move.captured) return [];
       const capturedSide: Side = mover === 'white' ? 'black' : 'white';
       return pieces[move.captured.toLowerCase()]?.[capturedSide] ?? [];
