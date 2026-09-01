@@ -16,10 +16,8 @@
   export let syncToken = 0;
   export let onmove: (from: string, to: string) => void;
 
-  let element: HTMLButtonElement;
+  let element: HTMLDivElement;
   let ground: Api | undefined;
-  let keyboardInput = '';
-  let keyboardMessage = '';
 
   function destinations(): Dests {
     const result: Dests = new Map();
@@ -54,40 +52,6 @@
     };
   }
 
-  function handleKeydown(event: KeyboardEvent) {
-    if (!enabled) return;
-    if (event.key === 'Escape') {
-      keyboardInput = '';
-      keyboardMessage = 'Move entry cleared';
-      return;
-    }
-    if (event.key === 'Backspace') {
-      event.preventDefault();
-      keyboardInput = keyboardInput.slice(0, -1);
-      keyboardMessage = keyboardInput || 'Type a move, for example e2e4';
-      return;
-    }
-
-    const key = event.key.toLowerCase();
-    const expectsFile = keyboardInput.length % 2 === 0;
-    if (!(expectsFile ? /^[a-h]$/ : /^[1-8]$/).test(key)) return;
-    event.preventDefault();
-    keyboardInput += key;
-    keyboardMessage = keyboardInput;
-
-    if (keyboardInput.length === 4) {
-      const from = keyboardInput.slice(0, 2);
-      const to = keyboardInput.slice(2);
-      keyboardInput = '';
-      if (legalMoves.some((move) => move.from === from && move.to === to)) {
-        keyboardMessage = `Playing ${from} to ${to}`;
-        onmove(from, to);
-      } else {
-        keyboardMessage = `${from} to ${to} is not legal`;
-      }
-    }
-  }
-
   onMount(() => {
     ground = Chessground(element, config());
     return () => ground?.destroy();
@@ -107,19 +71,12 @@
 </script>
 
 <div class="board-frame">
-  <button
-    type="button"
+  <div
     bind:this={element}
     class="cg-wrap"
+    role="img"
     aria-label={`Chess board, ${turnColor} to move`}
-    onkeydown={handleKeydown}
-    onfocus={() => (keyboardMessage = 'Type a move, for example e2e4')}
-    onblur={() => {
-      keyboardInput = '';
-      keyboardMessage = '';
-    }}
-  ></button>
-  {#if keyboardMessage}<span class="keyboard-message" aria-live="polite">{keyboardMessage}</span>{/if}
+  ></div>
 </div>
 
 <style>
@@ -144,19 +101,4 @@
     background: transparent;
   }
 
-  .keyboard-message {
-    position: absolute;
-    z-index: 12;
-    top: 12px;
-    left: 50%;
-    padding: 7px 11px;
-    border: 1px solid rgb(255 255 255 / 0.14);
-    border-radius: 8px;
-    color: #f5f0e8;
-    background: rgb(19 23 19 / 0.88);
-    box-shadow: 0 4px 16px rgb(0 0 0 / 0.3);
-    font: 600 12px/1.2 ui-sans-serif, system-ui, sans-serif;
-    transform: translateX(-50%);
-    pointer-events: none;
-  }
 </style>

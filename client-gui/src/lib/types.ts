@@ -43,3 +43,9 @@ export interface GameState {
   snapshot: GameSnapshot;
   legalMoves: LegalMove[];
 }
+
+export interface SuspendedGame {
+  suspendedId: string;
+  moveCount: number;
+  sideToMove: Side;
+}

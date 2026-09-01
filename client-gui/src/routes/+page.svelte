@@ -6,7 +6,7 @@
   import '@lichess-org/chessground/assets/chessground.brown.css';
   import '@lichess-org/chessground/assets/chessground.cburnett.css';
   import Chessboard from '$lib/Chessboard.svelte';
-  import type { GameMode, GameState, MoveRecord, NewGameOptions, Side } from '$lib/types';
+  import type { GameMode, GameState, MoveRecord, NewGameOptions, Side, SuspendedGame } from '$lib/types';
   import '../app.css';
 
   const pieces: Record<string, Record<Side, string>> = {
@@ -25,8 +25,11 @@
   let skillLevel = 10;
   let busy = false;
   let error = '';
+  let keyboardMove = '';
   let syncToken = 0;
   let pendingPromotion: { from: string; to: string } | undefined;
+  let confirmingForfeit = false;
+  let suspendedGames: SuspendedGame[] = [];
 
   onMount(() => {
     let unlistenState: (() => void) | undefined;
@@ -41,6 +44,7 @@
       busy = false;
       syncToken += 1;
     }).then((unlisten) => (unlistenError = unlisten));
+    loadSuspendedGames();
 
     return () => {
       unlistenState?.();
@@ -65,6 +69,14 @@
     if (level <= 10) return 'Intermediate';
     if (level <= 15) return 'Advanced';
     return 'Master';
+  }
+
+  async function loadSuspendedGames() {
+    try {
+      suspendedGames = await invoke<SuspendedGame[]>('list_suspended_games');
+    } catch (cause) {
+      error = String(cause);
+    }
   }
 
   function capturedPieces(history: MoveRecord[], mover: Side): string[] {
@@ -98,6 +110,20 @@
     }
   }
 
+  async function resumeGame(suspendedId: string) {
+    busy = true;
+    error = '';
+    try {
+      game = await invoke<GameState>('resume_game', { suspendedId });
+      suspendedGames = suspendedGames.filter((session) => session.suspendedId !== suspendedId);
+      showMenu = false;
+    } catch (cause) {
+      error = String(cause);
+    } finally {
+      busy = false;
+    }
+  }
+
   function requestMove(from: string, to: string) {
     const promotion = game?.legalMoves.some(
       (move) => move.from === from && move.to === to && move.promotion
@@ -109,6 +135,18 @@
     submitMove(from, to);
   }
 
+  function playKeyboardMove() {
+    const move = keyboardMove.toLowerCase();
+    const from = move.slice(0, 2);
+    const to = move.slice(2);
+    if (!game?.legalMoves.some((legalMove) => legalMove.from === from && legalMove.to === to)) {
+      error = `${from} to ${to} is not legal`;
+      return;
+    }
+    keyboardMove = '';
+    requestMove(from, to);
+  }
+
   async function submitMove(from: string, to: string, promotion?: string) {
     busy = true;
     error = '';
@@ -118,6 +156,41 @@
     } catch (cause) {
       error = String(cause);
       syncToken += 1;
+    } finally {
+      busy = false;
+    }
+  }
+
+  function leaveGame() {
+    game = undefined;
+    keyboardMove = '';
+    pendingPromotion = undefined;
+    confirmingForfeit = false;
+    showMenu = true;
+  }
+
+  async function forfeitGame() {
+    busy = true;
+    error = '';
+    try {
+      await invoke('forfeit_game');
+      leaveGame();
+    } catch (cause) {
+      error = String(cause);
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function suspendGame() {
+    busy = true;
+    error = '';
+    try {
+      await invoke('suspend_game');
+      leaveGame();
+      await loadSuspendedGames();
+    } catch (cause) {
+      error = String(cause);
     } finally {
       busy = false;
     }
@@ -190,7 +263,60 @@
               <p>{isBotGame ? `Playing as ${snapshot.humanSide}` : 'Local two-player game'}</p>
             </div>
           </div>
+          {#if snapshot.status === 0}
+            <div class="session-actions">
+              {#if confirmingForfeit}
+                <button
+                  class="secondary-button"
+                  type="button"
+                  disabled={busy}
+                  onclick={() => (confirmingForfeit = false)}
+                >Cancel</button>
+                <button class="danger-button" type="button" disabled={busy} onclick={forfeitGame}>
+                  Confirm forfeit
+                </button>
+              {:else}
+                <button class="suspend-button" type="button" disabled={busy} onclick={suspendGame}>
+                  Suspend session
+                </button>
+                <button
+                  class="danger-button"
+                  type="button"
+                  disabled={busy}
+                  onclick={() => (confirmingForfeit = true)}
+                >Forfeit game</button>
+              {/if}
+            </div>
+          {/if}
         </section>
+
+        <form
+          class="move-entry-card"
+          onsubmit={(event) => {
+            event.preventDefault();
+            playKeyboardMove();
+          }}
+        >
+          <div class="move-entry-heading">
+            <label for="move-input">Enter your move</label>
+            <span>e2e4</span>
+          </div>
+          <div class="move-entry-controls">
+            <input
+              id="move-input"
+              bind:value={keyboardMove}
+              type="text"
+              maxlength="4"
+              pattern="[a-hA-H][1-8][a-hA-H][1-8]"
+              placeholder={snapshot.engineThinking ? 'Stockfish is thinking…' : 'e2e4'}
+              autocomplete="off"
+              spellcheck="false"
+              disabled={!playerCanMove}
+              required
+            />
+            <button type="submit" disabled={!playerCanMove || keyboardMove.length !== 4}>Play</button>
+          </div>
+        </form>
 
         <section class="history-card">
           <div class="section-heading">
@@ -238,6 +364,24 @@
         </div>
 
         <form onsubmit={(event) => { event.preventDefault(); startGame(); }}>
+          {#if suspendedGames.length > 0}
+            <fieldset>
+              <legend>Suspended games</legend>
+              <div class="suspended-games">
+                {#each suspendedGames as session}
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onclick={() => resumeGame(session.suspendedId)}
+                  >
+                    <span>{session.moveCount} plies · {session.sideToMove} to move</span>
+                    <strong>Resume</strong>
+                  </button>
+                {/each}
+              </div>
+            </fieldset>
+          {/if}
+
           <fieldset>
             <legend>Opponent</legend>
             <div class="choice-grid">
