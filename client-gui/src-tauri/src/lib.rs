@@ -246,10 +246,13 @@ async fn activate_game(
     };
     let mut events = events.expect("event stream exists after activation");
     let session_id = snapshot.session_id.clone();
-    *state.active_game.lock().await = Some(ActiveGame {
+    let previous = state.active_game.lock().await.replace(ActiveGame {
         session_id: session_id.clone(),
         client,
     });
+    if let Some(mut previous) = previous {
+        let _ = previous.client.close_session().await;
+    }
 
     tauri::async_runtime::spawn(async move {
         loop {
@@ -313,10 +316,6 @@ async fn new_game(
         return Err("Bot strength must be between 0 and 20".to_string());
     }
 
-    if let Some(mut previous) = state.active_game.lock().await.take() {
-        let _ = previous.client.close_session().await;
-    }
-
     let mode = game_mode(&options)?;
     let engine_skill = (options.mode == "human-vs-engine").then_some(options.skill_level);
     let mut client = ChessClient::connect_uds(&socket_path())
@@ -351,10 +350,6 @@ async fn resume_game(
 ) -> Result<GameState, String> {
     if skill_level > 20 {
         return Err("Bot strength must be between 0 and 20".to_string());
-    }
-
-    if let Some(mut previous) = state.active_game.lock().await.take() {
-        let _ = previous.client.close_session().await;
     }
 
     let mut client = ChessClient::connect_uds(&socket_path())
