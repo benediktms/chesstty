@@ -78,12 +78,20 @@ impl<D: Persistence> ChessService for ChessServiceImpl<D> {
         &self,
         request: Request<CloseSessionRequest>,
     ) -> Result<Response<Empty>, Status> {
-        let session_id = &request.get_ref().session_id;
+        let request = request.into_inner();
+        let session_id = request.session_id;
         tracing::info!(session_id = %session_id, "RPC close_session");
+
+        if request.resign {
+            self.session_manager
+                .resign_session(&session_id)
+                .await
+                .map_err(Status::failed_precondition)?;
+        }
 
         let saved_game_id = self
             .session_manager
-            .close_session(session_id)
+            .close_session(&session_id)
             .await
             .map_err(Status::not_found)?;
 

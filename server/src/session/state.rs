@@ -229,6 +229,35 @@ impl SessionState {
         Ok(self.snapshot())
     }
 
+    pub fn apply_resign(&mut self) -> Result<SessionSnapshot, SessionError> {
+        if !matches!(
+            self.phase,
+            GamePhase::Playing { .. } | GamePhase::Paused { .. }
+        ) {
+            return Err(SessionError::InvalidPhaseTransition(format!(
+                "Cannot resign from {:?}",
+                self.phase
+            )));
+        }
+
+        let resigning_side = match &self.game_mode {
+            GameMode::HumanVsEngine { human_side } => *human_side,
+            _ => PlayerSide::from(self.game.side_to_move()),
+        };
+        let result = match resigning_side {
+            PlayerSide::White => GameResult::BlackWins,
+            PlayerSide::Black => GameResult::WhiteWins,
+        };
+        self.phase = GamePhase::Ended {
+            result,
+            reason: "Resignation".to_string(),
+        };
+        if let Some(timer) = self.timer.as_mut() {
+            timer.stop();
+        }
+        Ok(self.snapshot())
+    }
+
     /// Check if the engine should auto-trigger for the current position.
     /// Called after every state mutation.
     pub fn should_auto_trigger_engine(&self) -> bool {

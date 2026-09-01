@@ -84,6 +84,14 @@ impl<D: Persistence> SessionManager<D> {
             })
     }
 
+    pub async fn resign_session(&self, session_id: &str) -> Result<SessionSnapshot, String> {
+        self.get_handle(session_id)
+            .await?
+            .resign()
+            .await
+            .map_err(|error| error.to_string())
+    }
+
     /// Close a session. If the game ended, saves it to the finished game store
     /// and returns the game_id so the caller can enqueue it for review.
     pub async fn close_session(&self, session_id: &str) -> Result<Option<String>, String> {
@@ -384,6 +392,34 @@ mod tests {
 
         // Session should no longer be reachable
         assert!(mgr.get_handle(&session_id).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_resignation_is_saved_as_finished_game() {
+        let mgr = test_manager();
+        let snapshot = mgr
+            .create_session(
+                None,
+                GameMode::HumanVsEngine {
+                    human_side: PlayerSide::Black,
+                },
+            )
+            .await
+            .unwrap();
+
+        let resigned = mgr.resign_session(&snapshot.session_id).await.unwrap();
+        assert!(matches!(
+            resigned.phase,
+            GamePhase::Ended {
+                result: chess::GameResult::WhiteWins,
+                ref reason,
+            } if reason == "Resignation"
+        ));
+        assert!(mgr
+            .close_session(&snapshot.session_id)
+            .await
+            .unwrap()
+            .is_some());
     }
 
     #[tokio::test]

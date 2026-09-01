@@ -20,6 +20,7 @@ message GetSessionRequest {
 
 message CloseSessionRequest {
   string session_id = 1;
+  bool resign = 2;
 }
 
 // Full session state snapshot — the primary state carrier

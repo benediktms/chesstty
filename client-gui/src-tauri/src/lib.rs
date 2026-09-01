@@ -399,7 +399,11 @@ async fn forfeit_game(state: State<'_, AppState>) -> Result<(), String> {
     let active = active_game
         .as_mut()
         .ok_or_else(|| "Start a game first".to_string())?;
-    active.client.close_session().await.map_err(client_error)?;
+    active
+        .client
+        .forfeit_session()
+        .await
+        .map_err(client_error)?;
     *active_game = None;
     Ok(())
 }

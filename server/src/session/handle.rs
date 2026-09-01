@@ -74,6 +74,13 @@ impl SessionHandle {
             .map_err(|_| SessionError::Internal("Reply dropped".into()))?
     }
 
+    pub async fn resign(&self) -> Result<SessionSnapshot, SessionError> {
+        let (tx, rx) = oneshot::channel();
+        self.send(SessionCommand::Resign { reply: tx }).await?;
+        rx.await
+            .map_err(|_| SessionError::Internal("Reply dropped".into()))?
+    }
+
     pub async fn set_timer(&self, white_ms: u64, black_ms: u64) -> Result<(), SessionError> {
         let (tx, rx) = oneshot::channel();
         self.send(SessionCommand::SetTimer {

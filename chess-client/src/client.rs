@@ -254,9 +254,26 @@ impl ChessClient {
     /// Close the current session
     pub async fn close_session(&mut self) -> ClientResult<()> {
         if let Some(session_id) = self.session_id.take() {
-            let request = CloseSessionRequest { session_id };
+            let request = CloseSessionRequest {
+                session_id,
+                resign: false,
+            };
             self.client.close_session(request).await?;
         }
+        Ok(())
+    }
+
+    pub async fn forfeit_session(&mut self) -> ClientResult<()> {
+        let session_id = self
+            .session_id
+            .as_ref()
+            .ok_or(ClientError::NoActiveSession)?;
+        let request = CloseSessionRequest {
+            session_id: session_id.clone(),
+            resign: true,
+        };
+        self.client.close_session(request).await?;
+        self.session_id = None;
         Ok(())
     }
 
@@ -475,7 +492,10 @@ impl ChessService for ChessClient {
 
     async fn close_session(&mut self) -> ClientResult<()> {
         if let Some(session_id) = self.session_id.take() {
-            let request = CloseSessionRequest { session_id };
+            let request = CloseSessionRequest {
+                session_id,
+                resign: false,
+            };
             self.client.close_session(request).await?;
         }
         Ok(())

@@ -164,6 +164,13 @@ async fn handle_command(
                 ))));
             }
         }
+        SessionCommand::Resign { reply } => {
+            let result = state.apply_resign();
+            if let Ok(ref snapshot) = result {
+                let _ = event_tx.send(SessionEvent::StateChanged(snapshot.clone()));
+            }
+            let _ = reply.send(result);
+        }
         SessionCommand::SetTimer {
             white_ms,
             black_ms,
