@@ -64,10 +64,18 @@ jobs:
         with:
           save-if: ${{ github.ref == 'refs/heads/master' }}
 
-      # Install Stockfish for engine integration tests in the server crate.
-      - name: Install Stockfish (Linux)
+      # Install Stockfish and native Tauri libraries on Linux.
+      - name: Install Linux dependencies
         if: runner.os == 'Linux'
-        run: sudo apt-get install -y stockfish
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libssl-dev \
+            libwebkit2gtk-4.1-dev \
+            libxdo-dev \
+            stockfish
 
       - name: Install Stockfish (macOS)
         if: runner.os == 'macOS'
