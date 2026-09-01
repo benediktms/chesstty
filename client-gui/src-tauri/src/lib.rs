@@ -268,22 +268,34 @@ async fn activate_game(
                     break;
                 }
             };
-            let Some(session_stream_event::Event::StateChanged(snapshot)) = event.event else {
-                continue;
-            };
-
-            let state = app.state::<AppState>();
-            let mut active = state.active_game.lock().await;
-            let Some(active) = active.as_mut().filter(|game| game.session_id == session_id) else {
-                break;
-            };
-            match active.client.get_legal_moves(None).await {
-                Ok(moves) => {
-                    let _ = app.emit("game-state", game_state(snapshot, moves));
+            match event.event {
+                Some(session_stream_event::Event::StateChanged(snapshot)) => {
+                    let state = app.state::<AppState>();
+                    let mut active = state.active_game.lock().await;
+                    let Some(active) = active.as_mut().filter(|game| game.session_id == session_id)
+                    else {
+                        break;
+                    };
+                    match active.client.get_legal_moves(None).await {
+                        Ok(moves) => {
+                            let _ = app.emit("game-state", game_state(snapshot, moves));
+                        }
+                        Err(error) => {
+                            let _ = app.emit("game-error", client_error(error));
+                        }
+                    }
                 }
-                Err(error) => {
-                    let _ = app.emit("game-error", client_error(error));
+                Some(session_stream_event::Event::Error(message)) => {
+                    let state = app.state::<AppState>();
+                    let active = state.active_game.lock().await;
+                    if active
+                        .as_ref()
+                        .is_some_and(|game| game.session_id == session_id)
+                    {
+                        let _ = app.emit("game-error", friendly_message(&message));
+                    }
                 }
+                _ => {}
             }
         }
     });
