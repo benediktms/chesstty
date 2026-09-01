@@ -83,6 +83,7 @@ struct SuspendedGameView {
     suspended_id: String,
     move_count: u32,
     side_to_move: String,
+    skill_level: u32,
 }
 
 impl From<MoveRecord> for MoveView {
@@ -115,6 +116,7 @@ impl From<SuspendedSessionInfo> for SuspendedGameView {
             suspended_id: session.suspended_id,
             move_count: session.move_count,
             side_to_move: session.side_to_move,
+            skill_level: session.skill_level,
         }
     }
 }
@@ -212,17 +214,38 @@ async fn activate_game(
     state: &State<'_, AppState>,
     mut client: ChessClient,
     engine_skill: Option<u32>,
+    resumed_from: Option<&str>,
 ) -> Result<GameState, String> {
-    let mut events = client.stream_events().await.map_err(client_error)?;
-    if let Some(skill_level) = engine_skill {
-        client
-            .set_engine(true, skill_level, None, None)
-            .await
-            .map_err(client_error)?;
+    let mut events = None;
+    let activation: Result<_, String> = async {
+        events = Some(client.stream_events().await.map_err(client_error)?);
+        if let Some(skill_level) = engine_skill {
+            client
+                .set_engine(true, skill_level, None, None)
+                .await
+                .map_err(client_error)?;
+        }
+        let snapshot = client.get_session().await.map_err(client_error)?;
+        let legal_moves = client.get_legal_moves(None).await.map_err(client_error)?;
+        if let Some(suspended_id) = resumed_from {
+            client
+                .delete_suspended_session(suspended_id)
+                .await
+                .map_err(client_error)?;
+        }
+        Ok((snapshot, legal_moves))
     }
-    let snapshot = client.get_session().await.map_err(client_error)?;
+    .await;
+
+    let (snapshot, legal_moves) = match activation {
+        Ok(game) => game,
+        Err(error) => {
+            let _ = client.close_session().await;
+            return Err(error);
+        }
+    };
+    let mut events = events.expect("event stream exists after activation");
     let session_id = snapshot.session_id.clone();
-    let legal_moves = client.get_legal_moves(None).await.map_err(client_error)?;
     *state.active_game.lock().await = Some(ActiveGame {
         session_id: session_id.clone(),
         client,
@@ -292,7 +315,7 @@ async fn new_game(
         .await
         .map_err(client_error)?;
 
-    activate_game(app, &state, client, engine_skill).await
+    activate_game(app, &state, client, engine_skill, None).await
 }
 
 #[tauri::command]
@@ -312,7 +335,12 @@ async fn resume_game(
     app: AppHandle,
     state: State<'_, AppState>,
     suspended_id: String,
+    skill_level: u32,
 ) -> Result<GameState, String> {
+    if skill_level > 20 {
+        return Err("Bot strength must be between 0 and 20".to_string());
+    }
+
     if let Some(mut previous) = state.active_game.lock().await.take() {
         let _ = previous.client.close_session().await;
     }
@@ -329,9 +357,9 @@ async fn resume_game(
             GameModeType::try_from(mode.mode),
             Ok(GameModeType::HumanVsEngine | GameModeType::EngineVsEngine)
         )
-        .then_some(10)
+        .then_some(skill_level)
     });
-    activate_game(app, &state, client, engine_skill).await
+    activate_game(app, &state, client, engine_skill, Some(&suspended_id)).await
 }
 
 #[tauri::command]
@@ -428,11 +456,13 @@ mod tests {
             suspended_id: "saved-1".to_string(),
             move_count: 12,
             side_to_move: "black".to_string(),
+            skill_level: 17,
             ..Default::default()
         });
 
         assert_eq!(view.suspended_id, "saved-1");
         assert_eq!(view.move_count, 12);
         assert_eq!(view.side_to_move, "black");
+        assert_eq!(view.skill_level, 17);
     }
 }

@@ -48,4 +48,5 @@ export interface SuspendedGame {
   suspendedId: string;
   moveCount: number;
   sideToMove: Side;
+  skillLevel: number;
 }

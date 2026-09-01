@@ -110,15 +110,19 @@
     }
   }
 
-  async function resumeGame(suspendedId: string) {
+  async function resumeGame(session: SuspendedGame) {
     busy = true;
     error = '';
     try {
-      game = await invoke<GameState>('resume_game', { suspendedId });
-      suspendedGames = suspendedGames.filter((session) => session.suspendedId !== suspendedId);
+      game = await invoke<GameState>('resume_game', {
+        suspendedId: session.suspendedId,
+        skillLevel: session.skillLevel
+      });
+      suspendedGames = suspendedGames.filter((saved) => saved.suspendedId !== session.suspendedId);
       showMenu = false;
     } catch (cause) {
       error = String(cause);
+      await loadSuspendedGames();
     } finally {
       busy = false;
     }
@@ -372,7 +376,7 @@
                   <button
                     type="button"
                     disabled={busy}
-                    onclick={() => resumeGame(session.suspendedId)}
+                    onclick={() => resumeGame(session)}
                   >
                     <span>{session.moveCount} plies · {session.sideToMove} to move</span>
                     <strong>Resume</strong>

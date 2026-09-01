@@ -262,6 +262,8 @@ async fn run_game<B: ratatui::backend::Backend>(
     .await
     .map_err(|e| anyhow::anyhow!("Failed to connect to server: {}", e))?;
 
+    let mut resume_ready = false;
+
     // Handle resume vs new game
     if let Some(ref suspended_id) = config.resume_session_id {
         // Resume a suspended session from the server.
@@ -270,6 +272,8 @@ async fn run_game<B: ratatui::backend::Backend>(
             Ok(_snapshot) => {
                 if let Err(e) = state.refresh_from_server().await {
                     state.status_message = Some(format!("Failed to sync state: {}", e));
+                } else {
+                    resume_ready = true;
                 }
 
                 // Restore local game mode from config metadata (for UI rendering)
@@ -318,6 +322,7 @@ async fn run_game<B: ratatui::backend::Backend>(
     // (e.g., when it's the engine's turn at the snapshot position)
     if let Err(e) = state.start_event_stream().await {
         state.status_message = Some(format!("Failed to start event stream: {}", e));
+        resume_ready = false;
     }
 
     // Configure engine after event stream is active so we don't miss
@@ -340,6 +345,7 @@ async fn run_game<B: ratatui::backend::Backend>(
             // Resume: re-enable engine with stored skill level
             if let Err(e) = state.set_engine(true, state.skill_level).await {
                 state.status_message = Some(format!("Failed to enable engine: {}", e));
+                resume_ready = false;
             }
         } else {
             // New game: full engine configuration
@@ -353,6 +359,14 @@ async fn run_game<B: ratatui::backend::Backend>(
                 .await
             {
                 state.status_message = Some(format!("Failed to enable engine: {}", e));
+            }
+        }
+    }
+
+    if resume_ready {
+        if let Some(ref suspended_id) = config.resume_session_id {
+            if let Err(e) = state.client.delete_suspended_session(suspended_id).await {
+                state.status_message = Some(format!("Failed to finalize resume: {}", e));
             }
         }
     }

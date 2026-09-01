@@ -262,12 +262,7 @@ impl<D: Persistence> SessionManager<D> {
             }
         };
 
-        let snapshot = self.create_session(Some(data.fen), game_mode).await?;
-        self.store
-            .delete_session(suspended_id)
-            .await
-            .map_err(|e| e.to_string())?;
-        Ok(snapshot)
+        self.create_session(Some(data.fen), game_mode).await
     }
 
     pub async fn list_suspended(&self) -> Result<Vec<SuspendedSessionData>, String> {
@@ -729,9 +724,11 @@ mod tests {
         assert_eq!(snap.fen, fen);
         assert!(matches!(snap.phase, GamePhase::Playing { .. }));
 
-        // Suspended session should be deleted after resume
         let suspended = mgr.list_suspended().await.unwrap();
-        assert!(suspended.is_empty());
+        assert_eq!(suspended.len(), 1);
+
+        mgr.delete_suspended(&suspended_id).await.unwrap();
+        assert!(mgr.list_suspended().await.unwrap().is_empty());
     }
 
     #[tokio::test]
