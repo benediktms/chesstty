@@ -693,42 +693,38 @@ async fn handle_tab_input(
             }
         }
 
-        KeyCode::Enter => {
+        KeyCode::Enter if fsm.tab_input.current_tab == 1 => {
             // Only meaningful in tab 2: confirm destination
-            if fsm.tab_input.current_tab == 1 {
-                let typeahead = fsm.tab_input.typeahead_buffer.clone();
-                if typeahead.len() == 2 {
-                    if let Some(to_square) = parse_square(&typeahead) {
-                        // Verify it's a legal destination
-                        if let Some(from_square) = fsm.tab_input.from_square {
-                            if let Some(moves) = state.legal_moves_from(from_square) {
-                                let to_str = chess::format_square(to_square);
-                                if moves.iter().any(|m| m.to == to_str) {
-                                    fsm.tab_input.deactivate();
-                                    let needs_promotion = moves
-                                        .iter()
-                                        .any(|m| m.to == to_str && m.promotion.is_some());
-                                    if needs_promotion {
-                                        fsm.input_phase = InputPhase::SelectPromotion {
-                                            from: from_square,
-                                            to: to_square,
-                                        };
-                                        state.status_message =
-                                            Some("Select promotion piece".to_string());
-                                    } else if let Err(e) = state.try_move_to(to_square).await {
-                                        state.status_message = Some(format!("Move failed: {}", e));
-                                    } else {
-                                        fsm.tab_input.activate();
-                                    }
-                                    return AppAction::Continue;
+            let typeahead = fsm.tab_input.typeahead_buffer.clone();
+            if typeahead.len() == 2 {
+                if let Some(to_square) = parse_square(&typeahead) {
+                    if let Some(from_square) = fsm.tab_input.from_square {
+                        if let Some(moves) = state.legal_moves_from(from_square) {
+                            let to_str = chess::format_square(to_square);
+                            if moves.iter().any(|m| m.to == to_str) {
+                                fsm.tab_input.deactivate();
+                                let needs_promotion = moves
+                                    .iter()
+                                    .any(|m| m.to == to_str && m.promotion.is_some());
+                                if needs_promotion {
+                                    fsm.input_phase = InputPhase::SelectPromotion {
+                                        from: from_square,
+                                        to: to_square,
+                                    };
+                                    state.status_message =
+                                        Some("Select promotion piece".to_string());
+                                } else if let Err(e) = state.try_move_to(to_square).await {
+                                    state.status_message = Some(format!("Move failed: {}", e));
+                                } else {
+                                    fsm.tab_input.activate();
                                 }
+                                return AppAction::Continue;
                             }
                         }
                     }
                 }
-                // Invalid destination — clear buffer
-                fsm.tab_input.typeahead_buffer.clear();
             }
+            fsm.tab_input.typeahead_buffer.clear();
         }
 
         _ => {}

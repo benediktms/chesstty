@@ -16,16 +16,9 @@ use render_spec::{Control, InputPhase, Layout, Section, SectionContent, TabInput
 
 use crate::ui::theme::Theme;
 
+#[derive(Default)]
 pub struct AppContext {
     pub theme: Theme,
-}
-
-impl Default for AppContext {
-    fn default() -> Self {
-        Self {
-            theme: Theme::default(),
-        }
-    }
 }
 
 #[derive(Clone, Debug, PartialEq, Default)]

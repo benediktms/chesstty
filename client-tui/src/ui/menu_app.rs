@@ -570,10 +570,8 @@ fn handle_fen_dialog_input(menu_state: &mut MenuState, key_code: KeyCode) {
                 dialog_state.position_table.move_up();
             }
         }
-        KeyCode::Down => {
-            if dialog_state.focus == FenDialogFocus::PositionList {
-                dialog_state.position_table.move_down();
-            }
+        KeyCode::Down if dialog_state.focus == FenDialogFocus::PositionList => {
+            dialog_state.position_table.move_down();
         }
         _ => {}
     }

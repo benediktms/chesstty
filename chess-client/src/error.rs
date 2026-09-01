@@ -13,7 +13,7 @@ pub enum ClientError {
     ConnectionFailed(#[from] tonic::transport::Error),
 
     #[error("RPC failed: {0}")]
-    RpcError(#[from] tonic::Status),
+    RpcError(Box<tonic::Status>),
 
     #[error("No active session")]
     NoActiveSession,
@@ -23,4 +23,10 @@ pub enum ClientError {
 
     #[error("Mock response not configured for: {0}")]
     NotConfigured(String),
+}
+
+impl From<tonic::Status> for ClientError {
+    fn from(status: tonic::Status) -> Self {
+        Self::RpcError(Box::new(status))
+    }
 }
