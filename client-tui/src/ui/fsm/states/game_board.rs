@@ -26,7 +26,7 @@ impl GameBoardState {
         // Dim the sidebar instance of the expanded component
         let mut right_columns =
             vec![
-                Section::component(Constraint::Length(8), Component::InfoPanel)
+                Section::component(Constraint::Length(9), Component::InfoPanel)
                     .with_dimmed(component == Component::InfoPanel),
             ];
 
@@ -87,7 +87,7 @@ impl GameBoardState {
 
         // Build right column - stacked: GameInfo → EngineAnalysis → MoveHistory
         let mut right_columns = vec![Section::component(
-            Constraint::Length(8),
+            Constraint::Length(9),
             Component::InfoPanel,
         )];
 

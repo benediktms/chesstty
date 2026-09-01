@@ -1,8 +1,10 @@
 use crate::state::GameSession;
 use crate::ui::fsm::UiStateMachine;
 use crate::ui::theme::Theme;
-use chess::converters::format_square;
-use chess_client::{review_score, MoveClassification, ReviewScore};
+use crate::ui::widgets::mini_board::piece_to_unicode;
+use chess::{converters::format_square, parse_piece};
+use chess_client::{review_score, MoveClassification, MoveRecord, ReviewScore};
+use cozy_chess::Color as ChessColor;
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
@@ -157,8 +159,6 @@ impl GameInfoPanel<'_> {
             Span::raw(format_game_mode(&self.client_state.mode)),
         ]));
 
-        lines.push(Line::raw(""));
-
         // Input phase
         let phase_text = match self.fsm.input_phase {
             crate::ui::fsm::render_spec::InputPhase::SelectPiece => "Select Piece",
@@ -186,8 +186,6 @@ impl GameInfoPanel<'_> {
                     .add_modifier(Modifier::BOLD),
             ),
         ]));
-
-        lines.push(Line::raw(""));
 
         // Turn indicator
         let turn_str = self.client_state.side_to_move();
@@ -277,6 +275,41 @@ impl GameInfoPanel<'_> {
                 ),
             ]));
         }
+
+        let first_mover = match self
+            .client_state
+            .snapshot
+            .start_fen
+            .split_whitespace()
+            .nth(1)
+        {
+            Some("b") => ChessColor::Black,
+            _ => ChessColor::White,
+        };
+        let (white_captures, black_captures) =
+            captured_pieces(self.client_state.history(), first_mover);
+        lines.push(Line::from(Span::styled(
+            "Captured:",
+            Style::default()
+                .fg(self.theme.warning)
+                .add_modifier(Modifier::BOLD),
+        )));
+        lines.push(Line::raw(format!(
+            "White took: {}",
+            if white_captures.is_empty() {
+                "—"
+            } else {
+                &white_captures
+            }
+        )));
+        lines.push(Line::raw(format!(
+            "Black took: {}",
+            if black_captures.is_empty() {
+                "—"
+            } else {
+                &black_captures
+            }
+        )));
 
         // Add selection indicator
         if let Some(selected) = self.client_state.selected_square {
@@ -408,6 +441,31 @@ impl GameInfoPanel<'_> {
     }
 }
 
+fn captured_pieces(history: &[MoveRecord], first_mover: ChessColor) -> (String, String) {
+    let mut white_captures = Vec::new();
+    let mut black_captures = Vec::new();
+
+    for (ply, record) in history.iter().enumerate() {
+        let Some(piece) = record
+            .captured
+            .as_deref()
+            .and_then(|value| value.chars().next())
+            .and_then(parse_piece)
+        else {
+            continue;
+        };
+
+        let white_moved = (ply % 2 == 0) == (first_mover == ChessColor::White);
+        if white_moved {
+            white_captures.push(piece_to_unicode(piece, ChessColor::Black));
+        } else {
+            black_captures.push(piece_to_unicode(piece, ChessColor::White));
+        }
+    }
+
+    (white_captures.join(" "), black_captures.join(" "))
+}
+
 fn format_game_mode(mode: &crate::state::GameMode) -> &'static str {
     match mode {
         crate::state::GameMode::HumanVsHuman => "Human vs Human",
@@ -460,5 +518,23 @@ pub(crate) fn classification_color(classification: i32, theme: &Theme) -> Color 
         Ok(MoveClassification::ClassificationForced) => theme.move_forced,
         Ok(MoveClassification::ClassificationBook) => theme.move_forced,
         _ => theme.text_primary,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn captured_pieces_follow_the_starting_side() {
+        let history = ["P", "N"].map(|captured| MoveRecord {
+            captured: Some(captured.to_string()),
+            ..Default::default()
+        });
+
+        assert_eq!(
+            captured_pieces(&history, ChessColor::Black),
+            ("♞".to_string(), "♙".to_string())
+        );
     }
 }
