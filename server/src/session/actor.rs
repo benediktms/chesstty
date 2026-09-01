@@ -202,7 +202,7 @@ fn compute_legal_moves(state: &SessionState, from: Option<cozy_chess::Square>) -
         .into_iter()
         .filter(|mv| from.is_none_or(|sq| mv.from == sq))
         .map(|mv| {
-            let is_capture = state.game.position().piece_on(mv.to).is_some();
+            let is_capture = state.game.captured_piece(mv).is_some();
             let mut board_position = state.game.position().clone();
             board_position.play(mv);
             let is_check = !board_position.checkers().is_empty();

@@ -78,7 +78,10 @@ impl<D: Persistence> SessionManager<D> {
             .await
             .get(session_id)
             .cloned()
-            .ok_or_else(|| format!("Session not found: {}", session_id))
+            .ok_or_else(|| {
+                tracing::warn!(session_id, "Session lookup failed");
+                format!("Session not found: {}", session_id)
+            })
     }
 
     /// Close a session. If the game ended, saves it to the finished game store

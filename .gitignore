@@ -1,5 +1,9 @@
 # Rust
 /target/
+client-gui/node_modules/
+client-gui/.svelte-kit/
+client-gui/build/
+client-gui/src-tauri/gen/
 **/*.rs.bk
 *.pdb
 

@@ -146,9 +146,6 @@ impl Game {
         // Clone the board before the move for O(1) undo
         let board_before = self.position.clone();
 
-        // Snapshot state for undo (simplified - cozy-chess stores this internally)
-        let captured = self.position.piece_on(mv.to);
-
         // Get the piece and color that's making the move
         let piece = self
             .position
@@ -158,6 +155,7 @@ impl Game {
             .position
             .color_on(mv.from)
             .ok_or(GameError::IllegalMove)?;
+        let captured = captured_piece_on(&self.position, mv, piece);
 
         // Generate SAN notation before making the move
         let san = generate_san(&self.position, mv, piece);
@@ -212,6 +210,12 @@ impl Game {
             false
         });
         moves
+    }
+
+    /// Return the piece captured by a legal move, including en passant.
+    pub fn captured_piece(&self, mv: Move) -> Option<Piece> {
+        let piece = self.position.piece_on(mv.from)?;
+        captured_piece_on(&self.position, mv, piece)
     }
 
     /// Get the current game status
@@ -276,12 +280,13 @@ pub fn format_move_as_san(board: &Board, mv: Move) -> String {
 /// Generate simplified SAN notation for a move
 fn generate_san(board: &Board, mv: Move, piece: Piece) -> String {
     let mut san = String::new();
+    let is_capture = captured_piece_on(board, mv, piece).is_some();
 
     // Piece prefix (except pawns)
     match piece {
         Piece::Pawn => {
             // Pawn captures include the file
-            if board.piece_on(mv.to).is_some() {
+            if is_capture {
                 san.push(format_file(mv.from.file()));
             }
         }
@@ -289,7 +294,7 @@ fn generate_san(board: &Board, mv: Move, piece: Piece) -> String {
     }
 
     // Capture indicator
-    if board.piece_on(mv.to).is_some() {
+    if is_capture {
         san.push('x');
     }
 
@@ -304,6 +309,12 @@ fn generate_san(board: &Board, mv: Move, piece: Piece) -> String {
     }
 
     san
+}
+
+fn captured_piece_on(board: &Board, mv: Move, piece: Piece) -> Option<Piece> {
+    board
+        .piece_on(mv.to)
+        .or_else(|| (piece == Piece::Pawn && mv.from.file() != mv.to.file()).then_some(Piece::Pawn))
 }
 
 impl Default for Game {
@@ -353,6 +364,17 @@ mod tests {
             .unwrap();
         let san = format_move_as_san(&board, mv(File::E, Rank::Fourth, File::D, Rank::Fifth));
         assert_eq!(san, "exd5");
+    }
+
+    #[test]
+    fn test_en_passant_capture_is_recorded() {
+        let mut game = Game::from_fen("8/8/8/3pP3/8/8/8/4K2k w - d6 0 1").expect("valid position");
+        let en_passant = mv(File::E, Rank::Fifth, File::D, Rank::Sixth);
+
+        assert_eq!(game.captured_piece(en_passant), Some(Piece::Pawn));
+        let entry = game.make_move(en_passant).expect("legal en passant");
+        assert_eq!(entry.captured, Some(Piece::Pawn));
+        assert_eq!(entry.san, "exd6");
     }
 
     #[test]
