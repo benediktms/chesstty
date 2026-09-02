@@ -423,7 +423,7 @@ See [server/CONFIGURATION.md](server/CONFIGURATION.md) for data directory config
 
 ## License
 
-MIT License - see LICENSE file for details.
+GPL-3.0-or-later - see LICENSE for details.
 
 ## Acknowledgments
 

@@ -180,10 +180,7 @@ fn ray_between_inclusive(from: Square, to: Square) -> BitBoard {
     let mut file = from_file;
     let mut ray = BitBoard::EMPTY;
 
-    loop {
-        let Some(rank_idx) = Rank::try_index(rank as usize) else {
-            break;
-        };
+    while let Some(rank_idx) = Rank::try_index(rank as usize) {
         let Some(file_idx) = cozy_chess::File::try_index(file as usize) else {
             break;
         };

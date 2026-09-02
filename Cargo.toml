@@ -8,6 +8,7 @@ members = [
     "chess",
     "engine",
     "analysis",
+    "client-gui/src-tauri",
 ]
 
 [workspace.package]

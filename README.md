@@ -1,6 +1,6 @@
 # ChessTTY
 
-A terminal chess application built in Rust. Play against Stockfish, watch engine-vs-engine games, or play locally with a friend — all from your terminal.
+A server-authoritative chess application built in Rust, with terminal and desktop clients.
 
 ![ChessTTY](assets/new-game.png)
 
@@ -11,6 +11,7 @@ A terminal chess application built in Rust. Play against Stockfish, watch engine
 - **Rust** (install via [rustup](https://rustup.rs))
 - **Stockfish** chess engine ([download](https://stockfishchess.org))
 - **mise** (optional, for local development) — handles non-Rust dependencies like `protoc`, `just`, and `git-cliff`. Install via [mise.jdx.dev](https://mise.jdx.dev), then run `mise install` in the repo root.
+- **Node.js and pnpm** (desktop client only)
 
 ### Running
 
@@ -19,10 +20,20 @@ A terminal chess application built in Rust. Play against Stockfish, watch engine
 cargo run -p chesstty
 ```
 
+For the desktop client, install its dependencies once, then run the server and GUI in separate terminals:
+
+```bash
+pnpm --dir client-gui install --frozen-lockfile
+
+just server
+just gui
+```
+
 ## Features
 
 - **Human vs Human** — two players on the same terminal
 - **Human vs Engine** — play against Stockfish (skill 0-20)
+- **Desktop Client** — SvelteKit, Tauri, and Chessground board UI
 - **Engine vs Engine** — watch Stockfish play itself
 - **Post-Game Review** — accuracy scores, move classification, evaluation graphs
 - **Session Persistence** — suspend and resume games (SQLite-backed)
@@ -74,4 +85,4 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the full technical documentation, inc
 
 ## License
 
-MIT License - see LICENSE file for details.
+GPL-3.0-or-later - see LICENSE for details.

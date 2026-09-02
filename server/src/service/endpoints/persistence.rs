@@ -58,6 +58,7 @@ impl<D: Persistence> PersistenceEndpoints<D> {
                     move_count: s.move_count,
                     side_to_move: s.side_to_move,
                     created_at: s.created_at,
+                    skill_level: s.skill_level as u32,
                 }
             })
             .collect();

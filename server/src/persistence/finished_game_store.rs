@@ -62,7 +62,7 @@ impl FinishedGameStore {
     /// List all finished games, sorted by created_at descending (most recent first).
     pub fn list(&self) -> Result<Vec<FinishedGameData>, PersistenceError> {
         let mut games = self.inner.load_all()?;
-        games.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        games.sort_by_key(|game| std::cmp::Reverse(game.created_at));
         Ok(games)
     }
 

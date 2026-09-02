@@ -17,7 +17,7 @@ impl GameBoardState {
         // Only include TabInput if active (from shared state)
         if shared.tab_input.active {
             center_columns.push(Section::component(
-                Constraint::Length(3),
+                Constraint::Length(4),
                 Component::TabInput,
             ));
         }
@@ -26,7 +26,7 @@ impl GameBoardState {
         // Dim the sidebar instance of the expanded component
         let mut right_columns =
             vec![
-                Section::component(Constraint::Length(8), Component::InfoPanel)
+                Section::component(Constraint::Length(9), Component::InfoPanel)
                     .with_dimmed(component == Component::InfoPanel),
             ];
 
@@ -80,14 +80,14 @@ impl GameBoardState {
         // Only include TabInput if active (from shared state)
         if shared.tab_input.active {
             center_columns.push(Section::component(
-                Constraint::Length(3),
+                Constraint::Length(4),
                 Component::TabInput,
             ));
         }
 
         // Build right column - stacked: GameInfo → EngineAnalysis → MoveHistory
         let mut right_columns = vec![Section::component(
-            Constraint::Length(8),
+            Constraint::Length(9),
             Component::InfoPanel,
         )];
 

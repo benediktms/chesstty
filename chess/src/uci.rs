@@ -1,6 +1,6 @@
 //! UCI (Universal Chess Interface) utilities
 
-use cozy_chess::{File, Move, Rank, Square};
+use cozy_chess::{File, Move, Piece, Rank, Square};
 
 use crate::converters::{format_piece, format_square};
 
@@ -44,6 +44,24 @@ pub fn convert_uci_castling_to_cozy(mv: Move, legal_moves: &[Move]) -> Move {
     mv
 }
 
+/// Convert cozy-chess's king-to-rook castling notation to standard UCI notation.
+pub fn convert_cozy_castling_to_uci(mv: Move, piece: Piece) -> Move {
+    if piece != Piece::King || mv.from.file() != File::E || mv.from.rank() != mv.to.rank() {
+        return mv;
+    }
+
+    let to_file = match mv.to.file() {
+        File::H => File::G,
+        File::A => File::C,
+        _ => return mv,
+    };
+
+    Move {
+        to: Square::new(to_file, mv.to.rank()),
+        ..mv
+    }
+}
+
 /// Format a move in UCI notation (e.g., "e2e4", "e7e8q")
 pub fn format_uci_move(mv: Move) -> String {
     let mut s = format!("{}{}", format_square(mv.from), format_square(mv.to));
@@ -56,7 +74,6 @@ pub fn format_uci_move(mv: Move) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cozy_chess::Piece;
 
     #[test]
     fn test_format_uci_move() {
@@ -76,5 +93,20 @@ mod tests {
             promotion: Some(Piece::Queen),
         };
         assert_eq!(format_uci_move(mv), "e7e8q");
+    }
+
+    #[test]
+    fn test_convert_cozy_castling_to_uci() {
+        let mv = Move {
+            from: Square::new(File::E, Rank::First),
+            to: Square::new(File::H, Rank::First),
+            promotion: None,
+        };
+
+        assert_eq!(
+            convert_cozy_castling_to_uci(mv, Piece::King).to,
+            Square::new(File::G, Rank::First)
+        );
+        assert_eq!(convert_cozy_castling_to_uci(mv, Piece::Rook), mv);
     }
 }

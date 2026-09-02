@@ -68,6 +68,16 @@ pub fn should_disable_input(mode: &GameMode) -> bool {
     matches!(mode, GameMode::EngineVsEngine | GameMode::ReviewMode)
 }
 
+fn can_enter_move(mode: &GameMode, side_to_move: &str) -> bool {
+    match mode {
+        GameMode::HumanVsEngine { human_side } => match human_side {
+            crate::state::PlayerColor::White => side_to_move == "white",
+            crate::state::PlayerColor::Black => side_to_move == "black",
+        },
+        _ => !should_disable_input(mode),
+    }
+}
+
 /// Main key dispatch function. Routes input to the appropriate context handler.
 pub async fn handle_key(
     state: &mut GameSession,
@@ -179,7 +189,7 @@ async fn handle_board_context(
 
     match key.code {
         // Tab input mode activation
-        KeyCode::Char('i') if !should_disable_input(&state.mode) => {
+        KeyCode::Char('i') if can_enter_move(&state.mode, state.side_to_move()) => {
             fsm.tab_input.activate();
             return AppAction::Continue;
         }
@@ -693,40 +703,38 @@ async fn handle_tab_input(
             }
         }
 
-        KeyCode::Enter => {
+        KeyCode::Enter if fsm.tab_input.current_tab == 1 => {
             // Only meaningful in tab 2: confirm destination
-            if fsm.tab_input.current_tab == 1 {
-                let typeahead = fsm.tab_input.typeahead_buffer.clone();
-                if typeahead.len() == 2 {
-                    if let Some(to_square) = parse_square(&typeahead) {
-                        // Verify it's a legal destination
-                        if let Some(from_square) = fsm.tab_input.from_square {
-                            if let Some(moves) = state.legal_moves_from(from_square) {
-                                let to_str = chess::format_square(to_square);
-                                if moves.iter().any(|m| m.to == to_str) {
-                                    fsm.tab_input.deactivate();
-                                    let needs_promotion = moves
-                                        .iter()
-                                        .any(|m| m.to == to_str && m.promotion.is_some());
-                                    if needs_promotion {
-                                        fsm.input_phase = InputPhase::SelectPromotion {
-                                            from: from_square,
-                                            to: to_square,
-                                        };
-                                        state.status_message =
-                                            Some("Select promotion piece".to_string());
-                                    } else if let Err(e) = state.try_move_to(to_square).await {
-                                        state.status_message = Some(format!("Move failed: {}", e));
-                                    }
-                                    return AppAction::Continue;
+            let typeahead = fsm.tab_input.typeahead_buffer.clone();
+            if typeahead.len() == 2 {
+                if let Some(to_square) = parse_square(&typeahead) {
+                    if let Some(from_square) = fsm.tab_input.from_square {
+                        if let Some(moves) = state.legal_moves_from(from_square) {
+                            let to_str = chess::format_square(to_square);
+                            if moves.iter().any(|m| m.to == to_str) {
+                                fsm.tab_input.deactivate();
+                                let needs_promotion = moves
+                                    .iter()
+                                    .any(|m| m.to == to_str && m.promotion.is_some());
+                                if needs_promotion {
+                                    fsm.input_phase = InputPhase::SelectPromotion {
+                                        from: from_square,
+                                        to: to_square,
+                                    };
+                                    state.status_message =
+                                        Some("Select promotion piece".to_string());
+                                } else if let Err(e) = state.try_move_to(to_square).await {
+                                    state.status_message = Some(format!("Move failed: {}", e));
+                                } else if can_enter_move(&state.mode, state.side_to_move()) {
+                                    fsm.tab_input.activate();
                                 }
+                                return AppAction::Continue;
                             }
                         }
                     }
                 }
-                // Invalid destination — clear buffer
-                fsm.tab_input.typeahead_buffer.clear();
             }
+            fsm.tab_input.typeahead_buffer.clear();
         }
 
         _ => {}
@@ -742,6 +750,16 @@ mod tests {
     #[test]
     fn test_input_disabled_engine_vs_engine() {
         assert!(should_disable_input(&GameMode::EngineVsEngine));
+    }
+
+    #[test]
+    fn test_typeahead_only_opens_on_human_turn() {
+        let mode = GameMode::HumanVsEngine {
+            human_side: crate::state::PlayerColor::White,
+        };
+
+        assert!(can_enter_move(&mode, "white"));
+        assert!(!can_enter_move(&mode, "black"));
     }
 
     #[test]

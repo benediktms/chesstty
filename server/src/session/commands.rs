@@ -71,6 +71,9 @@ pub enum SessionCommand {
     Resume {
         reply: oneshot::Sender<Result<(), SessionError>>,
     },
+    Resign {
+        reply: oneshot::Sender<Result<SessionSnapshot, SessionError>>,
+    },
     SetTimer {
         white_ms: u64,
         black_ms: u64,

@@ -570,10 +570,8 @@ fn handle_fen_dialog_input(menu_state: &mut MenuState, key_code: KeyCode) {
                 dialog_state.position_table.move_up();
             }
         }
-        KeyCode::Down => {
-            if dialog_state.focus == FenDialogFocus::PositionList {
-                dialog_state.position_table.move_down();
-            }
+        KeyCode::Down if dialog_state.focus == FenDialogFocus::PositionList => {
+            dialog_state.position_table.move_down();
         }
         _ => {}
     }
@@ -681,7 +679,8 @@ fn handle_session_table_input(menu_state: &mut MenuState, key_code: KeyCode) -> 
                     config.resume_game_mode = session.game_mode.as_ref().map(|gm| gm.mode);
                     config.resume_human_side =
                         session.game_mode.as_ref().and_then(|gm| gm.human_side);
-                    config.resume_skill_level = None;
+                    config.resume_skill_level =
+                        (session.skill_level <= 20).then_some(session.skill_level as u8);
                     return Some(config);
                 }
             }
@@ -786,7 +785,7 @@ fn handle_review_table_input(menu_state: &mut MenuState, key_code: KeyCode) -> O
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ui::widgets::menu::ReviewTableContext;
+    use crate::ui::widgets::menu::{ReviewTableContext, SessionTableContext};
 
     fn sample_game(game_id: &str, review_status: Option<i32>) -> chess_client::FinishedGameInfo {
         chess_client::FinishedGameInfo {
@@ -812,6 +811,26 @@ mod tests {
             games,
         });
         state
+    }
+
+    #[test]
+    fn resumed_game_uses_saved_skill_level() {
+        let sessions = vec![chess_client::SuspendedSessionInfo {
+            suspended_id: "saved-1".to_string(),
+            skill_level: 17,
+            ..Default::default()
+        }];
+        let mut state = MenuState {
+            session_table: Some(SessionTableContext {
+                table_state: SelectableTableState::new(1),
+                sessions,
+            }),
+            ..Default::default()
+        };
+
+        let config = handle_session_table_input(&mut state, KeyCode::Enter).unwrap();
+
+        assert_eq!(config.resume_skill_level, Some(17));
     }
 
     #[test]

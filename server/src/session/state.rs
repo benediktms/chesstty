@@ -1,6 +1,6 @@
 use chess::{
-    format_color, format_piece_upper, format_square, EngineAnalysis, Game, GameMode, GamePhase,
-    GameResult, HistoryEntry, PlayerSide,
+    convert_cozy_castling_to_uci, convert_uci_castling_to_cozy, format_color, format_piece_upper,
+    format_square, EngineAnalysis, Game, GameMode, GamePhase, GameResult, HistoryEntry, PlayerSide,
 };
 use cozy_chess::Move;
 use engine::{EngineCommand, EngineEvent, GoParams, StockfishEngine};
@@ -130,11 +130,9 @@ impl SessionState {
             })
             .collect();
 
-        let last_move = self
-            .game
-            .history()
+        let last_move = history
             .last()
-            .map(|e| (format_square(e.from), format_square(e.to)));
+            .map(|entry| (entry.from.clone(), entry.to.clone()));
 
         SessionSnapshot {
             session_id: self.session_id.clone(),
@@ -167,6 +165,7 @@ impl SessionState {
     }
 
     pub fn apply_move(&mut self, mv: Move) -> Result<SessionSnapshot, SessionError> {
+        let mv = convert_uci_castling_to_cozy(mv, &self.game.legal_moves());
         self.game
             .make_move(mv)
             .map_err(|e| SessionError::IllegalMove(e.to_string()))?;
@@ -227,6 +226,35 @@ impl SessionState {
         self.analysis = None;
         self.engine_thinking = false;
         self.move_clock_data.clear();
+        Ok(self.snapshot())
+    }
+
+    pub fn apply_resign(&mut self) -> Result<SessionSnapshot, SessionError> {
+        if !matches!(
+            self.phase,
+            GamePhase::Playing { .. } | GamePhase::Paused { .. }
+        ) {
+            return Err(SessionError::InvalidPhaseTransition(format!(
+                "Cannot resign from {:?}",
+                self.phase
+            )));
+        }
+
+        let resigning_side = match &self.game_mode {
+            GameMode::HumanVsEngine { human_side } => *human_side,
+            _ => PlayerSide::from(self.game.side_to_move()),
+        };
+        let result = match resigning_side {
+            PlayerSide::White => GameResult::BlackWins,
+            PlayerSide::Black => GameResult::WhiteWins,
+        };
+        self.phase = GamePhase::Ended {
+            result,
+            reason: "Resignation".to_string(),
+        };
+        if let Some(timer) = self.timer.as_mut() {
+            timer.stop();
+        }
         Ok(self.snapshot())
     }
 
@@ -341,9 +369,10 @@ impl SessionState {
 }
 
 fn history_entry_to_record(entry: &HistoryEntry, clock_ms: Option<u64>) -> MoveRecord {
+    let mv = convert_cozy_castling_to_uci(entry.mv, entry.piece);
     MoveRecord {
-        from: format_square(entry.from),
-        to: format_square(entry.to),
+        from: format_square(mv.from),
+        to: format_square(mv.to),
         piece: format_piece_upper(entry.piece).to_string(),
         captured: entry.captured.map(|p| format_piece_upper(p).to_string()),
         promotion: entry.promotion.map(|p| format_piece_upper(p).to_string()),

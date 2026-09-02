@@ -29,6 +29,7 @@ message SuspendedSessionInfo {
   uint32 move_count = 4;
   string side_to_move = 5;
   uint64 created_at = 6;
+  uint32 skill_level = 7;
 }
 
 message ResumeSuspendedSessionRequest {

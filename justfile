@@ -20,6 +20,11 @@ server:
 tui:
     cargo run -p client-tui
 
+# Run the desktop GUI (start `just server` separately)
+[group('app')]
+gui:
+    cd client-gui && pnpm tauri dev
+
 # Run the shim CLI (starts server as daemon)
 [group('app')]
 start: build
@@ -34,6 +39,11 @@ test scope="--workspace" *opt:
 [group('build')]
 build:
     cargo build --workspace
+
+# Build the desktop GUI frontend
+[group('build')]
+gui-build:
+    cd client-gui && pnpm build
 
 # Install stockfish (if not already installed)
 [group('checks')]

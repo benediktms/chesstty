@@ -47,7 +47,7 @@ impl SessionStore {
     /// List all suspended sessions, sorted by created_at descending (most recent first).
     pub fn list(&self) -> Result<Vec<SuspendedSessionData>, PersistenceError> {
         let mut sessions = self.inner.load_all()?;
-        sessions.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        sessions.sort_by_key(|session| std::cmp::Reverse(session.created_at));
         Ok(sessions)
     }
 
