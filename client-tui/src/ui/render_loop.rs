@@ -363,11 +363,15 @@ async fn run_game<B: ratatui::backend::Backend>(
         }
     }
 
-    if resume_ready {
-        if let Some(ref suspended_id) = config.resume_session_id {
-            if let Err(e) = state.client.delete_suspended_session(suspended_id).await {
-                state.status_message = Some(format!("Failed to finalize resume: {}", e));
-            }
+    if let Some(ref suspended_id) = config.resume_session_id {
+        if !resume_ready {
+            let _ = state.client.close_session().await;
+            return Ok(ExitReason::ReturnToMenu);
+        }
+        if let Err(e) = state.client.delete_suspended_session(suspended_id).await {
+            tracing::warn!("Failed to finalize resume: {}", e);
+            let _ = state.client.close_session().await;
+            return Ok(ExitReason::ReturnToMenu);
         }
     }
 
