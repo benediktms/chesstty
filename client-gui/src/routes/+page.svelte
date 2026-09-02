@@ -35,6 +35,7 @@
   onMount(() => {
     let unlistenState: (() => void) | undefined;
     let unlistenError: (() => void) | undefined;
+    let unlistenClosed: (() => void) | undefined;
 
     listen<GameState>('game-state', ({ payload }) => {
       game = payload;
@@ -45,11 +46,13 @@
       busy = false;
       syncToken += 1;
     }).then((unlisten) => (unlistenError = unlisten));
+    listen('game-closed', leaveGame).then((unlisten) => (unlistenClosed = unlisten));
     loadSuspendedGames();
 
     return () => {
       unlistenState?.();
       unlistenError?.();
+      unlistenClosed?.();
     };
   });
 

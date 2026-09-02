@@ -209,6 +209,20 @@ fn client_error(error: ClientError) -> String {
     }
 }
 
+async fn clear_stream_game(app: &AppHandle, session_id: &str, message: &str) {
+    let state = app.state::<AppState>();
+    let mut active = state.active_game.lock().await;
+    if active
+        .as_ref()
+        .is_some_and(|game| game.session_id == session_id)
+    {
+        *active = None;
+        drop(active);
+        let _ = app.emit("game-error", friendly_message(message));
+        let _ = app.emit("game-closed", ());
+    }
+}
+
 async fn activate_game(
     app: AppHandle,
     state: &State<'_, AppState>,
@@ -258,16 +272,12 @@ async fn activate_game(
         loop {
             let event = match events.message().await {
                 Ok(Some(event)) => event,
-                Ok(None) => break,
+                Ok(None) => {
+                    clear_stream_game(&app, &session_id, "Game connection closed").await;
+                    break;
+                }
                 Err(error) => {
-                    let state = app.state::<AppState>();
-                    let active = state.active_game.lock().await;
-                    if active
-                        .as_ref()
-                        .is_some_and(|game| game.session_id == session_id)
-                    {
-                        let _ = app.emit("game-error", friendly_message(error.message()));
-                    }
+                    clear_stream_game(&app, &session_id, error.message()).await;
                     break;
                 }
             };
