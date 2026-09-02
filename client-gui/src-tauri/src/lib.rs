@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 
 use chess_client::{
-    session_stream_event, ChessClient, ClientError, GameModeProto, GameModeType, MoveDetail,
-    MoveRecord, PlayerSideProto, SessionSnapshot, SuspendedSessionInfo,
+    session_stream_event, ChessClient, ClientError, GameModeProto, GameModeType, MoveRecord,
+    PlayerSideProto, SessionSnapshot, SuspendedSessionInfo,
 };
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -99,17 +99,6 @@ impl From<MoveRecord> for MoveView {
     }
 }
 
-impl From<MoveDetail> for LegalMoveView {
-    fn from(mv: MoveDetail) -> Self {
-        Self {
-            from: mv.from,
-            to: mv.to,
-            promotion: mv.promotion,
-            is_capture: mv.is_capture,
-        }
-    }
-}
-
 impl From<SuspendedSessionInfo> for SuspendedGameView {
     fn from(session: SuspendedSessionInfo) -> Self {
         Self {
@@ -157,11 +146,33 @@ fn snapshot_view(snapshot: SessionSnapshot) -> SnapshotView {
     }
 }
 
-fn game_state(snapshot: SessionSnapshot, legal_moves: Vec<MoveDetail>) -> GameState {
-    GameState {
+fn game_state(snapshot: SessionSnapshot) -> Result<GameState, String> {
+    let game = ::chess::Game::from_fen(&snapshot.fen)
+        .map_err(|error| format!("Server returned an invalid position: {error}"))?;
+    let legal_moves = game
+        .legal_moves()
+        .into_iter()
+        .map(|mv| {
+            let piece = game
+                .position()
+                .piece_on(mv.from)
+                .expect("legal moves start on an occupied square");
+            let uci_move = ::chess::convert_cozy_castling_to_uci(mv, piece);
+            LegalMoveView {
+                from: ::chess::format_square(uci_move.from),
+                to: ::chess::format_square(uci_move.to),
+                promotion: mv
+                    .promotion
+                    .map(|piece| ::chess::format_piece(piece).into()),
+                is_capture: game.captured_piece(mv).is_some(),
+            }
+        })
+        .collect();
+
+    Ok(GameState {
         snapshot: snapshot_view(snapshot),
-        legal_moves: legal_moves.into_iter().map(LegalMoveView::from).collect(),
-    }
+        legal_moves,
+    })
 }
 
 fn socket_path() -> PathBuf {
@@ -240,18 +251,18 @@ async fn activate_game(
                 .map_err(client_error)?;
         }
         let snapshot = client.get_session().await.map_err(client_error)?;
-        let legal_moves = client.get_legal_moves(None).await.map_err(client_error)?;
+        let game = game_state(snapshot)?;
         if let Some(suspended_id) = resumed_from {
             client
                 .delete_suspended_session(suspended_id)
                 .await
                 .map_err(client_error)?;
         }
-        Ok((snapshot, legal_moves))
+        Ok(game)
     }
     .await;
 
-    let (snapshot, legal_moves) = match activation {
+    let game = match activation {
         Ok(game) => game,
         Err(error) => {
             let _ = client.close_session().await;
@@ -259,7 +270,7 @@ async fn activate_game(
         }
     };
     let mut events = events.expect("event stream exists after activation");
-    let session_id = snapshot.session_id.clone();
+    let session_id = game.snapshot.session_id.clone();
     let previous = state.active_game.lock().await.replace(ActiveGame {
         session_id: session_id.clone(),
         client,
@@ -284,18 +295,34 @@ async fn activate_game(
             match event.event {
                 Some(session_stream_event::Event::StateChanged(snapshot)) => {
                     let state = app.state::<AppState>();
-                    let mut active = state.active_game.lock().await;
-                    let Some(active) = active.as_mut().filter(|game| game.session_id == session_id)
-                    else {
+                    if state
+                        .active_game
+                        .lock()
+                        .await
+                        .as_ref()
+                        .is_none_or(|game| game.session_id != session_id)
+                    {
                         break;
-                    };
-                    match active.client.get_legal_moves(None).await {
-                        Ok(moves) => {
-                            let _ = app.emit("game-state", game_state(snapshot, moves));
+                    }
+                    match game_state(snapshot) {
+                        Ok(game) => {
+                            let _ = app.emit("game-state", game);
                         }
                         Err(error) => {
-                            let _ = app.emit("game-error", client_error(error));
+                            let _ = app.emit("game-error", error);
                         }
+                    }
+                }
+                Some(session_stream_event::Event::EngineThinking(_)) => {
+                    let state = app.state::<AppState>();
+                    if state
+                        .active_game
+                        .lock()
+                        .await
+                        .as_ref()
+                        .is_some_and(|game| game.session_id == session_id)
+                    {
+                        let _ = app.emit("engine-thinking", true);
                     }
                 }
                 Some(session_stream_event::Event::Error(message)) => {
@@ -313,7 +340,7 @@ async fn activate_game(
         }
     });
 
-    Ok(game_state(snapshot, legal_moves))
+    Ok(game)
 }
 
 #[tauri::command]
@@ -395,12 +422,7 @@ async fn make_move(
         .make_move(&from, &to, promotion)
         .await
         .map_err(client_error)?;
-    let legal_moves = active
-        .client
-        .get_legal_moves(None)
-        .await
-        .map_err(client_error)?;
-    Ok(game_state(snapshot, legal_moves))
+    game_state(snapshot)
 }
 
 #[tauri::command]
@@ -485,5 +507,23 @@ mod tests {
         assert_eq!(view.move_count, 12);
         assert_eq!(view.side_to_move, "black");
         assert_eq!(view.skill_level, 17);
+    }
+
+    #[test]
+    fn legal_moves_come_from_the_snapshot_position() {
+        let game = game_state(SessionSnapshot {
+            fen: "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1".to_string(),
+            ..Default::default()
+        })
+        .unwrap();
+
+        assert!(game
+            .legal_moves
+            .iter()
+            .any(|mv| mv.from == "e7" && mv.to == "e5"));
+        assert!(!game
+            .legal_moves
+            .iter()
+            .any(|mv| mv.from == "e2" && mv.to == "e4"));
     }
 }

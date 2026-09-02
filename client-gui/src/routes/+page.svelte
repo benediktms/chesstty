@@ -34,6 +34,7 @@
 
   onMount(() => {
     let unlistenState: (() => void) | undefined;
+    let unlistenThinking: (() => void) | undefined;
     let unlistenError: (() => void) | undefined;
     let unlistenClosed: (() => void) | undefined;
 
@@ -41,6 +42,9 @@
       game = payload;
       busy = false;
     }).then((unlisten) => (unlistenState = unlisten));
+    listen<boolean>('engine-thinking', ({ payload }) => {
+      if (game) game = { ...game, snapshot: { ...game.snapshot, engineThinking: payload } };
+    }).then((unlisten) => (unlistenThinking = unlisten));
     listen<string>('game-error', ({ payload }) => {
       error = payload;
       busy = false;
@@ -51,6 +55,7 @@
 
     return () => {
       unlistenState?.();
+      unlistenThinking?.();
       unlistenError?.();
       unlistenClosed?.();
     };
