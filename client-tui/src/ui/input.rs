@@ -68,6 +68,16 @@ pub fn should_disable_input(mode: &GameMode) -> bool {
     matches!(mode, GameMode::EngineVsEngine | GameMode::ReviewMode)
 }
 
+fn can_enter_move(mode: &GameMode, side_to_move: &str) -> bool {
+    match mode {
+        GameMode::HumanVsEngine { human_side } => match human_side {
+            crate::state::PlayerColor::White => side_to_move == "white",
+            crate::state::PlayerColor::Black => side_to_move == "black",
+        },
+        _ => !should_disable_input(mode),
+    }
+}
+
 /// Main key dispatch function. Routes input to the appropriate context handler.
 pub async fn handle_key(
     state: &mut GameSession,
@@ -179,7 +189,7 @@ async fn handle_board_context(
 
     match key.code {
         // Tab input mode activation
-        KeyCode::Char('i') if !should_disable_input(&state.mode) => {
+        KeyCode::Char('i') if can_enter_move(&state.mode, state.side_to_move()) => {
             fsm.tab_input.activate();
             return AppAction::Continue;
         }
@@ -715,7 +725,7 @@ async fn handle_tab_input(
                                         Some("Select promotion piece".to_string());
                                 } else if let Err(e) = state.try_move_to(to_square).await {
                                     state.status_message = Some(format!("Move failed: {}", e));
-                                } else {
+                                } else if can_enter_move(&state.mode, state.side_to_move()) {
                                     fsm.tab_input.activate();
                                 }
                                 return AppAction::Continue;
@@ -740,6 +750,16 @@ mod tests {
     #[test]
     fn test_input_disabled_engine_vs_engine() {
         assert!(should_disable_input(&GameMode::EngineVsEngine));
+    }
+
+    #[test]
+    fn test_typeahead_only_opens_on_human_turn() {
+        let mode = GameMode::HumanVsEngine {
+            human_side: crate::state::PlayerColor::White,
+        };
+
+        assert!(can_enter_move(&mode, "white"));
+        assert!(!can_enter_move(&mode, "black"));
     }
 
     #[test]
