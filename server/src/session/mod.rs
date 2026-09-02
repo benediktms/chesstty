@@ -6,7 +6,7 @@ pub mod snapshot;
 pub mod state;
 
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use chess::{Game, GameMode, GamePhase, PlayerSide};
 use tokio::sync::{broadcast, mpsc, RwLock};
@@ -22,9 +22,56 @@ pub use handle::SessionHandle;
 pub use snapshot::{SessionSnapshot, TimerSnapshot};
 use state::SessionState;
 
+struct ResumeClaim<'a> {
+    claims: &'a Mutex<HashMap<String, Option<String>>>,
+    suspended_id: String,
+    committed: bool,
+}
+
+impl<'a> ResumeClaim<'a> {
+    fn new(
+        claims: &'a Mutex<HashMap<String, Option<String>>>,
+        suspended_id: &str,
+    ) -> Result<Self, String> {
+        let mut active_claims = claims.lock().expect("resume claims lock poisoned");
+        if active_claims.contains_key(suspended_id) {
+            return Err(format!(
+                "Suspended session is already being resumed: {}",
+                suspended_id
+            ));
+        }
+        active_claims.insert(suspended_id.to_string(), None);
+        Ok(Self {
+            claims,
+            suspended_id: suspended_id.to_string(),
+            committed: false,
+        })
+    }
+
+    fn commit(mut self, session_id: String) {
+        self.claims
+            .lock()
+            .expect("resume claims lock poisoned")
+            .insert(self.suspended_id.clone(), Some(session_id));
+        self.committed = true;
+    }
+}
+
+impl Drop for ResumeClaim<'_> {
+    fn drop(&mut self) {
+        if !self.committed {
+            self.claims
+                .lock()
+                .expect("resume claims lock poisoned")
+                .remove(&self.suspended_id);
+        }
+    }
+}
+
 /// Manages all active sessions. Spawns an actor task per session.
 pub struct SessionManager<D: Persistence> {
     sessions: RwLock<HashMap<String, SessionHandle>>,
+    resume_claims: Mutex<HashMap<String, Option<String>>>,
     store: D::Sessions,
     position_store: D::Positions,
     finished_game_store: Arc<D::FinishedGames>,
@@ -38,6 +85,7 @@ impl<D: Persistence> SessionManager<D> {
     ) -> Self {
         Self {
             sessions: RwLock::new(HashMap::new()),
+            resume_claims: Mutex::new(HashMap::new()),
             store,
             position_store,
             finished_game_store,
@@ -120,6 +168,10 @@ impl<D: Persistence> SessionManager<D> {
         };
 
         handle.shutdown().await;
+        self.resume_claims
+            .lock()
+            .expect("resume claims lock poisoned")
+            .retain(|_, claimed_session| claimed_session.as_deref() != Some(session_id));
         Ok(saved_game_id)
     }
 
@@ -247,6 +299,7 @@ impl<D: Persistence> SessionManager<D> {
     }
 
     pub async fn resume_suspended(&self, suspended_id: &str) -> Result<SessionSnapshot, String> {
+        let claim = ResumeClaim::new(&self.resume_claims, suspended_id)?;
         let data = self
             .store
             .load_session(suspended_id)
@@ -270,7 +323,9 @@ impl<D: Persistence> SessionManager<D> {
             }
         };
 
-        self.create_session(Some(data.fen), game_mode).await
+        let snapshot = self.create_session(Some(data.fen), game_mode).await?;
+        claim.commit(snapshot.session_id.clone());
+        Ok(snapshot)
     }
 
     pub async fn list_suspended(&self) -> Result<Vec<SuspendedSessionData>, String> {
@@ -281,7 +336,12 @@ impl<D: Persistence> SessionManager<D> {
         self.store
             .delete_session(suspended_id)
             .await
-            .map_err(|e| e.to_string())
+            .map_err(|e| e.to_string())?;
+        self.resume_claims
+            .lock()
+            .expect("resume claims lock poisoned")
+            .remove(suspended_id);
+        Ok(())
     }
 
     /// Save a snapshot directly as a suspended session (from review mode, no active session).
@@ -765,6 +825,39 @@ mod tests {
 
         mgr.delete_suspended(&suspended_id).await.unwrap();
         assert!(mgr.list_suspended().await.unwrap().is_empty());
+        assert!(mgr.resume_suspended(&suspended_id).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_concurrent_resume_claims_once_and_close_releases_claim() {
+        let mgr = test_manager();
+        let suspended_id = mgr
+            .save_snapshot(
+                "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2",
+                "Test",
+                "HumanVsHuman",
+                None,
+                2,
+                0,
+            )
+            .await
+            .unwrap();
+
+        let (first, second) = tokio::join!(
+            mgr.resume_suspended(&suspended_id),
+            mgr.resume_suspended(&suspended_id)
+        );
+        let resumed = match (first, second) {
+            (Ok(snapshot), Err(error)) | (Err(error), Ok(snapshot)) => {
+                assert!(error.contains("already being resumed"));
+                snapshot
+            }
+            result => panic!("expected exactly one successful resume, got {result:?}"),
+        };
+
+        mgr.close_session(&resumed.session_id).await.unwrap();
+        let retried = mgr.resume_suspended(&suspended_id).await.unwrap();
+        mgr.close_session(&retried.session_id).await.unwrap();
     }
 
     #[tokio::test]
