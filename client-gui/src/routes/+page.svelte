@@ -94,6 +94,14 @@
     });
   }
 
+  function moveLabel(index: number, startFen: string): string {
+    const fields = startFen.split(/\s+/);
+    const startsWithBlack = fields[1] === 'b';
+    const firstMove = Math.max(1, Number.parseInt(fields[5] ?? '1', 10) || 1);
+    const ply = index + (startsWithBlack ? 1 : 0);
+    return `${firstMove + Math.floor(ply / 2)}${ply % 2 === 0 ? '.' : '…'}`;
+  }
+
   function gameStatus(): string {
     if (!snapshot) return '';
     if (snapshot.status === 2) return 'Draw';
@@ -345,7 +353,7 @@
             {:else}
               {#each snapshot.history as move, index}
                 <div class="move-row" class:last={index === snapshot.history.length - 1}>
-                  <span>{Math.floor(index / 2) + 1}{index % 2 === 0 ? '.' : '…'}</span>
+                  <span>{moveLabel(index, snapshot.startFen)}</span>
                   <strong>{move.san || `${move.from}–${move.to}`}</strong>
                   {#if move.captured}<small>capture</small>{/if}
                 </div>
