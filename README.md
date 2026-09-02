@@ -20,9 +20,11 @@ A server-authoritative chess application built in Rust, with terminal and deskto
 cargo run -p chesstty
 ```
 
-For the desktop client, run these in separate terminals:
+For the desktop client, install its dependencies once, then run the server and GUI in separate terminals:
 
 ```bash
+pnpm --dir client-gui install --frozen-lockfile
+
 just server
 just gui
 ```
