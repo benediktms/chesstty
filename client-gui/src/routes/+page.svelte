@@ -60,6 +60,7 @@
     snapshot &&
       snapshot.status === 0 &&
       !busy &&
+      snapshot.gameMode !== 2 &&
       (!isBotGame || snapshot.sideToMove === snapshot.humanSide)
   );
   $: firstMover = snapshot?.startFen.split(/\s+/)[1] === 'b' ? 'black' : 'white';
